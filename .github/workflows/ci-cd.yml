@@ -1,0 +1,24 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-id: '18'
+          cache: 'npm'
+      - run: npm install
+      - run: npm run lint
+      - run: npm test
+      - name: Deploy to Vercel
+        if: github.ref == 'refs/heads/main'
+        run: npx vercel --token ${{ secrets.VERCEL_TOKEN }} --prod --yes

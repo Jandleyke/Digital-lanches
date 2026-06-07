@@ -1,0 +1,39 @@
+:root {
+  --azul: #003D7C;
+  --azul-medio: #0055AA;
+  --azul-claro: #E8F0FB;
+  --laranja: #F47920;
+  --laranja-claro: #FFF3E8;
+  --branco: #FFFFFF;
+  --cinza-bg: #F5F7FA;
+  --cinza-borda: #E2E8F0;
+  --texto: #1A202C;
+  --texto-secundario: #64748B;
+  --verde: #22C55E;
+  --vermelho: #EF4444;
+  --amarelo: #F59E0B;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--cinza-bg);
+  color: var(--texto);
+  font-size: 15px;
+}
+
+#root { min-height: 100vh; }
+
+button { cursor: pointer; border: none; font-family: inherit; }
+a { text-decoration: none; color: inherit; }
+input, select, textarea { font-family: inherit; }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--cinza-bg); }
+::-webkit-scrollbar-thumb { background: var(--cinza-borda); border-radius: 3px; }
+
+@keyframes spin { to { transform: rotate(360deg); } }

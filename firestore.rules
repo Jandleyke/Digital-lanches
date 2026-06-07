@@ -1,0 +1,34 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Função auxiliar para verificar se o usuário é admin ou staff
+    function isStaff() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.perfil in ['admin', 'cozinha', 'gerente'];
+    }
+
+    match /usuarios/{matricula} {
+      allow read: if true; // Necessário para o login simulado
+      allow write: if request.resource.data.perfil == 'aluno' || isStaff();
+    }
+
+    match /produtos/{produtoId} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /pedidos/{pedidoId} {
+      allow read: if true; // Idealmente restringir por matricula, mas mantemos para a fila da cozinha
+      allow create: if true; 
+      allow update, delete: if isStaff() || (resource.data.matricula == request.resource.data.matricula && resource.data.status == 'Recebido');
+    }
+
+    match /avisos/{avisoId} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /_debug/{doc} {
+      allow read, write: if isStaff();
+    }
+  }
+}
