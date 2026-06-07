@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useApp } from '../contexts/AppContext'
 import { useIsMobile } from '../utils/useIsMobile'
+import ChatAssistente from './ChatAssistente'
 import {
   Utensils, ShoppingCart, Package, Heart,
   ClipboardList, Monitor, LayoutDashboard, ChefHat,
@@ -186,6 +187,8 @@ export default function Layout({ children, titulo }) {
           })}
         </nav>
       )}
+
+      {usuarioLogado && <ChatAssistente />}
     </div>
   )
 }
