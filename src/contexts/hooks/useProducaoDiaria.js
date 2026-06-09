@@ -49,7 +49,7 @@ function normalizarProducao(item) {
   }
 }
 
-export function useProducaoDiaria(usuarioLogado, criarAviso) {
+export function useProducaoDiaria(usuarioLogado) {
   const [producaoDiaria, setProducaoDiaria] = useState([])
 
   useEffect(() => {
@@ -69,28 +69,6 @@ export function useProducaoDiaria(usuarioLogado, criarAviso) {
       return data >= ini && data <= fim
     })
   }, [producaoDiaria])
-
-  async function avisar(item, mensagem, tipo = 'info') {
-    if (!criarAviso) return
-    try {
-      await criarAviso({
-        titulo: `Producao: ${item.produtoNome}`,
-        mensagem,
-        destino: 'vendedor',
-        tipo,
-        prioridade: tipo === 'aviso' ? 'alta' : 'media',
-      })
-      await criarAviso({
-        titulo: `Producao: ${item.produtoNome}`,
-        mensagem,
-        destino: 'admin',
-        tipo,
-        prioridade: tipo === 'aviso' ? 'alta' : 'media',
-      })
-    } catch (e) {
-      console.error('[Firestore] aviso producao:', e)
-    }
-  }
 
   async function salvarProducao(dados) {
     const id = dados.id || `PD${Date.now()}`
@@ -128,8 +106,6 @@ export function useProducaoDiaria(usuarioLogado, criarAviso) {
   async function atualizarProducao(id, atual, dados, opcoes = {}) {
     const agora = Date.now()
     const proxima = normalizarProducao({ ...atual, ...dados })
-    const mudouStatus = dados.status && dados.status !== atual.status
-    const mudouQuantidade = dados.quantidadePronta !== undefined && Number(dados.quantidadePronta || 0) !== Number(atual.quantidadePronta || 0)
     await updateDoc(doc(db, 'producaoDiaria', id), {
       ...dados,
       quantidadeRestante: proxima.quantidadeRestante,
@@ -137,23 +113,12 @@ export function useProducaoDiaria(usuarioLogado, criarAviso) {
       atualizadoEm: agora,
       historico: [...(atual.historico || []), historicoItem(opcoes.acao || 'Atualizou producao', usuarioLogado, { status: proxima.status })],
     })
-    if (opcoes.avisar !== false && (mudouStatus || mudouQuantidade)) {
-      const msgStatus = proxima.status === 'Pronto para venda'
-        ? `${proxima.produtoNome} esta pronta para venda. Quantidade disponivel: ${proxima.quantidadeRestante}.`
-        : proxima.status === 'Em producao'
-          ? `${proxima.produtoNome} esta em producao. Previsao para ficar pronto: ${proxima.horarioPrevisto || 'sem horario definido'}.`
-          : proxima.status === 'Esgotado'
-            ? `${proxima.produtoNome} foi marcado como esgotado pela cozinha.`
-            : `Producao de ${proxima.produtoNome} atualizada para ${proxima.status}.`
-      const msgQuantidade = `Quantidade disponivel de ${proxima.produtoNome} atualizada para ${proxima.quantidadeRestante} unidades.`
-      await avisar(proxima, mudouQuantidade && !mudouStatus ? msgQuantidade : msgStatus, proxima.status === 'Esgotado' ? 'aviso' : 'info')
-    }
     return proxima
   }
 
   async function removerProducao(id, atual) {
     if (atual) {
-      await atualizarProducao(id, atual, { status: 'Cancelado' }, { acao: 'Cancelou producao', avisar: false })
+      await atualizarProducao(id, atual, { status: 'Cancelado' }, { acao: 'Cancelou producao' })
     }
     await deleteDoc(doc(db, 'producaoDiaria', id))
   }

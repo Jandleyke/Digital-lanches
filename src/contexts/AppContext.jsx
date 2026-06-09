@@ -28,7 +28,7 @@ export function AppProvider({ children }) {
   const logout = useCallback(() => { limparCarrinho(); sair() }, [limparCarrinho, sair])
   const { avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso } = useAvisos(usuarioLogado)
   const { avaliacoes, resumoPorProduto: resumoAvaliacoesPorProduto } = useAvaliacoes(usuarioLogado)
-  const { producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao } = useProducaoDiaria(usuarioLogado, criarAviso)
+  const { producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao } = useProducaoDiaria(usuarioLogado)
   const { lanchoneteConfig, salvarLanchoneteConfig } = useLanchoneteConfig(usuarioLogado)
   const {
     pedidos, fazerPedido, atualizarStatusPedido, cancelarPedido, editarPedido, limparEntregues, avaliarPedido, marcarPedidoPago, tempoEstimado,
