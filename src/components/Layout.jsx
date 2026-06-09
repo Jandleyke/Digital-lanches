@@ -7,9 +7,11 @@ import {
   Utensils, ShoppingCart, Package, Heart,
   ClipboardList, LayoutDashboard, ChefHat,
   ArchiveRestore, TrendingUp, Megaphone, Users,
-  LogOut, ExternalLink, Download, PanelLeftClose, PanelLeftOpen, X,
+  LogOut, ExternalLink, Download, PanelLeftClose, PanelLeftOpen, X, Bell,
 } from 'lucide-react'
 import { ehOperacional, normalizarPerfil } from '../utils/perfis'
+import { suportaNotificacao, permissaoNotificacao, solicitarPermissaoNotificacao } from '../utils/notifications'
+import { suportaPush, inscreverPush } from '../utils/push'
 
 export default function Layout({ children, titulo }) {
   const { usuarioLogado, logout, qtdCarrinho, carregando } = useApp()
@@ -24,6 +26,7 @@ export default function Layout({ children, titulo }) {
   })
   const [installInfo, setInstallInfo] = useState('')
   const [menuAberto, setMenuAberto] = useState(true)
+  const [notifDismissed, setNotifDismissed] = useState(() => localStorage.getItem('senac-notif-banner-dismissed') === '1')
 
   useEffect(() => {
     function handler(e) {
@@ -43,6 +46,29 @@ export default function Layout({ children, titulo }) {
       window.removeEventListener('appinstalled', installedHandler)
     }
   }, [])
+
+  useEffect(() => {
+    if (!usuarioLogado || !suportaNotificacao() || !suportaPush()) return
+    const perfil = normalizarPerfil(usuarioLogado.perfil)
+    if (!['aluno', 'professor'].includes(perfil)) return
+    if (permissaoNotificacao() === 'granted') inscreverPush(usuarioLogado)
+  }, [usuarioLogado])
+
+  const podeMostrarNotifBanner = !notifDismissed && usuarioLogado && suportaNotificacao() && suportaPush()
+    && ['aluno', 'professor'].includes(normalizarPerfil(usuarioLogado.perfil))
+    && permissaoNotificacao() === 'default'
+
+  async function ativarNotificacoes() {
+    const permissao = await solicitarPermissaoNotificacao()
+    setNotifDismissed(true)
+    localStorage.setItem('senac-notif-banner-dismissed', '1')
+    if (permissao === 'granted') await inscreverPush(usuarioLogado)
+  }
+
+  function fecharNotifBanner() {
+    localStorage.setItem('senac-notif-banner-dismissed', '1')
+    setNotifDismissed(true)
+  }
 
   async function handleInstall() {
     if (!installPrompt) {
@@ -129,6 +155,18 @@ export default function Layout({ children, titulo }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {podeMostrarNotifBanner && (
+        <div style={{ background: '#0B1E45', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 1rem', gap: 12, zIndex: 999 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Bell size={18} color="#F47920" />
+            <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>Ativar notificacoes de promocoes e novidades?</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button onClick={ativarNotificacoes} style={{ background: '#F47920', color: '#fff', border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>Ativar</button>
+            <button aria-label="Fechar aviso de notificacoes" onClick={fecharNotifBanner} style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', borderRadius: 8, padding: '0.4rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>
+          </div>
+        </div>
+      )}
       {showInstall && (
         <div style={{ background: '#003D7C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 1rem', gap: 12, zIndex: 999 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

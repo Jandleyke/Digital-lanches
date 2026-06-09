@@ -164,6 +164,11 @@ service cloud.firestore {
       allow create, update, delete: if isCozinhaOuAdmin();
     }
 
+    match /pushSubscriptions/{uid} {
+      allow read, write: if isSelf(uid);
+      allow read: if isStaff();
+    }
+
     match /configuracoes/{configId} {
       allow read: if isSignedIn();
       allow write: if hasRole(['admin']);

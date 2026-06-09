@@ -1,6 +1,20 @@
 import { useState, useEffect } from 'react'
 import { arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
-import { db } from '../../firebase'
+import { db, auth } from '../../firebase'
+
+async function notificarPromocao({ titulo, mensagem, destino }) {
+  try {
+    const token = await auth.currentUser?.getIdToken()
+    if (!token) return
+    await fetch('/api/sendPush', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ destino, titulo, mensagem, url: '/aluno/cardapio' }),
+    })
+  } catch (e) {
+    console.error('notificarPromocao:', e)
+  }
+}
 
 export function useAvisos(usuarioLogado) {
   const [avisos, setAvisos] = useState([])
@@ -52,6 +66,9 @@ export function useAvisos(usuarioLogado) {
         createdAt: agora,
         criadoEm: agora,
       })
+      if (tipo === 'promo' && (destinoFinal === 'aluno' || destinoFinal === 'todos')) {
+        notificarPromocao({ titulo, mensagem: conteudo, destino: destinoFinal })
+      }
     } catch (e) {
       console.error(e)
       throw e
