@@ -1,14 +1,13 @@
 import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useApp } from '../contexts/AppContext'
+import { caminhoInicialPorPerfil } from '../utils/perfis'
 
 export default function NotFound() {
   const { usuarioLogado } = useApp()
   const navigate = useNavigate()
   const destino = usuarioLogado
-    ? usuarioLogado.perfil === 'aluno' ? '/aluno/cardapio'
-      : usuarioLogado.perfil === 'cozinha' ? '/cozinha'
-      : '/admin'
+    ? caminhoInicialPorPerfil(usuarioLogado.perfil)
     : '/login'
 
   return (

@@ -5,10 +5,11 @@ import { useIsMobile } from '../utils/useIsMobile'
 import ChatAssistente from './ChatAssistente'
 import {
   Utensils, ShoppingCart, Package, Heart,
-  ClipboardList, Monitor, LayoutDashboard, ChefHat,
+  ClipboardList, LayoutDashboard, ChefHat,
   ArchiveRestore, TrendingUp, Megaphone, Users,
-  LogOut, ExternalLink, Download,
+  LogOut, ExternalLink, Download, PanelLeftClose, PanelLeftOpen, X,
 } from 'lucide-react'
+import { ehOperacional, normalizarPerfil } from '../utils/perfis'
 
 export default function Layout({ children, titulo }) {
   const { usuarioLogado, logout, qtdCarrinho, carregando } = useApp()
@@ -16,7 +17,13 @@ export default function Layout({ children, titulo }) {
   const location = useLocation()
   const isMobile = useIsMobile()
   const [installPrompt, setInstallPrompt] = useState(null)
-  const [showInstall, setShowInstall] = useState(false)
+  const [showInstall, setShowInstall] = useState(() => {
+    const jaInstalado = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone
+    const dispensado = localStorage.getItem('senac-install-banner-dismissed') === '1'
+    return !jaInstalado && !dispensado
+  })
+  const [installInfo, setInstallInfo] = useState('')
+  const [menuAberto, setMenuAberto] = useState(true)
 
   useEffect(() => {
     function handler(e) {
@@ -24,16 +31,36 @@ export default function Layout({ children, titulo }) {
       setInstallPrompt(e)
       setShowInstall(true)
     }
+    function installedHandler() {
+      localStorage.setItem('senac-install-banner-dismissed', '1')
+      setShowInstall(false)
+      setInstallPrompt(null)
+    }
     window.addEventListener('beforeinstallprompt', handler)
-    return () => window.removeEventListener('beforeinstallprompt', handler)
+    window.addEventListener('appinstalled', installedHandler)
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler)
+      window.removeEventListener('appinstalled', installedHandler)
+    }
   }, [])
 
   async function handleInstall() {
-    if (!installPrompt) return
+    if (!installPrompt) {
+      setInstallInfo('Use o menu do navegador e escolha Instalar app ou Adicionar a tela inicial.')
+      return
+    }
     installPrompt.prompt()
     const { outcome } = await installPrompt.userChoice
-    if (outcome === 'accepted') setShowInstall(false)
+    if (outcome === 'accepted') {
+      localStorage.setItem('senac-install-banner-dismissed', '1')
+      setShowInstall(false)
+    }
     setInstallPrompt(null)
+  }
+
+  function fecharInstallBanner() {
+    localStorage.setItem('senac-install-banner-dismissed', '1')
+    setShowInstall(false)
   }
 
   function handleLogout() {
@@ -48,15 +75,38 @@ export default function Layout({ children, titulo }) {
     { icon: Heart,        labelFull: 'Favoritos', path: '/aluno/favoritos' },
   ]
 
+  const navProfessor = [
+    { icon: Utensils, labelFull: 'Cardápio', path: '/aluno/cardapio' },
+    { icon: ShoppingCart, labelFull: 'Carrinho', path: '/aluno/carrinho', badge: qtdCarrinho },
+    { icon: Package, labelFull: 'Pedidos', path: '/aluno/pedidos' },
+    { icon: Heart, labelFull: 'Favoritos', path: '/aluno/favoritos' },
+    { icon: Megaphone, labelFull: 'Avisos', path: '/professor/avisos' },
+  ]
+
   const navCozinha = [
-    { icon: ClipboardList, labelFull: 'Fila',      path: '/cozinha' },
-    { icon: Monitor,       labelFull: 'Painel TV', path: '/painel', externo: true },
+    { icon: LayoutDashboard, labelFull: 'Dashboard', path: '/cozinha' },
+    { icon: ClipboardList, labelFull: 'Pedidos', path: '/cozinha/pedidos' },
+    { icon: Utensils, labelFull: 'Produção', path: '/cozinha/producao' },
+    { icon: ChefHat, labelFull: 'Cardápio', path: '/cozinha/cardapio' },
+    { icon: Megaphone, labelFull: 'Avisos', path: '/cozinha/avisos' },
+    { icon: Users, labelFull: 'Perfil', path: '/cozinha/perfil' },
+  ]
+
+  const navVendedor = [
+    { icon: LayoutDashboard, labelFull: 'Dashboard', path: '/vendedor' },
+    { icon: ClipboardList, labelFull: 'Pedidos', path: '/vendedor/pedidos' },
+    { icon: ChefHat, labelFull: 'Produtos', path: '/vendedor/produtos' },
+    { icon: ArchiveRestore, labelFull: 'Estoque', path: '/vendedor/estoque' },
+    { icon: TrendingUp, labelFull: 'Vendas', path: '/vendedor/vendas' },
+    { icon: Megaphone, labelFull: 'Avisos', path: '/vendedor/avisos' },
+    { icon: Users, labelFull: 'Perfil', path: '/vendedor/perfil' },
   ]
 
   const navAdmin = [
     { icon: LayoutDashboard, labelFull: 'Dashboard',  path: '/admin' },
     { icon: ChefHat,         labelFull: 'Produtos',   path: '/admin/produtos' },
     { icon: ArchiveRestore,  labelFull: 'Estoque',    path: '/admin/estoque' },
+    { icon: Utensils,        labelFull: 'Lanchonete', path: '/admin/lanchonete' },
     { icon: TrendingUp,      labelFull: 'Relatórios', path: '/admin/relatorios' },
     { icon: Megaphone,       labelFull: 'Avisos',     path: '/admin/avisos' },
     { icon: Users,           labelFull: 'Usuários',   path: '/admin/usuarios' },
@@ -64,15 +114,17 @@ export default function Layout({ children, titulo }) {
 
   const navGerente = [
     { icon: LayoutDashboard, labelFull: 'Dashboard',  path: '/admin' },
+    { icon: Utensils,        labelFull: 'Lanchonete', path: '/admin/lanchonete' },
     { icon: TrendingUp,      labelFull: 'Relatórios', path: '/admin/relatorios' },
     { icon: Megaphone,       labelFull: 'Avisos',     path: '/admin/avisos' },
     { icon: Users,           labelFull: 'Usuários',   path: '/admin/usuarios' },
   ]
 
-  const navMap = { aluno: navAluno, cozinha: navCozinha, admin: navAdmin, gerente: navGerente }
-  const navItems = navMap[usuarioLogado?.perfil] || []
+  const perfilAtual = normalizarPerfil(usuarioLogado?.perfil)
+  const navMap = { aluno: navAluno, professor: navProfessor, cozinha: navCozinha, vendedor: navVendedor, admin: navAdmin, gerente: navGerente }
+  const navItems = navMap[perfilAtual] || []
 
-  const avatarSize = isMobile ? 34 : 40
+  const avatarSize = isMobile ?34 : 40
   const primeiroNome = usuarioLogado?.nome?.split(' ')[0] || ''
 
   return (
@@ -81,20 +133,20 @@ export default function Layout({ children, titulo }) {
         <div style={{ background: '#003D7C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 1rem', gap: 12, zIndex: 999 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Download size={18} color="#F47920" />
-            <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>Instale o app no seu celular para acesso rápido!</span>
+            <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{installInfo || 'Instale o app para acesso rapido!'}</span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <button onClick={handleInstall} style={{ background: '#F47920', color: '#fff', border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>Instalar</button>
-            <button onClick={() => setShowInstall(false)} style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', borderRadius: 8, padding: '0.4rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem' }}>✕</button>
+            <button aria-label="Fechar aviso de instalacao" onClick={fecharInstallBanner} style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', borderRadius: 8, padding: '0.4rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>
           </div>
         </div>
       )}
-      <header style={{ ...s.header, padding: isMobile ? '0.75rem 1rem' : '1rem 1.75rem' }}>
+      <header style={{ ...s.header, padding: isMobile ?'0.75rem 1rem' : '1rem 1.75rem' }}>
 
         {/* ── Brand ── */}
         <div style={s.brand}>
           <div>
-            <div style={{ ...s.brandName, fontSize: isMobile ? '1.25rem' : '1.6rem' }}>
+            <div style={{ ...s.brandName, fontSize: isMobile ?'1.25rem' : '1.6rem' }}>
               Senac <span style={s.brandOrange}>Lanches</span>
             </div>
             {!isMobile && <div style={s.brandTagline}>Sua cantina digital</div>}
@@ -110,17 +162,18 @@ export default function Layout({ children, titulo }) {
               </div>
             )}
             <button
-              onClick={() => navigate(usuarioLogado.perfil === 'aluno' ? '/aluno/perfil' : usuarioLogado.perfil === 'cozinha' ? '/cozinha/perfil' : '/admin/perfil')}
+              onClick={() => navigate(['aluno', 'professor'].includes(perfilAtual) ?'/aluno/perfil' : ehOperacional(usuarioLogado.perfil) ?`/${perfilAtual}/perfil` : '/admin/perfil')}
               style={{ ...s.avatarBtn, width: avatarSize, height: avatarSize }}
+              aria-label="Abrir meu perfil"
               title="Meu perfil"
             >
               {usuarioLogado.fotoPerfil
-                ? <img src={usuarioLogado.fotoPerfil} alt={usuarioLogado.nome} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                : <span style={{ fontWeight: 800, fontSize: isMobile ? '0.85rem' : '0.95rem', color: '#fff' }}>{usuarioLogado.nome?.[0]?.toUpperCase()}</span>
+                ?<img src={usuarioLogado.fotoPerfil} alt={usuarioLogado.nome} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+                : <span style={{ fontWeight: 800, fontSize: isMobile ?'0.85rem' : '0.95rem', color: '#fff' }}>{usuarioLogado.nome?.[0]?.toUpperCase()}</span>
               }
             </button>
-            <button onClick={handleLogout} style={{ ...s.sairBtn, padding: isMobile ? '6px 10px' : '7px 14px', fontSize: isMobile ? '0.78rem' : '0.83rem' }} title="Sair">
-              {isMobile ? <LogOut size={15} /> : <><LogOut size={14} style={{ marginRight: 5 }} /> Sair</>}
+            <button onClick={handleLogout} style={{ ...s.sairBtn, padding: isMobile ?'6px 10px' : '7px 14px', fontSize: isMobile ?'0.78rem' : '0.83rem' }} aria-label="Sair da conta" title="Sair">
+              {isMobile ?<LogOut size={15} /> : <><LogOut size={14} style={{ marginRight: 5 }} /> Sair</>}
             </button>
           </div>
         )}
@@ -128,33 +181,46 @@ export default function Layout({ children, titulo }) {
 
       <div style={{ display: 'flex', flex: 1 }}>
         {!isMobile && (
-          <nav style={s.sidebar}>
-            <div style={s.sidebarSection}>Menu</div>
+          <nav style={{ ...s.sidebar, ...(menuAberto ?{} : s.sidebarFechada) }}>
+            <div style={{ ...s.sidebarTop, justifyContent: menuAberto ?'space-between' : 'center' }}>
+              {menuAberto && <div style={s.sidebarSection}>Menu</div>}
+              <button
+                type="button"
+                style={s.menuToggle}
+                onClick={() => setMenuAberto(v => !v)}
+                aria-label={menuAberto ?'Fechar menu' : 'Abrir menu'}
+                title={menuAberto ?'Fechar menu' : 'Abrir menu'}
+              >
+                {menuAberto ?<PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+              </button>
+            </div>
             {navItems.map(item => {
               const ativo = location.pathname === item.path
               const Icon = item.icon
               return (
                 <button key={item.path}
-                  onClick={() => item.externo ? window.open(item.path, '_blank') : navigate(item.path)}
-                  style={{ ...s.navItem, ...(ativo ? s.navItemAtivo : {}) }}>
-                  <div style={s.navItemInner}>
-                    <Icon size={16} strokeWidth={ativo ? 2.5 : 1.8} />
-                    <span>{item.labelFull}</span>
+                  onClick={() => item.externo ?window.open(item.path, '_blank', 'noopener,noreferrer') : navigate(item.path)}
+                  aria-label={item.labelFull}
+                  title={menuAberto ?undefined : item.labelFull}
+                  style={{ ...s.navItem, ...(menuAberto ?{} : s.navItemFechado), ...(ativo ?s.navItemAtivo : {}) }}>
+                  <div style={{ ...s.navItemInner, justifyContent: menuAberto ?'flex-start' : 'center' }}>
+                    <Icon size={16} strokeWidth={ativo ?2.5 : 1.8} />
+                    {menuAberto && <span>{item.labelFull}</span>}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {menuAberto && <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     {item.badge > 0 && <span style={s.badge}>{item.badge}</span>}
                     {item.externo && <ExternalLink size={11} style={{ color: '#CBD5E1' }} />}
-                  </div>
+                  </div>}
                 </button>
               )
             })}
           </nav>
         )}
 
-        <main style={{ ...s.main, padding: isMobile ? '0.6rem 0.65rem' : '1rem', paddingBottom: isMobile ? '5.2rem' : '1.5rem' }}>
-          {titulo && <h2 style={{ ...s.paginaTitulo, fontSize: isMobile ? '1.15rem' : '1.4rem' }}>{titulo}</h2>}
+        <main style={{ ...s.main, padding: isMobile ?'0.6rem 0.65rem' : '1rem', paddingBottom: isMobile ?'5.2rem' : '1.5rem' }}>
+          {titulo && <h2 style={{ ...s.paginaTitulo, fontSize: isMobile ?'1.15rem' : '1.4rem' }}>{titulo}</h2>}
 
-          {carregando ? (
+          {carregando ?(
             <div style={s.spinner}>
               <div style={s.spinnerCircle} />
               <p style={{ color: '#94A3B8', fontSize: '0.88rem' }}>Conectando ao servidor...</p>
@@ -171,14 +237,15 @@ export default function Layout({ children, titulo }) {
             const semLabel = navItems.length > 4
             return (
               <button key={item.path}
-                onClick={() => item.externo ? window.open(item.path, '_blank') : navigate(item.path)}
+                onClick={() => item.externo ?window.open(item.path, '_blank', 'noopener,noreferrer') : navigate(item.path)}
+                aria-label={item.labelFull}
                 style={s.bottomItem}>
-                <div style={{ ...s.bottomIconBox, ...(ativo ? s.bottomIconBoxAtivo : {}), height: semLabel ? 38 : 32, width: semLabel ? 38 : 46, borderRadius: semLabel ? '50%' : 10 }}>
-                  <Icon size={semLabel ? 20 : 20} strokeWidth={ativo ? 2.5 : 1.7} color={ativo ? '#003D7C' : '#94A3B8'} />
+                <div style={{ ...s.bottomIconBox, ...(ativo ?s.bottomIconBoxAtivo : {}), height: semLabel ?38 : 32, width: semLabel ?38 : 46, borderRadius: semLabel ?'50%' : 10 }}>
+                  <Icon size={semLabel ?20 : 20} strokeWidth={ativo ?2.5 : 1.7} color={ativo ?'#003D7C' : '#94A3B8'} />
                   {item.badge > 0 && <span style={s.bottomBadge}>{item.badge}</span>}
                 </div>
                 {!semLabel && (
-                  <span style={{ ...s.bottomLabel, color: ativo ? '#003D7C' : '#94A3B8', fontWeight: ativo ? 700 : 400 }}>
+                  <span style={{ ...s.bottomLabel, color: ativo ?'#003D7C' : '#94A3B8', fontWeight: ativo ?700 : 400 }}>
                     {item.labelFull}
                   </span>
                 )}
@@ -230,11 +297,20 @@ const s = {
   sidebar: {
     width: 215, background: '#F8FAFF', borderRight: '1px solid #E4EAFF',
     display: 'flex', flexDirection: 'column', padding: '1rem 0.65rem', gap: 2, flexShrink: 0,
+    transition: 'width 0.2s ease, padding 0.2s ease',
   },
+  sidebarFechada: { width: 68, padding: '1rem 0.45rem' },
+  sidebarTop: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 },
   sidebarSection: {
     fontSize: '0.65rem', fontWeight: 700, color: '#CBD5E1',
     letterSpacing: '0.1em', textTransform: 'uppercase',
-    padding: '0.5rem 0.75rem 0.75rem',
+    padding: '0.5rem 0.75rem 0.5rem',
+  },
+  menuToggle: {
+    width: 36, height: 36, border: '1px solid #D8E0F2', borderRadius: 10,
+    background: '#fff', color: '#003D7C', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: 'inherit',
   },
   navItem: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -244,6 +320,7 @@ const s = {
     cursor: 'pointer', transition: 'background 0.15s, color 0.15s',
     fontFamily: 'inherit',
   },
+  navItemFechado: { justifyContent: 'center', padding: '0.72rem 0', minHeight: 44 },
   navItemAtivo: {
     background: '#EEF2FF', color: '#1D4ED8', fontWeight: 700,
     borderLeft: '3px solid #1D4ED8', paddingLeft: 'calc(0.85rem - 3px)',

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import Layout from '../components/Layout'
 import { useApp } from '../contexts/AppContext'
 import { useIsMobile } from '../utils/useIsMobile'
+import { normalizarPerfil } from '../utils/perfis'
+import { processarFotoPerfil } from '../utils/image.js'
 
 export default function PerfilStaff() {
   const { usuarioLogado, atualizarUsuario, alterarSenha, usuarios } = useApp()
@@ -49,34 +51,19 @@ export default function PerfilStaff() {
     setMsgPerfil(res.erro ? { erro: res.erro } : { ok: 'Dados atualizados com sucesso!' })
   }
 
-  function handleFotoChange(e) {
+  async function handleFotoChange(e) {
     const file = e.target.files?.[0]
     if (!file) return
     setMsgPerfil({ info: 'Processando foto...' })
-    const img = new Image()
-    const url = URL.createObjectURL(file)
-    img.onload = async () => {
-      try {
-        const MAX = 900
-        const scale = Math.min(MAX / img.width, MAX / img.height, 1)
-        const canvas = document.createElement('canvas')
-        canvas.width  = Math.round(img.width  * scale)
-        canvas.height = Math.round(img.height * scale)
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
-        let quality = 0.85
-        let dataUrl = canvas.toDataURL('image/jpeg', quality)
-        while (dataUrl.length > 750_000 && quality > 0.1) {
-          quality = Math.round((quality - 0.1) * 10) / 10
-          dataUrl = canvas.toDataURL('image/jpeg', quality)
-        }
-        setForm(p => ({ ...p, fotoPerfil: dataUrl }))
-        const res = await atualizarUsuario(usuarioLogado.matricula, { fotoPerfil: dataUrl })
-        setMsgPerfil(res.erro ? { erro: 'Erro ao salvar foto.' } : { ok: 'Foto atualizada!' })
-      } catch { setMsgPerfil({ erro: 'Erro ao processar imagem.' }) }
-      URL.revokeObjectURL(url)
+    try {
+      const dataUrl = await processarFotoPerfil(file)
+      setForm(p => ({ ...p, fotoPerfil: dataUrl }))
+      const res = await atualizarUsuario(usuarioLogado.matricula, { fotoPerfil: dataUrl })
+      if (res.erro) throw new Error(res.erro)
+      setMsgPerfil({ ok: 'Foto atualizada!' })
+    } catch (err) {
+      setMsgPerfil({ erro: err.message || 'Erro ao processar imagem.' })
     }
-    img.onerror = () => { setMsgPerfil({ erro: 'Formato não suportado.' }); URL.revokeObjectURL(url) }
-    img.src = url
   }
 
   async function handleSenha(e) {
@@ -92,7 +79,12 @@ export default function PerfilStaff() {
 
   const isMobile = useIsMobile()
   const avatarSrc = form.fotoPerfil
-  const label = { aluno: 'Aluno', cozinha: 'Cozinha', gerente: 'Gerente', admin: 'Administrador' }[usuarioLogado?.perfil] || ''
+  const label = {
+    aluno: 'Aluno',
+    cozinha: 'Cozinha',
+    vendedor: 'Vendedor',
+    admin: 'Administrador',
+  }[normalizarPerfil(usuarioLogado?.perfil)] || ''
   const inputPad = isMobile ? '0.65rem 0.85rem' : '0.78rem 1rem'
   const cardPad = isMobile ? '0.9rem' : '1.25rem'
   const formGap = isMobile ? '0.6rem' : '0.85rem'

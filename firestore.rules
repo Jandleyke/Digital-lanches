@@ -1,30 +1,172 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Função auxiliar para verificar se o usuário é admin ou staff
-    function isStaff() {
-      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.perfil in ['admin', 'cozinha', 'gerente'];
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    match /usuarios/{matricula} {
-      allow read: if true; // Necessário para o login simulado
-      allow write: if request.resource.data.perfil == 'aluno' || isStaff();
+    function userDoc() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid));
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function hasRole(roles) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+        && userDoc().data.ativo != false
+        && (
+          userDoc().data.role in roles ||
+          userDoc().data.perfil in roles
+        );
+    }
+
+    function isStaff() {
+      return hasRole(['admin', 'vendedora', 'vendedor', 'cozinha']);
+    }
+
+    function isCozinhaOuAdmin() {
+      return hasRole(['admin', 'cozinha']);
+    }
+
+    function podeGerenciarAvisos() {
+      return isStaff() || hasRole(['professor']);
+    }
+
+    function atualizacaoLeituraAviso() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lidoPor', 'lidoDetalhes']);
+    }
+
+    function atualizacaoRespostaAviso() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['respostas']);
+    }
+
+    function atualizacaoFixarAviso() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fixado']);
+    }
+
+    function isAvisoAutor() {
+      return isSignedIn() && resource.data.autorId == request.auth.uid;
+    }
+
+    function matriculaAlunoValida() {
+      return request.resource.data.matricula.matches('^[0-9]{4,12}$');
+    }
+
+    function autoCadastroAlunoValido(uid) {
+      return isSelf(uid)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == 'aluno'
+        && request.resource.data.ativo == true
+        && matriculaAlunoValida();
+    }
+
+    function atualizacaoPropriaSegura() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'nome',
+        'curso',
+        'telefone',
+        'email',
+        'fotoPerfil',
+        'alergias'
+      ]);
+    }
+
+    function atualizacaoApenasEstoque() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estoque'])
+        && request.resource.data.estoque is number
+        && request.resource.data.estoque >= 0;
+    }
+
+    function isPedidoOwner() {
+      return isSignedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    function isNovoPedidoOwner() {
+      return isSignedIn() && request.resource.data.uid == request.auth.uid;
+    }
+
+    function atualizacaoAvaliacaoPedido() {
+      return isPedidoOwner()
+        && resource.data.status == 'Entregue'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'avaliacao',
+          'comentarioAvaliacao',
+          'avaliadoEm',
+          'avaliadoPor'
+        ])
+        && request.resource.data.avaliacao is number
+        && request.resource.data.avaliacao >= 1
+        && request.resource.data.avaliacao <= 5
+        && request.resource.data.avaliadoPor == request.auth.uid;
+    }
+
+    match /usuarios/{uid} {
+      allow get: if isSelf(uid) || isStaff();
+      allow list: if isStaff();
+      allow create: if autoCadastroAlunoValido(uid) || isStaff();
+      allow update: if (isSelf(uid) && atualizacaoPropriaSegura()) || isStaff();
+      allow delete: if isStaff();
+    }
+
+    match /recuperacaoSenha/{matricula} {
+      allow read, write: if false;
     }
 
     match /produtos/{produtoId} {
-      allow read: if true;
-      allow write: if isStaff();
+      allow read: if isSignedIn();
+      allow create, delete: if isStaff();
+      allow update: if isStaff() || (isSignedIn() && atualizacaoApenasEstoque());
     }
 
     match /pedidos/{pedidoId} {
-      allow read: if true; // Idealmente restringir por matricula, mas mantemos para a fila da cozinha
-      allow create: if true; 
-      allow update, delete: if isStaff() || (resource.data.matricula == request.resource.data.matricula && resource.data.status == 'Recebido');
+      allow read: if isStaff() || isPedidoOwner();
+      allow create: if isNovoPedidoOwner()
+        && request.resource.data.status == 'Recebido';
+      allow update: if isStaff()
+        || atualizacaoAvaliacaoPedido()
+        || (
+          isPedidoOwner()
+          && isNovoPedidoOwner()
+          && resource.data.status == 'Recebido'
+        );
+      allow delete: if isStaff();
+    }
+
+    match /avaliacoes/{avaliacaoId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && request.resource.data.alunoId == request.auth.uid
+        && request.resource.data.nota is number
+        && request.resource.data.nota >= 1
+        && request.resource.data.nota <= 5
+        && request.resource.data.comentario is string
+        && request.resource.data.comentario.size() <= 280
+        && exists(/databases/$(database)/documents/pedidos/$(request.resource.data.pedidoId))
+        && get(/databases/$(database)/documents/pedidos/$(request.resource.data.pedidoId)).data.uid == request.auth.uid
+        && get(/databases/$(database)/documents/pedidos/$(request.resource.data.pedidoId)).data.status == 'Entregue';
+      allow delete: if isStaff();
     }
 
     match /avisos/{avisoId} {
-      allow read: if true;
-      allow write: if isStaff();
+      allow read: if isSignedIn();
+      allow create, delete: if podeGerenciarAvisos();
+      allow update: if isAvisoAutor()
+        || (podeGerenciarAvisos() && atualizacaoFixarAviso())
+        || (isSignedIn() && (atualizacaoLeituraAviso() || atualizacaoRespostaAviso()));
+    }
+
+    match /producaoDiaria/{producaoId} {
+      allow read: if isStaff();
+      allow create, update, delete: if isCozinhaOuAdmin();
+    }
+
+    match /configuracoes/{configId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole(['admin']);
     }
 
     match /_debug/{doc} {

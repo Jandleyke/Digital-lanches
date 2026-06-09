@@ -1,7 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, query, where } from 'firebase/firestore'
+import { collection, doc, onSnapshot, updateDoc, deleteDoc, query, where, runTransaction, writeBatch } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { notificarPedidoPronto } from '../../utils/notifications'
+import { ehStaff } from '../../utils/perfis'
+
+const JANELA_CANCELAMENTO_MS = 10 * 60 * 1000
 
 export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onFbStatus }) {
   const [pedidos, setPedidos] = useState([])
@@ -10,10 +13,10 @@ export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onF
   // Isso evita sincronizar (e cobrar leituras de) toda a coleção para cada aluno logado.
   useEffect(() => {
     if (!usuarioLogado) return
-    const ehStaff = ['admin', 'gerente', 'cozinha'].includes(usuarioLogado.perfil)
-    const consulta = ehStaff
+    const usuarioEhStaff = ehStaff(usuarioLogado.perfil)
+    const consulta = usuarioEhStaff
       ? collection(db, 'pedidos')
-      : query(collection(db, 'pedidos'), where('matricula', '==', usuarioLogado.matricula))
+      : query(collection(db, 'pedidos'), where('uid', '==', usuarioLogado.uid))
     let unsub = () => {}
     try {
       unsub = onSnapshot(
@@ -33,7 +36,7 @@ export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onF
     // Re-inscreve apenas quando perfil/matrícula mudam (ex.: login/logout) — outros
     // campos do usuário (nome, telefone...) não afetam a consulta de pedidos.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usuarioLogado?.perfil, usuarioLogado?.matricula])
+  }, [usuarioLogado?.perfil, usuarioLogado?.matricula, usuarioLogado?.uid])
 
   // Notifica o aluno assim que um pedido seu passa a "Pronto" — fica ativo em
   // qualquer tela do app (não só na página "Meus Pedidos"), pois o listener acima
@@ -64,22 +67,42 @@ export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onF
     if (itemSemEstoque) throw new Error(`O item ${itemSemEstoque.nome} acabou de esgotar.`)
 
     const firestoreId = `P${Date.now()}`
+    const criadoEm = Date.now()
     const novoPedido = {
-      id: firestoreId, aluno: usuarioLogado.nome, matricula: usuarioLogado.matricula,
+      id: firestoreId, uid: usuarioLogado.uid || usuarioLogado.matricula,
+      aluno: usuarioLogado.nome, matricula: usuarioLogado.matricula,
       itens: carrinho.map(i => ({ produtoId: i.id, nome: i.nome, quantidade: i.quantidade, preco: i.preco })),
       total: carrinho.reduce((acc, i) => acc + i.preco * i.quantidade, 0),
       status: 'Recebido',
+      statusKey: 'em_processo',
       horarioPedido: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      horarioRetirada, pagamento, pago: false, criadoEm: Date.now(),
+      horarioRetirada, pagamento, pago: false, criadoEm,
+      cancelavelAte: criadoEm + JANELA_CANCELAMENTO_MS,
     }
 
     try {
-      await setDoc(doc(db, 'pedidos', firestoreId), novoPedido)
-      await Promise.all(carrinho.map(item => {
-        const prod = produtos.find(p => p.id === item.id)
-        if (!prod) return Promise.resolve()
-        return updateDoc(doc(db, 'produtos', String(item.id)), { estoque: Math.max(0, prod.estoque - item.quantidade) })
-      }))
+      await runTransaction(db, async transaction => {
+        const pedidoRef = doc(db, 'pedidos', firestoreId)
+        const itensComRefs = carrinho.map(item => ({
+          item,
+          ref: doc(db, 'produtos', String(item.id)),
+        }))
+
+        const snapshots = await Promise.all(itensComRefs.map(({ ref }) => transaction.get(ref)))
+        snapshots.forEach((snap, index) => {
+          const { item } = itensComRefs[index]
+          if (!snap.exists()) throw new Error(`O item ${item.nome} não está mais disponível.`)
+          const estoqueAtual = Number(snap.data().estoque || 0)
+          if (estoqueAtual < item.quantidade) throw new Error(`O item ${item.nome} acabou de esgotar.`)
+        })
+
+        transaction.set(pedidoRef, novoPedido)
+        snapshots.forEach((snap, index) => {
+          const { item, ref } = itensComRefs[index]
+          const estoqueAtual = Number(snap.data().estoque || 0)
+          transaction.update(ref, { estoque: estoqueAtual - item.quantidade })
+        })
+      })
       setCarrinho([])
       return novoPedido
     } catch (error) {
@@ -90,9 +113,15 @@ export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onF
 
   async function atualizarStatusPedido(id, novoStatus) {
     try {
-      const updates = { status: novoStatus }
+      const statusKey = novoStatus === 'Entregue' ? 'retirado'
+        : novoStatus === 'Cancelado' ? 'cancelado'
+          : 'em_processo'
+      const updates = { status: novoStatus, statusKey }
       if (novoStatus === 'Pronto') updates.prontoEm = Date.now()
-      if (novoStatus === 'Entregue') updates.pago = true
+      if (novoStatus === 'Entregue') {
+        updates.pago = true
+        updates.retiradoEm = Date.now()
+      }
       await updateDoc(doc(db, 'pedidos', id), updates)
     } catch (e) { console.error('atualizarStatusPedido:', e) }
   }
@@ -118,9 +147,49 @@ export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onF
     } catch (e) { console.error('editarPedido:', e) }
   }
 
-  async function avaliarPedido(id, nota) {
-    try { await updateDoc(doc(db, 'pedidos', id), { avaliacao: nota }) }
-    catch (e) { console.error('avaliarPedido:', e) }
+  async function avaliarPedido(pedidoOuId, nota, comentario = '') {
+    const pedido = typeof pedidoOuId === 'object'
+      ? pedidoOuId
+      : pedidos.find(p => p.id === pedidoOuId)
+    if (!pedido?.id) return { erro: 'Pedido nao encontrado.' }
+    const notaFinal = Math.min(5, Math.max(1, Number(nota || 0)))
+    const comentarioFinal = String(comentario || '').trim().slice(0, 280)
+    const agora = Date.now()
+    const payloadPedido = {
+      avaliacao: notaFinal,
+      comentarioAvaliacao: comentarioFinal,
+      avaliadoEm: agora,
+      avaliadoPor: usuarioLogado?.uid || usuarioLogado?.matricula || '',
+    }
+    try {
+      await updateDoc(doc(db, 'pedidos', pedido.id), payloadPedido)
+      const batch = writeBatch(db)
+      ;(pedido.itens || []).forEach(item => {
+        const produtoId = item.produtoId || item.id
+        if (!produtoId) return
+        const ref = doc(db, 'avaliacoes', `${pedido.id}_${produtoId}`)
+        batch.set(ref, {
+          pedidoId: pedido.id,
+          produtoId,
+          produtoNome: item.nome || item.produtoNome || 'Produto',
+          nota: notaFinal,
+          comentario: comentarioFinal,
+          alunoNome: usuarioLogado?.nome || pedido.aluno || 'Aluno',
+          alunoId: usuarioLogado?.uid || usuarioLogado?.matricula || '',
+          criadoEm: agora,
+        }, { merge: true })
+      })
+      await batch.commit()
+      return { ok: true }
+    } catch (e) {
+      console.error('avaliarPedido:', e)
+      return { erro: 'Nao foi possivel salvar sua avaliacao agora.' }
+    }
+  }
+
+  async function marcarPedidoPago(id) {
+    try { await updateDoc(doc(db, 'pedidos', id), { pago: true, pagamentoStatus: 'pago', pagoEm: Date.now() }) }
+    catch (e) { console.error('marcarPedidoPago:', e) }
   }
 
   async function limparEntregues() {
@@ -129,18 +198,36 @@ export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onF
   }
 
   async function cancelarPedido(pedidoId, motivo = '') {
-    const pedido = pedidos.find(p => p.id === pedidoId)
-    if (!pedido) return
     try {
-      await updateDoc(doc(db, 'pedidos', pedidoId), {
-        status: 'Cancelado', motivoCancelamento: motivo,
-        canceladoEm: Date.now(), canceladoPor: usuarioLogado?.nome || 'Sistema',
+      await runTransaction(db, async transaction => {
+        const pedidoRef = doc(db, 'pedidos', pedidoId)
+        const pedidoSnap = await transaction.get(pedidoRef)
+        if (!pedidoSnap.exists()) return
+
+        const pedido = pedidoSnap.data()
+        if (pedido.status === 'Cancelado' || pedido.status === 'Entregue') return
+
+        const itens = Array.isArray(pedido.itens) ? pedido.itens : []
+        const itensComRefs = itens
+          .filter(item => item.produtoId)
+          .map(item => ({ item, ref: doc(db, 'produtos', String(item.produtoId)) }))
+        const produtosSnap = await Promise.all(itensComRefs.map(({ ref }) => transaction.get(ref)))
+
+        transaction.update(pedidoRef, {
+          status: 'Cancelado',
+          statusKey: 'cancelado',
+          motivoCancelamento: motivo,
+          canceladoEm: Date.now(),
+          canceladoPor: usuarioLogado?.nome || 'Sistema',
+        })
+
+        produtosSnap.forEach((snap, index) => {
+          if (!snap.exists()) return
+          const { item, ref } = itensComRefs[index]
+          const estoqueAtual = Number(snap.data().estoque || 0)
+          transaction.update(ref, { estoque: estoqueAtual + Number(item.quantidade || 0) })
+        })
       })
-      await Promise.all(pedido.itens.map(item => {
-        const prod = produtos.find(p => p.id === item.produtoId)
-        if (!prod) return Promise.resolve()
-        return updateDoc(doc(db, 'produtos', String(item.produtoId)), { estoque: (prod.estoque || 0) + item.quantidade })
-      }))
     } catch (e) { console.error('cancelarPedido:', e) }
   }
 
@@ -153,7 +240,7 @@ export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onF
   }, [pedidosNaFila])
 
   return {
-    pedidos, fazerPedido, atualizarStatusPedido, cancelarPedido, editarPedido, limparEntregues, avaliarPedido,
+    pedidos, fazerPedido, atualizarStatusPedido, cancelarPedido, editarPedido, limparEntregues, avaliarPedido, marcarPedidoPago,
     pedidosNaFila, tempoEstimado,
   }
 }

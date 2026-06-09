@@ -3,8 +3,10 @@ import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
 import { categorias } from '../../data/mockData'
 import { useIsMobile } from '../../utils/useIsMobile'
-import { UtensilsCrossed, Flame, Search, RefreshCw, Trophy } from 'lucide-react'
+import { UtensilsCrossed, Flame, Search, RefreshCw, Trophy, Tags } from 'lucide-react'
 import AvisosBanner from '../../components/AvisosBanner'
+import LanchoneteInfoCard from '../../components/LanchoneteInfoCard'
+import { produtoDisponivelNoDia } from '../../utils/cardapioDias'
 
 const GRADIENTS = [
   'linear-gradient(135deg,#FF6B35,#F7C59F)',
@@ -15,12 +17,12 @@ const GRADIENTS = [
   'linear-gradient(135deg,#F59E0B,#FDE68A)',
 ]
 
-function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disabled, alergiasUsuario, onClick }) {
+function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disabled, alergiasUsuario, onClick, destaque, avaliacao }) {
   const [hover, setHover] = useState(false)
   const isAdded = adicionado === produto.id
   const isOutOfStock = !produto.disponivel || produto.estoque <= 0
   const grad = GRADIENTS[produto.id % GRADIENTS.length]
-  const imgHeight = isMobile ? 120 : 170
+  const imgHeight = isMobile ?120 : 170
 
   const userAllergens = alergiasUsuario || []
   const prodAllergens = produto.alergenios || []
@@ -31,44 +33,54 @@ function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disab
     <div
       style={{
         ...s.card,
-        transform: hover && produto.disponivel ? 'translateY(-4px)' : 'none',
-        boxShadow: hover && produto.disponivel ? '0 12px 32px rgba(0,0,0,0.15)' : '0 2px 12px rgba(0,0,0,0.08)',
-        filter: isOutOfStock ? 'grayscale(0.6)' : 'none',
-        border: temAlergia ? '2px solid #FCA5A5' : estoqueBaixo ? '2px solid #FCD34D' : '2px solid transparent',
+        transform: hover && produto.disponivel ?'translateY(-4px)' : 'none',
+        boxShadow: hover && produto.disponivel ?'0 12px 32px rgba(0,0,0,0.15)' : '0 2px 12px rgba(0,0,0,0.08)',
+        filter: isOutOfStock ?'grayscale(0.6)' : 'none',
+        border: temAlergia ?'2px solid #FCA5A5' : estoqueBaixo ?'2px solid #FCD34D' : '2px solid transparent',
         cursor: 'pointer',
       }}
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <div style={{ ...s.imgBox, background: produto.foto ? 'transparent' : grad, height: imgHeight }}>
+      <div style={{ ...s.imgBox, background: produto.foto ?'transparent' : grad, height: imgHeight }}>
         {produto.foto
-          ? <img src={produto.foto} alt={produto.nome} style={s.imgFoto} />
-          : <UtensilsCrossed size={isMobile ? 36 : 48} color="rgba(255,255,255,0.75)" strokeWidth={1.5} />
+          ?<img src={produto.foto} alt={produto.nome} style={s.imgFoto} />
+          : <UtensilsCrossed size={isMobile ?36 : 48} color="rgba(255,255,255,0.75)" strokeWidth={1.5} />
         }
         {produto.foto && <div style={s.imgOverlay} />}
-        <div style={{ ...s.precoBadge, fontSize: isMobile ? '0.82rem' : '0.95rem', padding: isMobile ? '0.2rem 0.5rem' : '0.25rem 0.65rem' }}>
+        {(destaque || temAlergia || estoqueBaixo) && (
+          <div style={s.topBadges}>
+            {destaque && <div style={s.promoBadge}><Tags size={11} /> Promoção</div>}
+            {temAlergia ?(
+              <div style={s.alertBadge}>
+                Contém sua alergia
+              </div>
+            ) : estoqueBaixo ?(
+              <div style={s.lowStockBadge}>
+                Poucas un!
+              </div>
+            ) : null}
+          </div>
+        )}
+        <div style={{ ...s.precoBadge, fontSize: isMobile ?'0.82rem' : '0.95rem', padding: isMobile ?'0.2rem 0.5rem' : '0.25rem 0.65rem' }}>
           R$ {produto.preco.toFixed(2).replace('.', ',')}
         </div>
         <button
-          style={{ ...s.favBtn, background: isFav ? 'rgba(239,68,68,0.9)' : 'rgba(255,255,255,0.85)', width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, fontSize: isMobile ? '0.85rem' : '1rem' }}
+          style={{ ...s.favBtn, background: isFav ?'rgba(239,68,68,0.9)' : 'rgba(255,255,255,0.85)', width: isMobile ?28 : 32, height: isMobile ?28 : 32, fontSize: isMobile ?'0.85rem' : '1rem' }}
           onClick={e => { e.stopPropagation(); onFav(produto.id) }}
-        >{isFav ? '♥' : '♡'}</button>
-        {temAlergia ? (
-          <div style={{ position: 'absolute', top: 8, left: 10, background: '#FEE2E2', color: '#DC2626', borderRadius: 8, padding: '0.12rem 0.45rem', fontSize: '0.62rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 3 }}>
-            ⚠️ Contém sua alergia
-          </div>
-        ) : estoqueBaixo ? (
-          <div style={{ position: 'absolute', top: 8, left: 10, background: 'rgba(245,158,11,0.92)', color: '#fff', borderRadius: 8, padding: '0.12rem 0.45rem', fontSize: '0.62rem', fontWeight: 800 }}>
-            ⚡ Poucas un!
-          </div>
-        ) : (!isMobile && <div style={s.catPill}>{produto.categoria}</div>)}
+        >{isFav ?'♥' : '♡'}</button>
+        {!temAlergia && !estoqueBaixo && !destaque && !isMobile && <div style={s.catPill}>{produto.categoria}</div>}
         {!produto.disponivel && <div style={s.tagIndispBadge}>Indisponível</div>}
       </div>
-      <div style={{ ...s.cardBody, padding: isMobile ? '0.6rem 0.7rem 0.7rem' : '0.9rem 1rem 1rem' }}>
-        <h3 style={{ ...s.nomeProduto, fontSize: isMobile ? '0.88rem' : '0.97rem', marginBottom: 2 }}>{produto.nome}</h3>
+      <div style={{ ...s.cardBody, padding: isMobile ?'0.6rem 0.7rem 0.7rem' : '0.9rem 1rem 1rem' }}>
+        <h3 style={{ ...s.nomeProduto, fontSize: isMobile ?'0.88rem' : '0.97rem', marginBottom: 2 }}>{produto.nome}</h3>
+        {avaliacao?.total > 0 && (
+          <div style={s.ratingLinha}>⭐ {avaliacao.media.toFixed(1).replace('.', ',')} <span>({avaliacao.total})</span></div>
+        )}
+        {destaque && <div style={s.promoTexto}>{destaque}</div>}
         {produto.descricao && (
-          <p style={{ ...s.descricao, WebkitLineClamp: isMobile ? 1 : 2, marginBottom: 3 }}>{produto.descricao}</p>
+          <p style={{ ...s.descricao, WebkitLineClamp: isMobile ?1 : 2, marginBottom: 3 }}>{produto.descricao}</p>
         )}
         {(produto.nutricional?.calorias || produto.nutricional?.proteinas || produto.nutricional?.carboidratos) && (
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
@@ -96,12 +108,12 @@ function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disab
               return (
                 <span key={a} style={{
                   ...s.allergyBodyPill,
-                  background: isUserAllergen ? '#FEE2E2' : '#F1F5F9',
-                  color: isUserAllergen ? '#DC2626' : '#64748B',
-                  border: isUserAllergen ? '1px solid #FCA5A5' : '1px solid #E2E8F0',
-                  fontWeight: isUserAllergen ? 800 : 600,
+                  background: isUserAllergen ?'#FEE2E2' : '#F1F5F9',
+                  color: isUserAllergen ?'#DC2626' : '#64748B',
+                  border: isUserAllergen ?'1px solid #FCA5A5' : '1px solid #E2E8F0',
+                  fontWeight: isUserAllergen ?800 : 600,
                 }}>
-                  {isUserAllergen ? '⚠️ ' : ''}{a}
+                  {isUserAllergen ?'⚠️ ' : ''}{a}
                 </span>
               )
             })}
@@ -109,15 +121,15 @@ function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disab
         )}
         {produto.estoque > 0 && (
           estoqueBaixo
-            ? <span style={{ ...s.estoqueBaixoBadge, fontSize: isMobile ? '0.6rem' : '0.65rem' }}>⚡ Últimas {produto.estoque} unidades!</span>
-            : <span style={{ ...s.estoqueNormalBadge, fontSize: isMobile ? '0.6rem' : '0.65rem' }}>{produto.estoque} disponíveis</span>
+            ?<span style={{ ...s.estoqueBaixoBadge, fontSize: isMobile ?'0.6rem' : '0.65rem' }}>⚡ Últimas {produto.estoque} unidades!</span>
+            : <span style={{ ...s.estoqueNormalBadge, fontSize: isMobile ?'0.6rem' : '0.65rem' }}>{produto.estoque} disponíveis</span>
         )}
         <button
-          style={{ ...s.addBtn, ...(isAdded ? s.addBtnOk : {}), ...(disabled ? s.addBtnDis : {}), fontSize: isMobile ? '0.8rem' : '0.88rem', padding: isMobile ? '0.5rem' : '0.6rem', marginTop: 'auto' }}
+          style={{ ...s.addBtn, ...(isAdded ?s.addBtnOk : {}), ...(disabled ?s.addBtnDis : {}), fontSize: isMobile ?'0.8rem' : '0.88rem', padding: isMobile ?'0.5rem' : '0.6rem', marginTop: 'auto' }}
           onClick={e => { e.stopPropagation(); onAdd(produto) }}
           disabled={disabled}
         >
-          {produto.estoque <= 0 ? 'Sem estoque' : isAdded ? '✓ Adicionado!' : produto.disponivel ? '+ Adicionar' : 'Indisponível'}
+          {produto.estoque <= 0 ?'Sem estoque' : isAdded ?'✓ Adicionado!' : produto.disponivel ?'+ Adicionar' : 'Indisponível'}
         </button>
       </div>
     </div>
@@ -125,7 +137,7 @@ function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disab
 }
 
 export default function Cardapio() {
-  const { produtos, pedidos, adicionarAoCarrinho, favoritos, toggleFavorito, usuarioLogado, carrinho } = useApp()
+  const { produtos, pedidos, avisos, adicionarAoCarrinho, favoritos, toggleFavorito, usuarioLogado, carrinho, resumoAvaliacoesPorProduto } = useApp()
   const isMobile = useIsMobile()
   const [categoriaAtiva, setCategoriaAtiva] = useState('Todos')
   const [busca, setBusca] = useState('')
@@ -134,7 +146,7 @@ export default function Cardapio() {
   const [detalhe, setDetalhe] = useState(null)
 
   const disponiveisOrdenados = useMemo(
-    () => produtos.filter(p => p.disponivel && p.estoque > 0),
+    () => produtos.filter(p => p.disponivel && p.estoque > 0 && produtoDisponivelNoDia(p)),
     [produtos]
   )
 
@@ -183,7 +195,7 @@ export default function Cardapio() {
       .slice(0, 6)
       .map(([id, qtd]) => {
         const produto = disponiveisOrdenados.find(p => p.id === Number(id))
-        return produto ? { ...produto, qtd } : null
+        return produto ?{ ...produto, qtd } : null
       })
       .filter(Boolean)
   }, [pedidos, disponiveisOrdenados])
@@ -196,28 +208,48 @@ export default function Cardapio() {
     [jaCompradosIds, disponiveisOrdenados]
   )
 
-  const filtrados = useMemo(() => produtos.filter(p => {
+  const produtosPromocao = useMemo(() => {
+    const promoMap = new Map()
+    avisos
+      .filter(aviso => {
+        const destino = aviso.destino || aviso.destinatario || 'todos'
+        return aviso.tipo === 'promo' && aviso.produtoPromocao?.id && ['todos', 'aluno', 'alunos'].includes(destino)
+      })
+      .forEach(aviso => {
+        const produto = disponiveisOrdenados.find(p => String(p.id) === String(aviso.produtoPromocao.id))
+        if (produto && !promoMap.has(String(produto.id))) {
+          promoMap.set(String(produto.id), {
+            ...produto,
+            promoTitulo: aviso.titulo,
+            promoMensagem: aviso.mensagem || aviso.texto || 'Produto em promocao',
+          })
+        }
+      })
+    return Array.from(promoMap.values()).slice(0, 6)
+  }, [avisos, disponiveisOrdenados])
+
+  const filtrados = useMemo(() => disponiveisOrdenados.filter(p => {
     const matchCat = categoriaAtiva === 'Todos' || p.categoria === categoriaAtiva
     const matchBusca = p.nome.toLowerCase().includes(busca.toLowerCase())
     return matchCat && matchBusca
-  }), [produtos, categoriaAtiva, busca])
+  }), [disponiveisOrdenados, categoriaAtiva, busca])
 
-  const cols = useMemo(() => isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(230px, 1fr))', [isMobile])
+  const cols = useMemo(() => isMobile ?'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(230px, 1fr))', [isMobile])
 
-  const mobileGap = isMobile ? '0.55rem' : '1.1rem'
-  const mobileSectionMb = isMobile ? '0.65rem' : '1.5rem'
+  const mobileGap = isMobile ?'0.55rem' : '1.1rem'
+  const mobileSectionMb = isMobile ?'0.65rem' : '1.5rem'
 
   return (
     <Layout titulo="Cardápio de Hoje">
       <AvisosBanner perfil="alunos" />
-      {!usuarioLogado && (
-        <div style={s.registerRow}>
-          <button style={s.registerBtn} onClick={() => window.location.href = '/cadastro'}>Cadastre-se</button>
+      {!busca && (
+        <div style={{ marginBottom: isMobile ?'0.65rem' : '1rem' }}>
+          <LanchoneteInfoCard compacto isMobile={isMobile} />
         </div>
       )}
-      <div style={{ marginBottom: isMobile ? '0.5rem' : '1rem' }}>
+      <div style={{ marginBottom: isMobile ?'0.5rem' : '1rem' }}>
         <input
-          style={{ ...s.inputBusca, width: '100%', maxWidth: '100%', boxSizing: 'border-box', padding: isMobile ? '0.6rem 0.9rem' : '0.75rem 1.1rem', fontSize: isMobile ? '0.88rem' : '0.95rem' }}
+          style={{ ...s.inputBusca, width: '100%', maxWidth: '100%', boxSizing: 'border-box', padding: isMobile ?'0.6rem 0.9rem' : '0.75rem 1.1rem', fontSize: isMobile ?'0.88rem' : '0.95rem' }}
           placeholder="Buscar produto..."
           value={busca}
           onChange={e => setBusca(e.target.value)}
@@ -227,13 +259,14 @@ export default function Cardapio() {
       {/* Seção: Comprar Novamente */}
       {!busca && comprarNovamente.length > 0 && (
         <section style={{ marginBottom: mobileSectionMb }}>
-          <h2 style={{ ...s.secaoTitulo, fontSize: isMobile ? '0.9rem' : '1.05rem', marginBottom: isMobile ? '0.45rem' : '0.75rem' }}><RefreshCw size={14} strokeWidth={2.5} style={{ marginRight: 5 }} />Comprar Novamente</h2>
+          <h2 style={{ ...s.secaoTitulo, fontSize: isMobile ?'0.9rem' : '1.05rem', marginBottom: isMobile ?'0.45rem' : '0.75rem' }}><RefreshCw size={14} strokeWidth={2.5} style={{ marginRight: 5 }} />Comprar Novamente</h2>
           <div style={{ ...s.grid, gridTemplateColumns: cols, gap: mobileGap }}>
             {comprarNovamente.map(p => (
               <ProdutoCard key={p.id} produto={p} onAdd={handleAdicionar}
                 isFav={favoritos.includes(p.id)} onFav={toggleFavorito}
                 adicionado={adicionado} isMobile={isMobile} disabled={estaIndisponivel(p)}
                 alergiasUsuario={usuarioLogado?.alergias || []}
+                avaliacao={resumoAvaliacoesPorProduto?.[String(p.id)]}
                 onClick={() => setDetalhe(p)} />
             ))}
           </div>
@@ -243,13 +276,31 @@ export default function Cardapio() {
       {/* Seção: Mais Vendidos */}
       {!busca && maisVendidos.length > 0 && (
         <section style={{ marginBottom: mobileSectionMb }}>
-          <h2 style={{ ...s.secaoTitulo, fontSize: isMobile ? '0.9rem' : '1.05rem', marginBottom: isMobile ? '0.45rem' : '0.75rem' }}><Trophy size={14} strokeWidth={2.5} style={{ marginRight: 5 }} />Mais Vendidos</h2>
+          <h2 style={{ ...s.secaoTitulo, fontSize: isMobile ?'0.9rem' : '1.05rem', marginBottom: isMobile ?'0.45rem' : '0.75rem' }}><Trophy size={14} strokeWidth={2.5} style={{ marginRight: 5 }} />Mais Vendidos</h2>
           <div style={{ ...s.grid, gridTemplateColumns: cols, gap: mobileGap }}>
             {maisVendidos.map(p => (
               <ProdutoCard key={p.id} produto={p} onAdd={handleAdicionar}
                 isFav={favoritos.includes(p.id)} onFav={toggleFavorito}
                 adicionado={adicionado} isMobile={isMobile} disabled={estaIndisponivel(p)}
                 alergiasUsuario={usuarioLogado?.alergias || []}
+                avaliacao={resumoAvaliacoesPorProduto?.[String(p.id)]}
+                onClick={() => setDetalhe(p)} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!busca && produtosPromocao.length > 0 && (
+        <section style={{ marginBottom: mobileSectionMb }}>
+          <h2 style={{ ...s.secaoTitulo, fontSize: isMobile ?'0.9rem' : '1.05rem', marginBottom: isMobile ?'0.45rem' : '0.75rem' }}><Tags size={14} strokeWidth={2.5} style={{ marginRight: 5 }} />Em promoção</h2>
+          <div style={{ ...s.grid, gridTemplateColumns: cols, gap: mobileGap }}>
+            {produtosPromocao.map(p => (
+              <ProdutoCard key={p.id} produto={p} onAdd={handleAdicionar}
+                isFav={favoritos.includes(p.id)} onFav={toggleFavorito}
+                adicionado={adicionado} isMobile={isMobile} disabled={estaIndisponivel(p)}
+                alergiasUsuario={usuarioLogado?.alergias || []}
+                destaque={p.promoMensagem || p.promoTitulo}
+                avaliacao={resumoAvaliacoesPorProduto?.[String(p.id)]}
                 onClick={() => setDetalhe(p)} />
             ))}
           </div>
@@ -257,10 +308,10 @@ export default function Cardapio() {
       )}
 
       {/* Filtros de categoria */}
-      <div style={{ ...s.categorias, gap: isMobile ? 5 : 8, marginBottom: isMobile ? '0.5rem' : '1.25rem' }}>
+      <div style={{ ...s.categorias, gap: isMobile ?5 : 8, marginBottom: isMobile ?'0.5rem' : '1.25rem' }}>
         {categorias.map(cat => (
           <button key={cat}
-            style={{ ...s.catBtn, ...(categoriaAtiva === cat ? s.catBtnAtivo : {}), padding: isMobile ? '0.3rem 0.75rem' : '0.45rem 1.2rem', fontSize: isMobile ? '0.78rem' : '0.85rem' }}
+            style={{ ...s.catBtn, ...(categoriaAtiva === cat ?s.catBtnAtivo : {}), padding: isMobile ?'0.3rem 0.75rem' : '0.45rem 1.2rem', fontSize: isMobile ?'0.78rem' : '0.85rem' }}
             onClick={() => setCategoriaAtiva(cat)}>{cat}</button>
         ))}
       </div>
@@ -272,6 +323,7 @@ export default function Cardapio() {
             isFav={favoritos.includes(p.id)} onFav={toggleFavorito}
             adicionado={adicionado} isMobile={isMobile} disabled={estaIndisponivel(p)}
             alergiasUsuario={usuarioLogado?.alergias || []}
+            avaliacao={resumoAvaliacoesPorProduto?.[String(p.id)]}
             onClick={() => setDetalhe(p)} />
         ))}
       </div>
@@ -290,15 +342,15 @@ export default function Cardapio() {
             {/* Header */}
             <div style={{
               position: 'relative',
-              height: isMobile ? 200 : 250,
-              background: detalhe.foto ? 'transparent' : GRADIENTS[detalhe.id % GRADIENTS.length],
+              height: isMobile ?200 : 250,
+              background: detalhe.foto ?'transparent' : GRADIENTS[detalhe.id % GRADIENTS.length],
               flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               overflow: 'hidden',
             }}>
               {detalhe.foto
-                ? <img src={detalhe.foto} alt={detalhe.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                : <span style={{ fontSize: isMobile ? '5rem' : '7rem', lineHeight: 1 }}>{detalhe.emoji}</span>
+                ?<img src={detalhe.foto} alt={detalhe.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : <span style={{ fontSize: isMobile ?'5rem' : '7rem', lineHeight: 1 }}>{detalhe.emoji}</span>
               }
               <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.72) 0%, transparent 50%)' }} />
 
@@ -306,26 +358,26 @@ export default function Cardapio() {
               <button onClick={() => setDetalhe(null)} style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(0,0,0,0.45)', color: '#fff', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.05rem', backdropFilter: 'blur(4px)', zIndex: 2 }}>✕</button>
 
               {/* Fav */}
-              <button onClick={e => { e.stopPropagation(); toggleFavorito(detalhe.id) }} style={{ position: 'absolute', top: 12, right: 12, background: favoritos.includes(detalhe.id) ? 'rgba(239,68,68,0.9)' : 'rgba(255,255,255,0.85)', color: favoritos.includes(detalhe.id) ? '#fff' : '#64748B', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', backdropFilter: 'blur(4px)', zIndex: 2 }}>
-                {favoritos.includes(detalhe.id) ? '♥' : '♡'}
+              <button onClick={e => { e.stopPropagation(); toggleFavorito(detalhe.id) }} style={{ position: 'absolute', top: 12, right: 12, background: favoritos.includes(detalhe.id) ?'rgba(239,68,68,0.9)' : 'rgba(255,255,255,0.85)', color: favoritos.includes(detalhe.id) ?'#fff' : '#64748B', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', backdropFilter: 'blur(4px)', zIndex: 2 }}>
+                {favoritos.includes(detalhe.id) ?'♥' : '♡'}
               </button>
 
               {/* Nome + categoria */}
               <div style={{ position: 'absolute', bottom: 14, left: 16, right: 16, zIndex: 2 }}>
-                <div style={{ fontWeight: 800, fontSize: isMobile ? '1.2rem' : '1.45rem', color: '#fff', lineHeight: 1.2 }}>{detalhe.nome}</div>
+                <div style={{ fontWeight: 800, fontSize: isMobile ?'1.2rem' : '1.45rem', color: '#fff', lineHeight: 1.2 }}>{detalhe.nome}</div>
                 <div style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.8)', marginTop: 3 }}>{detalhe.categoria}</div>
               </div>
             </div>
 
             {/* Body */}
-            <div style={{ overflowY: 'auto', padding: isMobile ? '1rem 1.1rem' : '1.25rem 1.4rem', display: 'flex', flexDirection: 'column', gap: '0.85rem', flex: 1 }}>
+            <div style={{ overflowY: 'auto', padding: isMobile ?'1rem 1.1rem' : '1.25rem 1.4rem', display: 'flex', flexDirection: 'column', gap: '0.85rem', flex: 1 }}>
 
               {/* Preço + status badges */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '1.65rem', fontWeight: 800, color: '#003D7C' }}>R$ {detalhe.preco.toFixed(2).replace('.', ',')}</span>
-                {detalhe.estoque > 0 && detalhe.estoqueBaixo > 0 && detalhe.estoque <= detalhe.estoqueBaixo ? (
+                {detalhe.estoque > 0 && detalhe.estoqueBaixo > 0 && detalhe.estoque <= detalhe.estoqueBaixo ?(
                   <span style={s.detBadgeAlerta}>⚡ Últimas {detalhe.estoque} unidades!</span>
-                ) : detalhe.estoque > 0 ? (
+                ) : detalhe.estoque > 0 ?(
                   <span style={s.detBadgeOk}>✓ {detalhe.estoque} disponíveis</span>
                 ) : (
                   <span style={s.detBadgeSem}>Sem estoque</span>
@@ -349,7 +401,7 @@ export default function Cardapio() {
                   <div style={s.detSecaoTitulo}>🥗 Informações Nutricionais</div>
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                     {[['calorias','Kcal'],['proteinas','Prot'],['carboidratos','Carb'],['gorduras','Gord'],['sodio','Sódio']].map(([key, label]) =>
-                      detalhe.nutricional[key] ? (
+                      detalhe.nutricional[key] ?(
                         <div key={key} style={s.nutriCard}>
                           <div style={{ fontWeight: 800, color: '#C2410C', fontSize: '1rem' }}>{detalhe.nutricional[key]}</div>
                           <div style={{ fontSize: '0.62rem', color: '#94A3B8', fontWeight: 600, marginTop: 2 }}>{label}</div>
@@ -369,17 +421,37 @@ export default function Cardapio() {
                       const userHas = (usuarioLogado?.alergias || []).includes(a)
                       return (
                         <span key={a} style={{
-                          background: userHas ? '#FEE2E2' : '#F1F5F9',
-                          color: userHas ? '#DC2626' : '#64748B',
+                          background: userHas ?'#FEE2E2' : '#F1F5F9',
+                          color: userHas ?'#DC2626' : '#64748B',
                           padding: '0.3rem 0.85rem', borderRadius: 20,
-                          fontWeight: userHas ? 800 : 600, fontSize: '0.83rem',
+                          fontWeight: userHas ?800 : 600, fontSize: '0.83rem',
                           textTransform: 'capitalize',
-                          border: `1.5px solid ${userHas ? '#FCA5A5' : '#E2E8F0'}`,
+                          border: `1.5px solid ${userHas ?'#FCA5A5' : '#E2E8F0'}`,
                         }}>
-                          {userHas ? '⚠️ ' : ''}{a}
+                          {userHas ?'⚠️ ' : ''}{a}
                         </span>
                       )
                     })}
+                  </div>
+                </div>
+              )}
+
+              {resumoAvaliacoesPorProduto?.[String(detalhe.id)]?.total > 0 && (
+                <div>
+                  <div style={s.detSecaoTitulo}>Avaliações dos alunos</div>
+                  <div style={s.reviewResumo}>
+                    ⭐ {resumoAvaliacoesPorProduto[String(detalhe.id)].media.toFixed(1).replace('.', ',')} de 5
+                    <span>{resumoAvaliacoesPorProduto[String(detalhe.id)].total} avaliação(ões)</span>
+                  </div>
+                  <div style={s.reviewLista}>
+                    {resumoAvaliacoesPorProduto[String(detalhe.id)].comentarios.length === 0 ?(
+                      <p style={{ margin: 0, color: '#94A3B8', fontSize: '0.82rem' }}>Ainda não há comentários escritos.</p>
+                    ) : resumoAvaliacoesPorProduto[String(detalhe.id)].comentarios.map(avaliacao => (
+                      <div key={avaliacao.id} style={s.reviewCard}>
+                        <strong>{'⭐'.repeat(avaliacao.nota)} <span>{avaliacao.alunoNome || 'Aluno'}</span></strong>
+                        <p>{avaliacao.comentario}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -388,12 +460,12 @@ export default function Cardapio() {
               <button
                 style={{
                   width: '100%', padding: '0.95rem', borderRadius: 14,
-                  background: estaIndisponivel(detalhe) ? '#CBD5E1' : '#F47920',
-                  color: estaIndisponivel(detalhe) ? '#94A3B8' : '#fff',
+                  background: estaIndisponivel(detalhe) ?'#CBD5E1' : '#F47920',
+                  color: estaIndisponivel(detalhe) ?'#94A3B8' : '#fff',
                   fontWeight: 800, border: 'none',
-                  cursor: estaIndisponivel(detalhe) ? 'not-allowed' : 'pointer',
+                  cursor: estaIndisponivel(detalhe) ?'not-allowed' : 'pointer',
                   fontSize: '1rem', marginTop: 4,
-                  boxShadow: estaIndisponivel(detalhe) ? 'none' : '0 4px 14px rgba(244,121,32,0.4)',
+                  boxShadow: estaIndisponivel(detalhe) ?'none' : '0 4px 14px rgba(244,121,32,0.4)',
                 }}
                 disabled={estaIndisponivel(detalhe)}
                 onClick={() => {
@@ -401,7 +473,7 @@ export default function Cardapio() {
                   handleAdicionar(detalhe)
                 }}
               >
-                {detalhe.estoque <= 0 ? 'Sem estoque' : !detalhe.disponivel ? 'Indisponível' : '+ Adicionar ao carrinho'}
+                {detalhe.estoque <= 0 ?'Sem estoque' : !detalhe.disponivel ?'Indisponível' : '+ Adicionar ao carrinho'}
               </button>
             </div>
           </div>
@@ -463,13 +535,23 @@ const s = {
   detBadgeOk: { background: '#D1FAE5', color: '#059669', padding: '0.25rem 0.75rem', borderRadius: 20, fontWeight: 700, fontSize: '0.8rem' },
   detBadgeSem: { background: '#FEE2E2', color: '#DC2626', padding: '0.25rem 0.75rem', borderRadius: 20, fontWeight: 700, fontSize: '0.8rem' },
   detBadgeAlergia: { background: '#FEE2E2', color: '#DC2626', padding: '0.25rem 0.75rem', borderRadius: 20, fontWeight: 700, fontSize: '0.8rem' },
+  reviewResumo: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 12, padding: '0.55rem 0.75rem', fontSize: '0.85rem', fontWeight: 900 },
+  reviewLista: { display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8 },
+  reviewCard: { background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: '0.65rem 0.75rem' },
+  reviewCardP: { margin: '0.35rem 0 0', color: '#475569', fontSize: '0.82rem', lineHeight: 1.45 },
   emoji: { fontSize: '4rem', lineHeight: 1, userSelect: 'none' },
   precoBadge: { position: 'absolute', bottom: 10, left: 10, background: 'rgba(0,0,0,0.65)', color: '#fff', padding: '0.25rem 0.65rem', borderRadius: 20, fontWeight: 800, fontSize: '0.95rem', backdropFilter: 'blur(4px)' },
+  topBadges: { position: 'absolute', top: 8, left: 10, right: 44, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 5, zIndex: 4, pointerEvents: 'none' },
+  promoBadge: { background: '#FEF3C7', color: '#92400E', borderRadius: 8, padding: '0.16rem 0.45rem', fontSize: '0.62rem', fontWeight: 900, display: 'inline-flex', alignItems: 'center', gap: 3, maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  alertBadge: { background: '#FEE2E2', color: '#DC2626', borderRadius: 8, padding: '0.12rem 0.45rem', fontSize: '0.62rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 3, maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  lowStockBadge: { background: 'rgba(245,158,11,0.92)', color: '#fff', borderRadius: 8, padding: '0.12rem 0.45rem', fontSize: '0.62rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  promoTexto: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 8, padding: '0.28rem 0.45rem', fontSize: '0.7rem', fontWeight: 800, lineHeight: 1.25 },
   favBtn: { position: 'absolute', top: 8, right: 8, width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 900, color: '#fff', border: 'none', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.18)' },
   catPill: { position: 'absolute', top: 8, left: 10, background: 'rgba(255,255,255,0.88)', color: '#334155', padding: '0.18rem 0.65rem', borderRadius: 20, fontSize: '0.7rem', fontWeight: 700 },
   tagIndispBadge: { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)', color: '#fff', fontWeight: 800, fontSize: '0.95rem' },
   cardBody: { padding: '0.9rem 1rem 1rem', display: 'flex', flexDirection: 'column', flex: 1, gap: 4 },
   nomeProduto: { fontWeight: 800, fontSize: '0.97rem', color: '#1A202C', marginBottom: 2 },
+  ratingLinha: { color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '0.18rem 0.45rem', fontSize: '0.7rem', fontWeight: 900, display: 'inline-flex', gap: 4, alignItems: 'center', alignSelf: 'flex-start' },
   descricao: { fontSize: '0.78rem', color: '#64748B', lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' },
   addBtn: { width: '100%', padding: '0.6rem', borderRadius: 10, background: '#F47920', color: '#fff', fontWeight: 700, fontSize: '0.88rem', transition: 'background 0.2s', marginTop: 8, border: 'none', cursor: 'pointer' },
   addBtnOk: { background: '#22C55E' },

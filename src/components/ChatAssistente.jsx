@@ -3,14 +3,20 @@ import { useLocation } from 'react-router-dom'
 import { useApp } from '../contexts/AppContext'
 import { useIsMobile } from '../utils/useIsMobile'
 import { buildContextoAluno, buildContextoAdmin } from '../utils/aiContext'
-import { MessageCircle, X, Send, Bot } from 'lucide-react'
+import { MessageCircle, X, Send, Bot, RefreshCcw } from 'lucide-react'
 
 const ERRO_REDE = 'Não consegui responder agora. Tente novamente em instantes.'
 const ERRO_ACAO = '\n\n(Não consegui concluir essa ação — confira se o item ou pedido ainda está disponível.)'
 
 function saudacaoInicial(perfil) {
-  if (perfil === 'admin' || perfil === 'gerente') {
+  if (perfil === 'admin') {
     return 'Olá! Posso te ajudar a entender vendas, estoque e avaliações da cantina. O que você quer saber?'
+  }
+  if (['vendedor', 'vendedora', 'cozinha'].includes(perfil)) {
+    return 'Olá! Posso ajudar com pedidos, estoque, produção, avisos e resumo da cantina. O que você precisa consultar?'
+  }
+  if (perfil === 'aluno') {
+    return 'Oi! Quer que eu te indique um lanche bom agora? Posso comparar preço, avaliações, alergias e já colocar no carrinho pra você.'
   }
   return 'Oi! Posso te ajudar com o cardápio, seus pedidos, favoritos, carrinho e horários de retirada — e também posso favoritar produtos, adicionar itens ao carrinho ou cancelar um pedido pra você. Pergunte ou peça o que quiser!'
 }
@@ -24,10 +30,42 @@ function nomeDaTela(pathname) {
   return 'outra'
 }
 
+const SUGESTOES_ALUNO = [
+  'Me recomende um lanche barato',
+  'Tenho alergia a algum item?',
+  'O que tem no meu carrinho?',
+  'Como está meu pedido?',
+]
+
+const SUGESTOES_ADMIN = [
+  'Resumo das vendas de hoje',
+  'Quais itens precisam de reposição?',
+  'Qual produto vendeu mais hoje?',
+]
+
+const SUGESTOES_STAFF = [
+  'Resumo dos pedidos de hoje',
+  'Quais itens precisam de reposição?',
+  'Quais pedidos estão pendentes?',
+]
+
+const SUGESTOES_ALUNO_COMPRA = [
+  'Me indica o melhor lanche de hoje',
+  'Qual está mais bem avaliado?',
+  'Quero algo barato e gostoso',
+  'Adicionar o mais recomendado',
+]
+
+function sugestoesPorPerfil(perfil) {
+  if (perfil === 'admin') return SUGESTOES_ADMIN
+  if (['vendedor', 'vendedora', 'cozinha'].includes(perfil)) return SUGESTOES_STAFF
+  return SUGESTOES_ALUNO_COMPRA.length ?SUGESTOES_ALUNO_COMPRA : SUGESTOES_ALUNO
+}
+
 export default function ChatAssistente() {
   const {
     usuarioLogado, produtos, pedidos,
-    carrinho, totalCarrinho, favoritos, toggleFavorito, adicionarAoCarrinho, cancelarPedido,
+    carrinho, totalCarrinho, favoritos, toggleFavorito, adicionarAoCarrinho, cancelarPedido, resumoAvaliacoesPorProduto,
   } = useApp()
   const location = useLocation()
   const isMobile = useIsMobile()
@@ -50,7 +88,7 @@ export default function ChatAssistente() {
     fimRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [mensagens, enviando])
 
-  if (!usuarioLogado || usuarioLogado.perfil === 'cozinha') return null
+  if (!usuarioLogado) return null
 
   async function executarAcao(acao) {
     if (!acao?.tipo) return true
@@ -82,16 +120,17 @@ export default function ChatAssistente() {
     return true
   }
 
-  async function enviar(e) {
-    e.preventDefault()
-    const texto = input.trim()
+  async function enviarTexto(textoOriginal) {
+    const texto = textoOriginal.trim()
     if (!texto || enviando) return
 
-    const ehAdmin = usuarioLogado.perfil === 'admin' || usuarioLogado.perfil === 'gerente'
-    const contexto = ehAdmin
-      ? buildContextoAdmin(produtos, pedidos)
+    const perfilAtual = usuarioLogado.perfil
+    const ehGestaoOuStaff = ['admin', 'vendedor', 'vendedora', 'cozinha'].includes(perfilAtual)
+    const contexto = ehGestaoOuStaff
+      ?buildContextoAdmin(produtos, pedidos)
       : buildContextoAluno(usuarioLogado, produtos, pedidos, {
           favoritos, carrinho,
+          resumoAvaliacoesPorProduto,
           tela: { pagina: nomeDaTela(location.pathname), totalCarrinho },
         })
     const historico = (mensagens || []).slice(-6)
@@ -120,31 +159,60 @@ export default function ChatAssistente() {
     }
   }
 
+  function enviar(e) {
+    e.preventDefault()
+    enviarTexto(input)
+  }
+
   return (
     <>
       <button
         onClick={alternar}
-        style={{ ...s.botaoFlutuante, bottom: isMobile ? 78 : 24 }}
+        style={{ ...s.botaoFlutuante, bottom: isMobile ?78 : 24 }}
+        aria-label={aberto ?'Fechar assistente virtual' : 'Abrir assistente virtual'}
         title="Assistente virtual"
       >
-        {aberto ? <X size={24} color="#fff" /> : <MessageCircle size={24} color="#fff" />}
+        {aberto ?<X size={24} color="#fff" /> : <MessageCircle size={24} color="#fff" />}
       </button>
 
       {aberto && (
-        <div style={{ ...s.painel, ...(isMobile ? s.painelMobile : s.painelDesktop) }}>
+        <div style={{ ...s.painel, ...(isMobile ?s.painelMobile : s.painelDesktop) }}>
           <div style={s.cabecalho}>
             <Bot size={18} color="#fff" />
             <span style={s.cabecalhoTitulo}>Assistente Senac Lanches</span>
+            <button
+              type="button"
+              onClick={() => setMensagens([{ autor: 'bot', texto: saudacaoInicial(usuarioLogado.perfil) }])}
+              style={s.botaoCabecalho}
+              aria-label="Limpar conversa"
+              title="Limpar conversa"
+            >
+              <RefreshCcw size={15} color="#fff" />
+            </button>
           </div>
 
           <div style={s.mensagens}>
             {(mensagens || []).map((m, i) => (
-              <div key={i} style={{ ...s.bolha, ...(m.autor === 'user' ? s.bolhaUser : s.bolhaBot) }}>
+              <div key={i} style={{ ...s.bolha, ...(m.autor === 'user' ?s.bolhaUser : s.bolhaBot) }}>
                 {m.texto}
               </div>
             ))}
             {enviando && <div style={{ ...s.bolha, ...s.bolhaBot, color: '#94A3B8' }}>Digitando...</div>}
             <div ref={fimRef} />
+          </div>
+
+          <div style={s.sugestoes}>
+            {sugestoesPorPerfil(usuarioLogado.perfil).map(sugestao => (
+              <button
+                key={sugestao}
+                type="button"
+                onClick={() => enviarTexto(sugestao)}
+                style={s.sugestao}
+                disabled={enviando}
+              >
+                {sugestao}
+              </button>
+            ))}
           </div>
 
           <form onSubmit={enviar} style={s.form}>
@@ -153,10 +221,11 @@ export default function ChatAssistente() {
               value={input}
               onChange={e => setInput(e.target.value)}
               placeholder="Digite sua pergunta..."
+              aria-label="Mensagem para o assistente"
               style={s.input}
               disabled={enviando}
             />
-            <button type="submit" style={s.botaoEnviar} disabled={enviando || !input.trim()}>
+            <button type="submit" style={s.botaoEnviar} disabled={enviando || !input.trim()} aria-label="Enviar mensagem">
               <Send size={16} color="#fff" />
             </button>
           </form>
@@ -186,11 +255,25 @@ const s = {
     background: 'linear-gradient(135deg, #0B1E45 0%, #003D7C 55%, #004F9E 100%)',
     borderBottom: '3px solid #F47920',
   },
-  cabecalhoTitulo: { color: '#fff', fontWeight: 700, fontSize: '0.92rem' },
+  cabecalhoTitulo: { color: '#fff', fontWeight: 700, fontSize: '0.92rem', flex: 1 },
+  botaoCabecalho: {
+    width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.25)',
+    background: 'rgba(255,255,255,0.12)', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
   mensagens: { flex: 1, overflowY: 'auto', padding: '0.9rem', display: 'flex', flexDirection: 'column', gap: 8 },
   bolha: { maxWidth: '80%', padding: '0.55rem 0.8rem', borderRadius: 14, fontSize: '0.85rem', lineHeight: 1.4, whiteSpace: 'pre-wrap' },
   bolhaUser: { alignSelf: 'flex-end', background: '#003D7C', color: '#fff', borderBottomRightRadius: 4 },
   bolhaBot: { alignSelf: 'flex-start', background: '#F1F5F9', color: '#1A202C', borderBottomLeftRadius: 4 },
+  sugestoes: {
+    display: 'flex', gap: 6, overflowX: 'auto', padding: '0 0.75rem 0.65rem',
+    borderTop: '1px solid #F1F5F9',
+  },
+  sugestao: {
+    border: '1px solid #D7E3F0', background: '#fff', color: '#003D7C', borderRadius: 999,
+    padding: '0.4rem 0.65rem', fontSize: '0.76rem', fontWeight: 700, whiteSpace: 'nowrap',
+    cursor: 'pointer', flexShrink: 0,
+  },
   form: { display: 'flex', gap: 8, padding: '0.75rem', borderTop: '1px solid #E2E8F0' },
   input: {
     flex: 1, padding: '0.55rem 0.8rem', borderRadius: 20, border: '1px solid #E2E8F0',

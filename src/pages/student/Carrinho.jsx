@@ -70,15 +70,15 @@ export default function Carrinho() {
 
   return (
     <Layout titulo="Meu Carrinho">
-      <div style={{ ...s.layout, gridTemplateColumns: isMobile ? '1fr' : '1fr 340px' }}>
+      <div style={{ ...s.layout, gridTemplateColumns: isMobile ?'1fr' : '1fr 340px' }}>
         <div style={s.itens}>
           {carrinho.map(item => (
-            <div key={item.id} style={{ ...s.item, flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? 8 : 12 }}>
+            <div key={item.id} style={{ ...s.item, flexWrap: isMobile ?'wrap' : 'nowrap', gap: isMobile ?8 : 12 }}>
               <div style={{ width: 36, height: 36, borderRadius: 9, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Utensils size={16} color="#94A3B8" strokeWidth={1.8} />
               </div>
               <div style={{ ...s.itemInfo, minWidth: 0 }}>
-                <strong style={{ fontSize: isMobile ? '0.88rem' : '1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.nome}</strong>
+                <strong style={{ fontSize: isMobile ?'0.88rem' : '1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.nome}</strong>
                 <span style={s.itemPreco}>R$ {item.preco.toFixed(2).replace('.', ',')}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
@@ -87,7 +87,7 @@ export default function Carrinho() {
                   <span style={s.qtd}>{item.quantidade}</span>
                   <button style={s.qtdBtn} onClick={() => adicionarAoCarrinho(item)}>+</button>
                 </div>
-                <span style={{ ...s.itemTotal, minWidth: isMobile ? 60 : 70, fontSize: isMobile ? '0.88rem' : '1rem' }}>R$ {(item.preco * item.quantidade).toFixed(2).replace('.', ',')}</span>
+                <span style={{ ...s.itemTotal, minWidth: isMobile ?60 : 70, fontSize: isMobile ?'0.88rem' : '1rem' }}>R$ {(item.preco * item.quantidade).toFixed(2).replace('.', ',')}</span>
               </div>
             </div>
           ))}
@@ -100,16 +100,16 @@ export default function Carrinho() {
           {/* Horário */}
           <div style={s.campo}>
             <label style={s.label}>Horário de retirada</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: horarioCustom ? 8 : 0 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: horarioCustom ?8 : 0 }}>
               {HORARIOS_SUGERIDOS.map(h => {
                 const ativo = !horarioCustom && horario === h
                 return (
                   <button key={h} type="button"
                     style={{
                       padding: '0.38rem 0.72rem', borderRadius: 20, cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', fontFamily: 'inherit',
-                      border: `2px solid ${ativo ? '#003D7C' : '#E2E8F0'}`,
-                      background: ativo ? '#003D7C' : '#fff',
-                      color: ativo ? '#fff' : '#64748B',
+                      border: `2px solid ${ativo ?'#003D7C' : '#E2E8F0'}`,
+                      background: ativo ?'#003D7C' : '#fff',
+                      color: ativo ?'#fff' : '#64748B',
                     }}
                     onClick={() => { setHorario(h); setHorarioCustom(false) }}>
                     {h}
@@ -119,9 +119,9 @@ export default function Carrinho() {
               <button type="button"
                 style={{
                   padding: '0.38rem 0.72rem', borderRadius: 20, cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem', fontFamily: 'inherit',
-                  border: `2px solid ${horarioCustom ? '#F47920' : '#E2E8F0'}`,
-                  background: horarioCustom ? '#FFF7ED' : '#fff',
-                  color: horarioCustom ? '#F47920' : '#64748B',
+                  border: `2px solid ${horarioCustom ?'#F47920' : '#E2E8F0'}`,
+                  background: horarioCustom ?'#FFF7ED' : '#fff',
+                  color: horarioCustom ?'#F47920' : '#64748B',
                 }}
                 onClick={() => { setHorarioCustom(true); setHorario('') }}>
                 ✏️ Outro
@@ -156,7 +156,7 @@ export default function Carrinho() {
                 { id: 'Dinheiro', label: '💵 Dinheiro' },
               ].map(op => (
                 <button key={op.id}
-                  style={{ ...s.pagBtn, ...(pagamento === op.id ? s.pagBtnAtivo : {}) }}
+                  style={{ ...s.pagBtn, ...(pagamento === op.id ?s.pagBtnAtivo : {}) }}
                   onClick={() => setPagamento(op.id)}>
                   {op.label}
                 </button>
@@ -178,10 +178,10 @@ export default function Carrinho() {
           </div>
 
           <button
-            style={{ ...s.btnConfirmar, opacity: enviando || !horario ? 0.7 : 1 }}
+            style={{ ...s.btnConfirmar, opacity: enviando || !horario ?0.7 : 1 }}
             onClick={handleConfirmar}
             disabled={enviando || !horario}>
-            {enviando ? 'Enviando...' : 'Confirmar Pedido'}
+            {enviando ?'Enviando...' : 'Confirmar Pedido'}
           </button>
         </div>
       </div>

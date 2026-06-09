@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../contexts/AppContext'
+import { caminhoInicialPorPerfil } from '../utils/perfis'
 
 export default function Cadastro() {
   const { cadastrar, usuarioLogado } = useApp()
@@ -8,9 +9,7 @@ export default function Cadastro() {
 
   useEffect(() => {
     if (!usuarioLogado) return
-    if (usuarioLogado.perfil === 'aluno') navigate('/aluno/cardapio')
-    else if (usuarioLogado.perfil === 'cozinha') navigate('/cozinha')
-    else if (usuarioLogado.perfil === 'admin') navigate('/admin')
+    navigate(caminhoInicialPorPerfil(usuarioLogado.perfil))
   }, [usuarioLogado, navigate])
   const [form, setForm] = useState({ nome: '', matricula: '', curso: '', telefone: '', email: '', senha: '', confirmar: '' })
   const alergOptions = ['gluten', 'lactose', 'amendoim', 'ovo', 'soja', 'frutos-do-mar']
@@ -33,9 +32,9 @@ export default function Cadastro() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!form.nome || !form.matricula || !form.senha) { setErro('Preencha todos os campos.'); return }
+    if (!form.nome || !form.email || !form.matricula || !form.senha) { setErro('Preencha nome, e-mail, matricula e senha.'); return }
     if (form.senha !== form.confirmar) { setErro('As senhas não conferem.'); return }
-    if (form.senha.length < 4) { setErro('A senha deve ter pelo menos 4 caracteres.'); return }
+    if (form.senha.length < 6) { setErro('A senha deve ter pelo menos 6 caracteres.'); return }
     const res = await cadastrar(form)
     if (res.erro) { setErro(res.erro); return }
     setOk(true)
@@ -62,10 +61,10 @@ export default function Cadastro() {
           <form onSubmit={handleSubmit} style={s.form}>
             {[
               { name: 'nome', label: 'Nome completo', placeholder: 'Ex: João Silva' },
+              { name: 'email',    label: 'E-mail',    placeholder: 'Ex: seunome@gmail.com' },
               { name: 'matricula', label: 'Matrícula', placeholder: 'Ex: 2024005' },
               { name: 'curso',     label: 'Curso',     placeholder: 'Ex: Desenvolvimento de Sistemas' },
             { name: 'telefone', label: 'Telefone',  placeholder: 'Ex: (11) 99999-0001' },
-            { name: 'email',    label: 'E-mail',    placeholder: 'Ex: seunome@gmail.com' },
             ].map(({ name, label, placeholder }) => (
               <div key={name} style={s.campo}>
                 <label style={s.label}>{label}</label>
@@ -74,7 +73,7 @@ export default function Cadastro() {
             ))}
             <div style={s.campo}>
               <label style={s.label}>Senha</label>
-              <input style={s.input} type="password" name="senha" value={form.senha} onChange={handle} placeholder="Mínimo 4 caracteres" />
+              <input style={s.input} type="password" name="senha" value={form.senha} onChange={handle} placeholder="Mínimo 6 caracteres" />
             </div>
             <div style={s.campo}>
               <label style={s.label}>Confirmar senha</label>

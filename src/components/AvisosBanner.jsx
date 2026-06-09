@@ -16,8 +16,8 @@ export default function AvisosBanner({ perfil }) {
 
   const visiveis = avisos.filter(av => {
     if (fechados.includes(av.id)) return false
-    const dest = av.destinatario || 'todos'
-    return dest === 'todos' || dest === perfil
+    const dest = av.destino || av.destinatario || 'todos'
+    return dest === 'todos' || dest === perfil || (perfil === 'alunos' && dest === 'aluno') || (perfil === 'aluno' && dest === 'alunos')
   })
 
   if (visiveis.length === 0) return null
@@ -41,9 +41,9 @@ export default function AvisosBanner({ perfil }) {
             <span style={{ fontSize: '1rem', flexShrink: 0 }}>{e.icon}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, color: e.color, fontSize: '0.85rem' }}>{av.titulo}</div>
-              {av.texto && <div style={{ color: '#374151', fontSize: '0.78rem', marginTop: 2, lineHeight: 1.4 }}>{av.texto}</div>}
+              {(av.mensagem || av.texto) && <div style={{ color: '#374151', fontSize: '0.78rem', marginTop: 2, lineHeight: 1.4 }}>{av.mensagem || av.texto}</div>}
             </div>
-            <button onClick={() => fechar(av.id)} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: '0 2px', fontSize: '1rem', flexShrink: 0, lineHeight: 1 }}>✕</button>
+            <button aria-label="Fechar aviso" onClick={() => fechar(av.id)} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: '0 2px', fontSize: '1rem', flexShrink: 0, lineHeight: 1 }}>✕</button>
           </div>
         )
       })}

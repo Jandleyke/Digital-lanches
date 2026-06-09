@@ -10,7 +10,7 @@ export default function Painel() {
     return () => clearInterval(t)
   }, [])
 
-  const prontos = pedidos.filter(p => p.status === 'Pronto')
+  const prontos = pedidos.filter(p => p.status === 'Pronto' && !p.retiradoEm)
   const recentes = pedidos.filter(p => p.status === 'Entregue').slice(0, 5)
 
   const horaStr = hora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })

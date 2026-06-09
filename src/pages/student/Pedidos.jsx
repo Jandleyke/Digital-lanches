@@ -11,6 +11,44 @@ import { Package, ClipboardList, QrCode } from 'lucide-react'
 
 const statusPasso = ['Recebido', 'Pronto', 'Entregue']
 const LIMITE_MS = 10 * 60 * 1000
+const JANELA_CANCELAMENTO_MS = 10 * 60 * 1000
+
+function CancelamentoTimer({ pedido }) {
+  const cancelavelAte = pedido.cancelavelAte || (pedido.criadoEm ? pedido.criadoEm + JANELA_CANCELAMENTO_MS : null)
+  const [restante, setRestante] = useState(() => Math.max(0, Number(cancelavelAte || 0) - Date.now()))
+
+  useEffect(() => {
+    if (!cancelavelAte) return
+    const id = setInterval(() => {
+      setRestante(Math.max(0, Number(cancelavelAte) - Date.now()))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [cancelavelAte])
+
+  if (!cancelavelAte || restante <= 0) return null
+  const min = Math.floor(restante / 60000)
+  const seg = Math.floor((restante % 60000) / 1000)
+  const urgente = restante <= 60 * 1000
+
+  return (
+    <div style={{
+      background: urgente ? '#FEE2E2' : '#EFF6FF',
+      color: urgente ? '#B91C1C' : '#1D4ED8',
+      border: `1.5px solid ${urgente ? '#FCA5A5' : '#BFDBFE'}`,
+      padding: '0.5rem 0.85rem',
+      borderRadius: 8,
+      fontWeight: 700,
+      fontSize: '0.82rem',
+      marginBottom: '0.75rem',
+      textAlign: 'center',
+    }}>
+      Pedido em processo: cancelamento disponivel por{' '}
+      <strong style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {min}:{String(seg).padStart(2, '0')}
+      </strong>
+    </div>
+  )
+}
 
 function CountdownTimer({ prontoEm }) {
   const [restante, setRestante] = useState(() => Math.max(0, LIMITE_MS - (Date.now() - prontoEm)))
@@ -86,6 +124,8 @@ export default function Pedidos() {
   const [aba, setAba] = useState('ativos')
   const [qrAberto, setQrAberto] = useState(null)
   const [cancelando, setCancelando] = useState(null)
+  const [avaliando, setAvaliando] = useState({})
+  const [msgAvaliacao, setMsgAvaliacao] = useState({})
 
   const meusPedidos = pedidos.filter(p => p.matricula === usuarioLogado?.matricula)
   const ativos = meusPedidos.filter(p => p.status !== 'Entregue' && p.status !== 'Cancelado')
@@ -105,6 +145,11 @@ export default function Pedidos() {
   useEffect(() => {
     const id = setInterval(() => {
       ativosRef.current.forEach(pedido => {
+        const cancelavelAte = pedido.cancelavelAte || (pedido.criadoEm ? pedido.criadoEm + JANELA_CANCELAMENTO_MS : null)
+        if (pedido.status === 'Recebido' && cancelavelAte && Date.now() >= cancelavelAte) {
+          cancelarRef.current(pedido.id, 'Tempo de cancelamento expirado - cancelamento automatico')
+          return
+        }
         if (pedido.status === 'Pronto' && pedido.prontoEm) {
           if (Date.now() - pedido.prontoEm >= LIMITE_MS) {
             cancelarRef.current(pedido.id, 'Não retirado em 10 minutos — cancelamento automático')
@@ -129,6 +174,27 @@ export default function Pedidos() {
       alert(`Alguns itens não puderam ser adicionados por falta de estoque: ${indisponiveis.join(', ')}`)
     }
     navigate('/aluno/carrinho')
+  }
+
+  function setAvaliacaoCampo(pedidoId, campo, valor) {
+    setAvaliando(prev => ({
+      ...prev,
+      [pedidoId]: { nota: 5, comentario: '', ...(prev[pedidoId] || {}), [campo]: valor },
+    }))
+    setMsgAvaliacao(prev => ({ ...prev, [pedidoId]: null }))
+  }
+
+  async function enviarAvaliacao(pedido) {
+    const draft = avaliando[pedido.id] || {}
+    if (!draft.nota) {
+      setMsgAvaliacao(prev => ({ ...prev, [pedido.id]: 'Escolha uma nota.' }))
+      return
+    }
+    const res = await avaliarPedido(pedido, draft.nota, draft.comentario || '')
+    setMsgAvaliacao(prev => ({
+      ...prev,
+      [pedido.id]: res?.erro || 'Avaliacao salva. Obrigado!',
+    }))
   }
 
   return (
@@ -172,6 +238,7 @@ export default function Pedidos() {
               {pronto && pedido.prontoEm && (
                 <CountdownTimer prontoEm={pedido.prontoEm} />
               )}
+              {pedido.status === 'Recebido' && <CancelamentoTimer pedido={pedido} />}
 
               <div style={s.cardTop}>
                 <div>
@@ -261,22 +328,41 @@ export default function Pedidos() {
 
               {pedido.status === 'Entregue' && (
                 <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTop: '1px solid #F1F5F9' }}>
-                  {pedido.avaliacao ? (
-                    <span style={{ fontSize: '0.82rem', color: '#94A3B8' }}>
-                      Sua avaliação: {'⭐'.repeat(pedido.avaliacao)}{'☆'.repeat(5 - pedido.avaliacao)}
-                    </span>
-                  ) : (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: '0.8rem', color: '#64748B', fontWeight: 600 }}>Como foi seu pedido?</span>
-                      {[1, 2, 3, 4, 5].map(n => (
-                        <button key={n} onClick={() => avaliarPedido(pedido.id, n)}
-                          style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, cursor: 'pointer', fontSize: '0.85rem', padding: '0.3rem 0.55rem', lineHeight: 1, color: '#F59E0B', fontWeight: 700 }}
-                          title={`Avaliar com ${n} estrela${n > 1 ? 's' : ''}`}>
-                          {n}⭐
+                  <div style={s.avaliacaoBox}>
+                    {pedido.avaliacao ? (
+                      <div style={s.avaliacaoSalva}>
+                        <span>Sua avaliação: {'⭐'.repeat(pedido.avaliacao)}{'☆'.repeat(5 - pedido.avaliacao)}</span>
+                        {pedido.comentarioAvaliacao && <p style={s.comentarioSalvo}>{pedido.comentarioAvaliacao}</p>}
+                      </div>
+                    ) : (
+                      <>
+                        <span style={s.avaliacaoTitulo}>Como foi seu lanche?</span>
+                        <div style={s.estrelas}>
+                          {[1, 2, 3, 4, 5].map(n => {
+                            const nota = avaliando[pedido.id]?.nota || 0
+                            return (
+                              <button key={n} type="button" onClick={() => setAvaliacaoCampo(pedido.id, 'nota', n)}
+                                style={{ ...s.estrelaBtn, color: n <= nota ? '#F59E0B' : '#CBD5E1' }}
+                                title={`Avaliar com ${n} estrela${n > 1 ? 's' : ''}`}>
+                                ★
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <textarea
+                          style={s.comentarioInput}
+                          value={avaliando[pedido.id]?.comentario || ''}
+                          onChange={e => setAvaliacaoCampo(pedido.id, 'comentario', e.target.value)}
+                          placeholder="Conte rapidinho: estava gostoso? chegou quente? vale a pena?"
+                          maxLength={280}
+                        />
+                        {msgAvaliacao[pedido.id] && <span style={s.msgAvaliacao}>{msgAvaliacao[pedido.id]}</span>}
+                        <button type="button" style={s.salvarAvaliacaoBtn} onClick={() => enviarAvaliacao(pedido)}>
+                          Enviar avaliação
                         </button>
-                      ))}
-                    </div>
-                  )}
+                      </>
+                    )}
+                  </div>
                   <button style={{ ...s.qrBtn, alignSelf: isMobile ? 'stretch' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
                     onClick={() => pedirNovamente(pedido)}>
                     🔁 Pedir de novo
@@ -324,6 +410,15 @@ const s = {
   qrTitulo: { fontWeight: 600, color: '#475569', fontSize: '0.85rem', marginBottom: '0.75rem' },
   qrWrap: { display: 'inline-block', padding: 12, background: '#fff', borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' },
   qrId: { marginTop: 8, fontFamily: 'monospace', color: '#94A3B8', fontSize: '0.78rem' },
+  avaliacaoBox: { display: 'flex', flexDirection: 'column', gap: 7, flex: 1, minWidth: 220 },
+  avaliacaoTitulo: { fontSize: '0.82rem', color: '#475569', fontWeight: 800 },
+  estrelas: { display: 'flex', gap: 3 },
+  estrelaBtn: { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1.35rem', lineHeight: 1, padding: 0 },
+  comentarioInput: { width: '100%', minHeight: 64, border: '1.5px solid #E2E8F0', borderRadius: 10, padding: '0.55rem 0.7rem', fontFamily: 'inherit', fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box' },
+  salvarAvaliacaoBtn: { alignSelf: 'flex-start', background: '#003D7C', color: '#fff', border: 'none', borderRadius: 10, padding: '0.5rem 0.85rem', fontWeight: 800, cursor: 'pointer', fontSize: '0.82rem' },
+  avaliacaoSalva: { fontSize: '0.82rem', color: '#64748B', fontWeight: 700 },
+  comentarioSalvo: { margin: '0.35rem 0 0', color: '#475569', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: '0.55rem 0.7rem', lineHeight: 1.4 },
+  msgAvaliacao: { color: '#1D4ED8', fontSize: '0.78rem', fontWeight: 700 },
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' },
   overlayBox: { background: '#fff', borderRadius: 16, padding: '1.5rem', width: '100%', maxWidth: 400 },
   label: { fontWeight: 600, fontSize: '0.82rem', color: '#64748B', display: 'block', marginBottom: 5 },

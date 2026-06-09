@@ -36,6 +36,15 @@ button { cursor: pointer; border: none; font-family: inherit; }
 a { text-decoration: none; color: inherit; }
 input, select, textarea { font-family: inherit; }
 
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(244, 121, 32, 0.75);
+  outline-offset: 2px;
+}
+
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--cinza-bg); }
 ::-webkit-scrollbar-thumb { background: var(--cinza-borda); border-radius: 3px; }

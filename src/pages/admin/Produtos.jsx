@@ -5,9 +5,13 @@ import { categorias } from '../../data/mockData'
 import { estoqueNivel } from '../../utils/statusColors'
 import { formatPrice } from '../../utils/formatters'
 import { useIsMobile } from '../../utils/useIsMobile'
+import { DIAS_CARDAPIO, DIAS_LABEL, resumoDiasProduto } from '../../utils/cardapioDias'
 
 const vazioNutri = { calorias: '', proteinas: '', carboidratos: '', gorduras: '', sodio: '' }
-const vazio = { nome: '', categoria: 'Lanches', preco: '', descricao: '', emoji: '🍔', estoque: '', estoqueBaixo: '', disponivel: true, foto: '', nutricional: { ...vazioNutri }, alergenios: [] }
+const DIAS_PRODUCAO = DIAS_CARDAPIO
+const vazio = { nome: '', categoria: 'Lanches', preco: '', descricao: '', composicao: '', emoji: '🍔', estoqueInicial: '', estoque: '', estoqueBaixo: '', disponivel: true, foto: '', nutricional: { ...vazioNutri }, alergenios: [], diasProducao: [] }
+
+const vazioLote = { nome: '', categoria: 'Lanches', preco: '', estoque: '', estoqueBaixo: '', diasProducao: [], disponivel: true }
 
 const ALERGENOS_PADRAO = ['gluten', 'lactose', 'amendoim', 'ovo', 'soja', 'frutos-do-mar']
 
@@ -39,9 +43,11 @@ function comprimirImagem(base64, maxPx = 400, qualidade = 0.72) {
 }
 
 export default function Produtos() {
-  const { produtos, atualizarProduto, adicionarProduto, removerProduto, removerProdutos } = useApp()
+  const { produtos, atualizarProduto, adicionarProduto, adicionarProdutos, removerProduto, removerProdutos } = useApp()
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState(vazio)
+  const [modalLote, setModalLote] = useState(false)
+  const [loteProdutos, setLoteProdutos] = useState([{ ...vazioLote }])
   const [confirmarExcluir, setConfirmarExcluir] = useState(null)
   const [erroExcluir, setErroExcluir] = useState('')
   const [excluindo, setExcluindo] = useState(false)
@@ -59,8 +65,9 @@ export default function Produtos() {
   const alertaEstoque = produtos.filter(p => p.estoqueBaixo > 0 && p.estoque <= p.estoqueBaixo)
 
   function abrirNovo() { setForm(vazio); setAbaModal('geral'); setModal('novo'); setErroSalvar('') }
+  function abrirLote() { setLoteProdutos([{ ...vazioLote }]); setErroSalvar(''); setModalLote(true) }
   function abrirEditar(p) {
-    setForm({ ...p, preco: String(p.preco), estoque: String(p.estoque), estoqueBaixo: String(p.estoqueBaixo || ''), nutricional: p.nutricional || { ...vazioNutri }, alergenios: p.alergenios || [] })
+    setForm({ ...p, preco: String(p.preco), estoqueInicial: String(p.estoqueInicial || ''), estoque: String(p.estoque), estoqueBaixo: String(p.estoqueBaixo || ''), nutricional: p.nutricional || { ...vazioNutri }, alergenios: p.alergenios || [], diasProducao: p.diasCardapio || p.diasProducao || [] })
     setAbaModal('geral'); setModal('editar'); setErroSalvar('')
   }
 
@@ -89,12 +96,59 @@ export default function Produtos() {
     if (salvando) return
     setSalvando(true); setErroSalvar('')
     try {
-      const prod = { ...form, preco: parseFloat(form.preco) || 0, estoque: parseInt(form.estoque) || 0, estoqueBaixo: parseInt(form.estoqueBaixo) || 0 }
+      const prod = { ...form, preco: parseFloat(form.preco) || 0, estoqueInicial: parseInt(form.estoqueInicial) || parseInt(form.estoque) || 0, estoque: parseInt(form.estoque) || 0, estoqueBaixo: parseInt(form.estoqueBaixo) || 0, diasCardapio: form.diasProducao || [] }
       if (modal === 'novo') await adicionarProduto(prod)
       else await atualizarProduto(prod)
       setModal(null)
     } catch (e) {
       setErroSalvar('Erro ao salvar: ' + (e.message || e.code))
+    } finally { setSalvando(false) }
+  }
+
+  function atualizarLinhaLote(index, campo, valor) {
+    setLoteProdutos(prev => prev.map((item, i) => i === index ? { ...item, [campo]: valor } : item))
+  }
+
+  function toggleDiaLote(index, dia) {
+    setLoteProdutos(prev => prev.map((item, i) => {
+      if (i !== index) return item
+      const dias = item.diasProducao || []
+      return { ...item, diasProducao: dias.includes(dia) ? dias.filter(d => d !== dia) : [...dias, dia] }
+    }))
+  }
+
+  function adicionarLinhaLote() {
+    setLoteProdutos(prev => [...prev, { ...vazioLote }])
+  }
+
+  function removerLinhaLote(index) {
+    setLoteProdutos(prev => prev.length === 1 ? prev : prev.filter((_, i) => i !== index))
+  }
+
+  async function salvarLote() {
+    if (salvando) return
+    const validos = loteProdutos.filter(item => item.nome.trim())
+    if (validos.length === 0) {
+      setErroSalvar('Informe pelo menos um produto.')
+      return
+    }
+    setSalvando(true); setErroSalvar('')
+    try {
+      await adicionarProdutos(validos.map(item => ({
+        ...vazio,
+        ...item,
+        nome: item.nome.trim(),
+        categoria: item.categoria || 'Lanches',
+        preco: parseFloat(item.preco) || 0,
+        estoqueInicial: parseInt(item.estoque) || 0,
+        estoque: parseInt(item.estoque) || 0,
+        estoqueBaixo: parseInt(item.estoqueBaixo) || 0,
+        diasCardapio: item.diasProducao || [],
+      })))
+      setModalLote(false)
+      setLoteProdutos([{ ...vazioLote }])
+    } catch (e) {
+      setErroSalvar('Erro ao salvar lote: ' + (e.message || e.code))
     } finally { setSalvando(false) }
   }
 
@@ -159,6 +213,7 @@ export default function Produtos() {
           ) : (
             <div style={s.toolbar}>
               <button style={s.btnNovo} onClick={abrirNovo}>+ Novo Produto</button>
+              <button style={s.btnLote} onClick={abrirLote}>+ Cadastro em lote</button>
               <button style={{ padding: '0.5rem 1rem', borderRadius: 8, background: '#F1F5F9', border: '1.5px solid #E2E8F0', color: '#475569', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }} onClick={() => setModoSelecao(true)}>
                 ☑ Selecionar
               </button>
@@ -196,6 +251,7 @@ export default function Produtos() {
                           <span style={{ background: '#FEF3C7', color: '#B45309', fontSize: '0.63rem', fontWeight: 800, padding: '0.1rem 0.45rem', borderRadius: 6 }}>⚡ Baixo</span>
                         )}
                         <span style={{ ...s.tagStatus, ...(p.disponivel ? s.disponivel : s.indisponivel) }}>{p.disponivel ? 'Ativo' : 'Inativo'}</span>
+                        <span style={s.diaResumo}>{resumoDiasProduto(p)}</span>
                         {p.alergenios && p.alergenios.length > 0 && (
                           <span style={s.alergenoBadge}>⚠️ {p.alergenios.length}</span>
                         )}
@@ -248,6 +304,7 @@ export default function Produtos() {
                           {p.alergenios.map(a => <span key={a} style={s.alergenoTag}>{a}</span>)}
                         </span>
                       )}
+                      <span style={s.diaResumo}>{resumoDiasProduto(p)}</span>
                     </span>
                     <span style={{ flex: 1, color: '#64748B', fontSize: '0.85rem' }}>{p.categoria}</span>
                     <span style={{ flex: 1, fontWeight: 700, color: '#003D7C' }}>{formatPrice(p.preco)}</span>
@@ -263,6 +320,51 @@ export default function Produtos() {
               })}
             </div>
           )}
+
+      {modalLote && (
+        <div style={s.overlay}>
+          <div style={{ ...s.modalBox, maxWidth: 920 }}>
+            <h3 style={s.modalTitulo}>Cadastro em lote</h3>
+            <p style={{ color: '#64748B', fontSize: '0.88rem', margin: '0 0 1rem' }}>
+              Cadastre vários produtos e programe os dias em que eles aparecem no cardapio. Sem marcar dias, o produto aparece todos os dias.
+            </p>
+            <div style={s.loteLista}>
+              {loteProdutos.map((item, index) => (
+                <div key={index} style={s.loteItem}>
+                  <div style={s.loteGrid}>
+                    <input style={s.input} value={item.nome} onChange={e => atualizarLinhaLote(index, 'nome', e.target.value)} placeholder="Nome do produto" />
+                    <select style={s.input} value={item.categoria} onChange={e => atualizarLinhaLote(index, 'categoria', e.target.value)}>
+                      {categorias.filter(c => c !== 'Todos').map(c => <option key={c}>{c}</option>)}
+                    </select>
+                    <input style={s.input} type="number" step="0.01" value={item.preco} onChange={e => atualizarLinhaLote(index, 'preco', e.target.value)} placeholder="Preço" />
+                    <input style={s.input} type="number" value={item.estoque} onChange={e => atualizarLinhaLote(index, 'estoque', e.target.value)} placeholder="Estoque" />
+                    <input style={s.input} type="number" value={item.estoqueBaixo} onChange={e => atualizarLinhaLote(index, 'estoqueBaixo', e.target.value)} placeholder="Minimo" />
+                  </div>
+                  <div style={s.diasLinha}>
+                    {DIAS_PRODUCAO.map(dia => {
+                      const ativo = (item.diasProducao || []).includes(dia)
+                      return (
+                        <button key={dia} type="button" onClick={() => toggleDiaLote(index, dia)} style={{ ...s.diaBtn, ...(ativo ? s.diaBtnAtivo : {}) }}>
+                          {DIAS_LABEL[dia] || dia}
+                        </button>
+                      )
+                    })}
+                    <button type="button" style={s.btnRemoverLinha} onClick={() => removerLinhaLote(index)}>Remover</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {erroSalvar && <p style={{ color: '#EF4444', fontSize: '0.82rem', marginTop: 8 }}>{erroSalvar}</p>}
+            <div style={s.modalBtns}>
+              <button style={s.btnCancelar} onClick={() => setModalLote(false)}>Cancelar</button>
+              <button style={s.btnLote} onClick={adicionarLinhaLote}>+ Adicionar linha</button>
+              <button style={{ ...s.btnSalvar, opacity: salvando ? 0.7 : 1 }} onClick={salvarLote} disabled={salvando}>
+                {salvando ? 'Salvando...' : `Salvar ${loteProdutos.filter(item => item.nome.trim()).length} produto(s)`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal detalhe */}
       {detalhe && (
@@ -384,7 +486,7 @@ export default function Produtos() {
 
             {abaModal === 'geral' && (
               <div style={s.formGrid}>
-                {[['nome','Nome','text'],['emoji','Emoji','text'],['preco','Preço (R$)','number'],['estoque','Estoque atual','number'],['estoqueBaixo','Alertar abaixo de (un)','number']].map(([key, label, tipo]) => (
+                {[['nome','Nome','text'],['emoji','Emoji','text'],['preco','Preço (R$)','number'],['estoqueInicial','Estoque inicial','number'],['estoque','Estoque atual','number'],['estoqueBaixo','Alertar abaixo de (un)','number']].map(([key, label, tipo]) => (
                   <div key={key}>
                     <label style={s.label}>{label}</label>
                     <input style={s.input} type={tipo} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} placeholder={key === 'estoqueBaixo' ? 'Ex: 5' : ''} />
@@ -393,6 +495,24 @@ export default function Produtos() {
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={s.label}>Descrição</label>
                   <textarea style={{ ...s.input, height: 70, resize: 'vertical' }} value={form.descricao} onChange={e => setForm({ ...form, descricao: e.target.value })} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={s.label}>Composição</label>
+                  <textarea style={{ ...s.input, height: 70, resize: 'vertical' }} value={form.composicao || ''} onChange={e => setForm({ ...form, composicao: e.target.value })} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={s.label}>Dias de produção</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {DIAS_PRODUCAO.map(dia => {
+                      const ativo = (form.diasProducao || []).includes(dia)
+                      return (
+                        <button key={dia} type="button" onClick={() => setForm(f => ({ ...f, diasProducao: ativo ? (f.diasProducao || []).filter(d => d !== dia) : [...(f.diasProducao || []), dia] }))}
+                          style={{ padding: '0.4rem 0.75rem', borderRadius: 20, border: `1.5px solid ${ativo ? '#003D7C' : '#CBD5E1'}`, background: ativo ? '#E8F0FB' : '#fff', color: ativo ? '#003D7C' : '#64748B', fontWeight: 700, cursor: 'pointer', textTransform: 'capitalize' }}>
+                          {DIAS_LABEL[dia] || dia}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
                 <div>
                   <label style={s.label}>Categoria</label>
@@ -578,6 +698,7 @@ const s = {
   abaAtiva: { color: '#003D7C', borderBottom: '2px solid #003D7C', fontWeight: 700 },
   toolbar: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: '0.75rem' },
   btnNovo: { background: '#F47920', color: '#fff', padding: '0.6rem 1.4rem', borderRadius: 10, fontWeight: 700 },
+  btnLote: { background: '#003D7C', color: '#fff', padding: '0.6rem 1.1rem', borderRadius: 10, fontWeight: 800 },
   tabela: { background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' },
   mCard: { display: 'flex', alignItems: 'center', padding: '0.75rem', borderBottom: '1px solid #F1F5F9', gap: 10 },
   mThumb: { width: 44, height: 44, borderRadius: 10, overflow: 'hidden', flexShrink: 0, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center' },
@@ -587,6 +708,7 @@ const s = {
   thumbEmoji: { fontSize: '1.5rem', display: 'block', textAlign: 'center' },
   badge: { padding: '0.2rem 0.6rem', borderRadius: 20, fontWeight: 600, fontSize: '0.75rem' },
   tagStatus: { padding: '0.2rem 0.7rem', borderRadius: 20, fontWeight: 600, fontSize: '0.75rem' },
+  diaResumo: { background: '#EFF6FF', color: '#1D4ED8', borderRadius: 8, padding: '0.12rem 0.45rem', fontSize: '0.66rem', fontWeight: 800, lineHeight: 1.25 },
   disponivel: { background: '#D1FAE5', color: '#059669' },
   indisponivel: { background: '#FEE2E2', color: '#EF4444' },
   btnEdit: { background: '#E8F0FB', padding: '0.3rem 0.5rem', borderRadius: 6, fontSize: '0.85rem' },
@@ -616,6 +738,13 @@ const s = {
   detSecao: { marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid #F1F5F9' },
   detSecaoTitulo: { fontWeight: 700, fontSize: '0.82rem', color: '#374151', marginBottom: '0.6rem' },
   modalBtns: { display: 'flex', gap: 10, justifyContent: 'flex-end' },
+  loteLista: { display: 'flex', flexDirection: 'column', gap: 10, marginBottom: '1rem' },
+  loteItem: { background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 14, padding: 12 },
+  loteGrid: { display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(130px, 0.9fr) repeat(3, minmax(90px, 0.65fr))', gap: 8 },
+  diasLinha: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' },
+  diaBtn: { padding: '0.32rem 0.65rem', borderRadius: 999, border: '1.5px solid #CBD5E1', background: '#fff', color: '#64748B', fontSize: '0.76rem', fontWeight: 800, cursor: 'pointer' },
+  diaBtnAtivo: { background: '#E8F0FB', color: '#003D7C', borderColor: '#003D7C' },
+  btnRemoverLinha: { marginLeft: 'auto', background: '#FEE2E2', color: '#DC2626', borderRadius: 999, padding: '0.32rem 0.7rem', fontWeight: 800 },
   btnCancelar: { padding: '0.65rem 1.4rem', borderRadius: 8, background: '#F1F5F9', color: '#64748B', fontWeight: 600 },
   btnSalvar: { padding: '0.65rem 1.4rem', borderRadius: 8, background: '#003D7C', color: '#fff', fontWeight: 700 },
 }

@@ -1,86 +1,32 @@
-import { useState, useEffect } from 'react'
+﻿﻿import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../contexts/AppContext'
 import { useIsMobile } from '../utils/useIsMobile'
-import { CheckCircle2, Mail, User, Lock } from 'lucide-react'
-import emailjs from '@emailjs/browser'
+import { ArrowRight, Clock3, Heart, Lock, Mail, ShoppingBag, UsersRound } from 'lucide-react'
+import { caminhoInicialPorPerfil } from '../utils/perfis'
 
-const EMAILJS_SERVICE_ID  = 'service_3it9k2c'
-const EMAILJS_TEMPLATE_ID = 'template_6m7nm4t'
-const EMAILJS_PUBLIC_KEY  = 'b4ZPNrCtOe_n4Q1jd'
-
-function mascaraEmail(email) {
-  if (!email) return '***@***.com'
-  const parts = email.split('@')
-  if (parts.length < 2) return email
-  const user = parts[0]
-  const domain = parts[1]
-  return `${user.slice(0, Math.min(3, user.length))}***@${domain}`
-}
-
-function gerarOTP() {
-  return String(Math.floor(100000 + Math.random() * 900000))
-}
-
-function ModalRedefinirSenha({ onFechar, redefinirSenhaVerificada, usuarios }) {
-  const [etapa, setEtapa]           = useState(1)
-  const [matricula, setMatricula]   = useState('')
-  const [codigo, setCodigo]         = useState('')
-  const [novaSenha, setNovaSenha]   = useState('')
-  const [confirmar, setConfirmar]   = useState('')
-  const [erro, setErro]             = useState('')
+function ModalRedefinirSenha({ onFechar, redefinirSenhaVerificada }) {
+  const [email, setEmail] = useState('')
+  const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
-  const [sucesso, setSucesso]       = useState(false)
-  const [usuarioEncontrado, setUsuarioEncontrado] = useState(null)
-  const [otpGerado, setOtpGerado]   = useState(null)
-  const [otpExpiry, setOtpExpiry]   = useState(null)
+  const [sucesso, setSucesso] = useState(false)
 
   async function handleEnviarCodigo() {
     setErro('')
-    const u = usuarios.find(u => u.matricula === matricula.trim())
-    if (!u) { setErro('Matrícula não encontrada.'); return }
-    if (!u.email) { setErro('Esta conta não tem e-mail cadastrado. Faça login, vá em Perfil e adicione seu e-mail.'); return }
+    const emailTrim = email.trim()
+    if (!emailTrim) { setErro('Informe seu e-mail.'); return }
+
     setCarregando(true)
-    try {
-      const otp = gerarOTP()
-      await emailjs.send(
-        EMAILJS_SERVICE_ID,
-        EMAILJS_TEMPLATE_ID,
-        { to_email: u.email, to_name: u.nome, otp_code: otp },
-        { publicKey: EMAILJS_PUBLIC_KEY }
-      )
-      setOtpGerado(otp)
-      setOtpExpiry(Date.now() + 10 * 60 * 1000)
-      setUsuarioEncontrado(u)
-      setEtapa(2)
-    } catch (e) {
-      console.error('[EmailJS]', e)
-      setErro('Erro ao enviar e-mail. Verifique sua conexão e tente novamente.')
+    const res = await redefinirSenhaVerificada(emailTrim)
+    setCarregando(false)
+
+    if (res?.erro) {
+      setErro(res.erro)
+      return
     }
-    setCarregando(false)
-  }
 
-  function handleVerificarCodigo() {
-    setErro('')
-    if (!codigo || codigo.length < 6) { setErro('Digite o código de 6 dígitos.'); return }
-    if (Date.now() > otpExpiry) { setErro('Código expirado. Clique em "Reenviar" para solicitar um novo.'); return }
-    if (codigo !== otpGerado) { setErro('Código incorreto. Verifique o e-mail e tente novamente.'); return }
-    setEtapa(3)
-  }
-
-  async function handleRedefinir() {
-    setErro('')
-    if (novaSenha.length < 4) { setErro('A senha deve ter pelo menos 4 caracteres.'); return }
-    if (novaSenha !== confirmar) { setErro('As senhas não conferem.'); return }
-    setCarregando(true)
-    const res = await redefinirSenhaVerificada(matricula.trim(), novaSenha)
-    setCarregando(false)
-    if (res.erro) { setErro(res.erro); return }
     setSucesso(true)
-    setTimeout(onFechar, 2500)
   }
-
-  const passos = ['Matrícula', 'Código E-mail', 'Nova senha']
 
   return (
     <div style={ms.overlay} onClick={e => e.target === e.currentTarget && onFechar()}>
@@ -88,100 +34,42 @@ function ModalRedefinirSenha({ onFechar, redefinirSenhaVerificada, usuarios }) {
         <div style={ms.header}>
           <div>
             <h3 style={ms.titulo}>Redefinir senha</h3>
-            <p style={ms.subtitulo}>Verificação por e-mail</p>
+            <p style={ms.subtitulo}>Envie um link de recuperação por e-mail</p>
           </div>
-          <button style={ms.fecharBtn} onClick={onFechar}>✕</button>
+          <button style={ms.fecharBtn} onClick={onFechar} aria-label="Fechar redefinição de senha">✕</button>
         </div>
-
-        {!sucesso && (
-          <div style={ms.steps}>
-            {passos.map((p, i) => {
-              const num = i + 1
-              const ativo = num === etapa
-              const feito = num < etapa
-              return (
-                <div key={p} style={ms.stepItem}>
-                  <div style={{ ...ms.stepDot, background: feito ? '#22C55E' : ativo ? '#003D7C' : '#E2E8F0', color: feito || ativo ? '#fff' : '#94A3B8' }}>
-                    {feito ? <CheckCircle2 size={13} /> : num}
-                  </div>
-                  <span style={{ ...ms.stepLabel, color: ativo ? '#003D7C' : feito ? '#22C55E' : '#94A3B8', fontWeight: ativo ? 700 : 400 }}>{p}</span>
-                  {i < passos.length - 1 && <div style={{ ...ms.stepLine, background: feito ? '#22C55E' : '#E2E8F0' }} />}
-                </div>
-              )
-            })}
-          </div>
-        )}
 
         {sucesso ? (
           <div style={ms.sucesso}>
-            <CheckCircle2 size={52} color="#22C55E" strokeWidth={1.5} />
-            <p style={ms.sucessoTitulo}>Senha redefinida!</p>
-            <p style={ms.sucessoSub}>Você já pode fazer login com a nova senha.</p>
+            <Mail size={52} color="#22C55E" />
+            <p style={ms.sucessoTitulo}>E-mail enviado!</p>
+            <p style={ms.sucessoSub}>Verifique sua caixa de entrada e clique no link para continuar.</p>
           </div>
-        ) : etapa === 1 ? (
+        ) : (
           <div style={ms.corpo}>
-            <p style={ms.instrucao}>Informe sua matrícula. Enviaremos um código para o e-mail cadastrado na conta.</p>
+            <p style={ms.instrucao}>Informe o e-mail da conta para receber o link de redefinicao.</p>
             <div style={ms.campo}>
-              <label style={ms.label}>Matrícula</label>
+              <label style={ms.label}>E-mail</label>
               <div style={ms.inputRow}>
-                <User size={16} color="#94A3B8" style={ms.inputIconStyle} />
-                <input style={ms.input} value={matricula}
-                  onChange={e => { setMatricula(e.target.value); setErro('') }}
-                  placeholder="Ex: 2024001" autoFocus
+                <Mail size={16} color="#94A3B8" style={ms.inputIconStyle} />
+                <input
+                  style={ms.input}
+                  type="email"
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); setErro('') }}
+                  placeholder="seunome@email.com"
+                  autoComplete="email"
+                  autoFocus
                   onKeyDown={e => e.key === 'Enter' && handleEnviarCodigo()} />
               </div>
             </div>
             {erro && <div style={ms.erro}>{erro}</div>}
-            <button style={{ ...ms.btnPrimario, opacity: carregando ? 0.7 : 1 }}
-              onClick={handleEnviarCodigo} disabled={carregando}>
-              {carregando ? 'Enviando e-mail...' : 'Enviar código por e-mail'}
-            </button>
-          </div>
-        ) : etapa === 2 ? (
-          <div style={ms.corpo}>
-            <div style={ms.dica}>
-              <Mail size={15} color="#003D7C" />
-              <span>Código enviado para <strong>{mascaraEmail(usuarioEncontrado?.email)}</strong></span>
-            </div>
-            <p style={ms.instrucao}>Digite o código de 6 dígitos recebido no seu e-mail. Verifique a caixa de spam.</p>
-            <div style={ms.campo}>
-              <label style={ms.label}>Código do e-mail</label>
-              <input style={ms.inputCodigo} value={codigo}
-                onChange={e => { setCodigo(e.target.value.replace(/\D/g, '').slice(0,6)); setErro('') }}
-                placeholder="000000" inputMode="numeric" maxLength={6} autoFocus
-                onKeyDown={e => e.key === 'Enter' && handleVerificarCodigo()} />
-            </div>
-            {erro && <div style={ms.erro}>{erro}</div>}
-            <div style={ms.botoes}>
-              <button style={ms.btnSecundario} onClick={() => { setEtapa(1); setErro(''); setCodigo('') }}>← Reenviar</button>
-              <button style={{ ...ms.btnPrimario, opacity: carregando ? 0.7 : 1 }}
-                onClick={handleVerificarCodigo} disabled={carregando}>
-                {carregando ? 'Verificando...' : 'Verificar →'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div style={ms.corpo}>
-            <p style={ms.instrucao}>E-mail verificado. Crie uma nova senha para sua conta.</p>
-            {[
-              { val: novaSenha, set: setNovaSenha, placeholder: 'Mínimo 4 caracteres', label: 'Nova senha' },
-              { val: confirmar, set: setConfirmar, placeholder: 'Repita a nova senha',   label: 'Confirmar senha' },
-            ].map(({ val, set, placeholder, label }) => (
-              <div key={label} style={ms.campo}>
-                <label style={ms.label}>{label}</label>
-                <div style={ms.inputRow}>
-                  <Lock size={16} color="#94A3B8" style={ms.inputIconStyle} />
-                  <input style={ms.input} type="password" value={val}
-                    onChange={e => { set(e.target.value); setErro('') }}
-                    placeholder={placeholder}
-                    onKeyDown={e => e.key === 'Enter' && handleRedefinir()} />
-                </div>
-              </div>
-            ))}
-            {erro && <div style={ms.erro}>{erro}</div>}
-            <button style={{ ...ms.btnPrimario, opacity: carregando ? 0.7 : 1 }}
-              onClick={handleRedefinir} disabled={carregando}>
-              {carregando ? 'Salvando...' : 'Redefinir senha'}
+            <button
+              style={{ ...ms.btnPrimario, opacity: carregando ? 0.7 : 1 }}
+              onClick={handleEnviarCodigo}
+              disabled={carregando}
+            >
+              {carregando ? 'Enviando...' : 'Enviar e-mail de redefinição'}
             </button>
           </div>
         )}
@@ -220,68 +108,60 @@ const ms = {
   sucessoSub:    { margin: 0, color: '#64748B', fontSize: '0.88rem' },
 }
 
-export default function Login() {
-  const { login, usuarioLogado, usuarios, redefinirSenhaVerificada } = useApp()
+export default function Login({ gerencial = false }) {
+  const { login, logout, redefinirSenhaVerificada } = useApp()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [modalSenha, setModalSenha] = useState(false)
 
-  useEffect(() => {
-    if (!usuarioLogado) return
-    if (usuarioLogado.perfil === 'aluno') navigate('/aluno/cardapio')
-    else if (usuarioLogado.perfil === 'cozinha') navigate('/cozinha')
-    else navigate('/admin')
-  }, [usuarioLogado, navigate])
 
-  const [matricula, setMatricula] = useState('')
+  const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
-  const [selectedRole, setSelectedRole] = useState('')
-
-  const hints = [
-    { label: 'Aluno',   matricula: '2024001', senha: '1234',   role: 'aluno' },
-    { label: 'Cozinha', matricula: 'COZ001',  senha: 'coz123', role: 'cozinha' },
-    { label: 'Gerente', matricula: 'GER001',  senha: 'ger123', role: 'gerente' },
-    { label: 'Admin',   matricula: 'ADM001',  senha: 'adm123', role: 'admin' },
+  const [entrando, setEntrando] = useState(false)
+  const recursos = [
+    { icon: ShoppingBag, texto: 'Cardápio digital completo' },
+    { icon: Clock3, texto: 'Acompanhamento ao vivo' },
+    { icon: Heart, texto: 'Favoritos e histórico' },
   ]
 
-  function handleLogin(e) {
+  async function handleLogin(e) {
     e.preventDefault()
-    const usuario = login(matricula, senha)
-    if (!usuario) { setErro('Matrícula ou senha incorretos.'); return }
-    if (usuario.bloqueado) { setErro('Sua conta está bloqueada. Procure um administrador.'); return }
-    if (usuario.perfil === 'aluno') navigate('/aluno/cardapio')
-    else if (usuario.perfil === 'cozinha') navigate('/cozinha')
-    else navigate('/admin')
+    setErro('')
+    setEntrando(true)
+    
+    const res = await login(email, senha)
+    
+    if (res?.erro) {
+      setEntrando(false)
+      setErro(res.erro)
+      return
+    }
+
+    const { usuario } = res
+
+    if (gerencial && usuario.perfil === 'aluno') {
+      await logout()
+      setEntrando(false)
+      setErro('Acesso negado. Use uma conta de admin, vendedor ou cozinha.')
+      return
+    }
+
+    setEntrando(false)
+    navigate(caminhoInicialPorPerfil(usuario.perfil))
   }
 
-  const quickAccess = (
-    <div style={s.quickWrap}>
-      <p style={s.quickLabel}>Acesso rápido</p>
-      <div style={s.quickBtns}>
-        {hints.map(h => (
-          <button key={h.label} style={s.quickBtn}
-            onClick={() => { setMatricula(h.matricula); setSenha(h.senha); setErro(''); setSelectedRole(h.role) }}>
-            {h.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-
   return (
-    <div style={s.page}>
+    <div style={{ ...s.page, alignItems: isMobile ? 'stretch' : 'center' }}>
       {modalSenha && (
         <ModalRedefinirSenha
           onFechar={() => setModalSenha(false)}
           redefinirSenhaVerificada={redefinirSenhaVerificada}
-          usuarios={usuarios}
         />
       )}
-      <div style={{ ...s.card, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' }}>
+      <div style={{ ...s.card, gridTemplateColumns: isMobile ? '1fr' : '0.95fr 1.05fr', minHeight: isMobile ? 'auto' : 560 }}>
 
-        {/* ── Painel Brand ── */}
-        <div style={{ ...s.brandPanel, padding: isMobile ? '1.4rem 1.5rem' : '2.75rem 2.25rem' }}>
+        <div style={{ ...s.brandPanel, padding: isMobile ? '1.35rem 1.35rem 1.25rem' : '2.6rem 2.45rem' }}>
           <div style={s.brandMark}>
             <div>
               <div style={{ ...s.brandName, fontSize: isMobile ? '1.1rem' : '1.45rem' }}>
@@ -293,36 +173,49 @@ export default function Login() {
 
           {!isMobile && (
             <>
-              <p style={s.brandDesc}>
-                Faça seu pedido com facilidade, acompanhe o preparo em tempo real e retire no balcão com QR Code.
-              </p>
+              <div style={s.brandHero}>
+                <h1 style={s.brandTitle}>Pedido rápido, retirada simples.</h1>
+                <p style={s.brandDesc}>
+                  Escolha seus lanches, acompanhe o preparo e retire no balcão com mais praticidade.
+                </p>
+              </div>
               <div style={s.featureList}>
-                {['🛒 Cardápio digital completo', '⏱️ Acompanhamento ao vivo', '❤️ Favoritos e histórico'].map(f => (
-                  <div key={f} style={s.featureItem}>{f}</div>
+                {recursos.map(({ icon: Icon, texto }) => (
+                  <div key={texto} style={s.featureItem}>
+                    <span style={s.featureIcon}><Icon size={16} /></span>
+                    <span>{texto}</span>
+                  </div>
                 ))}
               </div>
-              <div style={{ marginTop: 'auto' }}>
-                {quickAccess}
+              <div style={s.brandFooter}>
+                <span style={s.statusDot} />
+                <span>Sistema online</span>
               </div>
             </>
           )}
         </div>
 
-        {/* ── Painel Formulário ── */}
-        <div style={{ ...s.formPanel, padding: isMobile ? '1.5rem 1.5rem 2rem' : '2.75rem 2.25rem' }}>
-          <h2 style={{ ...s.formTitle, fontSize: isMobile ? '1.25rem' : '1.45rem' }}>Entrar na conta</h2>
-          <p style={s.formSub}>Acesse com sua matrícula e senha</p>
+        <div style={{ ...s.formPanel, padding: isMobile ? '1.45rem 1.25rem 1.65rem' : '3rem 2.7rem' }}>
+          <div style={s.formHeader}>
+            <span style={s.formBadge}>
+              <UsersRound size={15} />
+              {gerencial ? 'Equipe' : 'Aluno'}
+            </span>
+            <h2 style={{ ...s.formTitle, fontSize: isMobile ? '1.35rem' : '1.65rem' }}>{gerencial ? 'Login gerencial' : 'Entrar na conta'}</h2>
+            <p style={s.formSub}>{gerencial ? 'Acesso da equipe administrativa, vendas e cozinha' : 'Acesse com seu e-mail e senha'}</p>
+          </div>
 
           <form onSubmit={handleLogin} style={s.form}>
             <div style={s.campo}>
-              <label style={s.label}>Matrícula</label>
+              <label style={s.label}>E-mail</label>
               <div style={s.inputWrap}>
-                <span style={s.inputIcon}>🎓</span>
+                <Mail size={18} style={s.inputIcon} />
                 <input
                   style={s.input}
-                  value={matricula}
-                  onChange={e => { setMatricula(e.target.value); setErro('') }}
-                  placeholder="Ex: 2024001"
+                  type="email"
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); setErro('') }}
+                  placeholder="seunome@email.com"
                   autoComplete="username"
                 />
               </div>
@@ -331,7 +224,7 @@ export default function Login() {
             <div style={s.campo}>
               <label style={s.label}>Senha</label>
               <div style={s.inputWrap}>
-                <span style={s.inputIcon}>🔒</span>
+                <Lock size={18} style={s.inputIcon} />
                 <input
                   style={s.input}
                   type="password"
@@ -343,7 +236,7 @@ export default function Login() {
               </div>
             </div>
 
-            {selectedRole === 'aluno' && !usuarioLogado && (
+            {!gerencial && (
               <p style={s.cadastroLink}>
                 Não tem conta?{' '}
                 <button type="button" onClick={() => navigate('/cadastro')} style={s.cadastroBtn}>
@@ -354,31 +247,23 @@ export default function Login() {
 
             {erro && <div style={s.erroBox}>{erro}</div>}
 
-            <button type="submit" style={s.btnEntrar}>
-              Entrar →
+            <button type="submit" style={{ ...s.btnEntrar, opacity: entrando ? 0.7 : 1 }} disabled={entrando}>
+              <span>{entrando ? 'Entrando...' : 'Entrar'}</span>
+              {!entrando && <ArrowRight size={18} />}
+            </button>
+
+            <button
+              type="button"
+              style={s.btnAlternarAcesso}
+              onClick={() => navigate(gerencial ? '/login' : '/login-gerencial')}
+            >
+              {gerencial ? 'Acesso do aluno' : 'Acesso da equipe'}
             </button>
 
             <button type="button" style={s.esqueceuBtn} onClick={() => setModalSenha(true)}>
               Esqueceu sua senha?
             </button>
           </form>
-
-          {isMobile && (
-            <div style={{ marginTop: '1.5rem', borderTop: '1px solid #F1F5F9', paddingTop: '1.25rem' }}>
-              <p style={{ fontSize: '0.72rem', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, marginBottom: 10 }}>
-                Acesso rápido
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {hints.map(h => (
-                  <button key={h.label}
-                    style={{ padding: '0.4rem 0.85rem', borderRadius: 20, background: '#EFF6FF', border: '1px solid #DBEAFE', color: '#003D7C', fontWeight: 600, fontSize: '0.79rem', cursor: 'pointer', fontFamily: 'inherit' }}
-                    onClick={() => { setMatricula(h.matricula); setSenha(h.senha); setErro(''); setSelectedRole(h.role) }}>
-                    {h.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -388,61 +273,54 @@ export default function Login() {
 const s = {
   page: {
     minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'linear-gradient(135deg, #0B1E45 0%, #003D7C 55%, #004F9E 100%)',
-    padding: '1rem',
+    background: 'linear-gradient(135deg, #071832 0%, #0B1E45 36%, #003D7C 72%, #004F9E 100%)',
+    padding: '1.25rem',
   },
   card: {
     display: 'grid',
-    borderRadius: 24, overflow: 'hidden',
-    width: '100%', maxWidth: 820,
-    boxShadow: '0 30px 80px rgba(0,0,0,0.4)',
+    borderRadius: 28, overflow: 'hidden',
+    width: '100%', maxWidth: 920,
+    background: '#fff',
+    boxShadow: '0 32px 90px rgba(0,0,0,0.42)',
+    border: '1px solid rgba(255,255,255,0.18)',
   },
 
   /* Brand panel */
   brandPanel: {
-    background: 'linear-gradient(160deg, #0B1E45 0%, #003D7C 100%)',
-    display: 'flex', flexDirection: 'column', gap: '1.25rem', color: '#fff',
+    background: 'linear-gradient(160deg, #0B1E45 0%, #003D7C 72%, #004F9E 100%)',
+    display: 'flex', flexDirection: 'column', gap: '1.55rem', color: '#fff',
     borderBottom: '1px solid rgba(255,255,255,0.06)',
   },
   brandMark: { display: 'flex', alignItems: 'center', gap: 12 },
-  brandIcon: {
-    background: 'linear-gradient(135deg, #F47920 0%, #FF9A4D 100%)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    boxShadow: '0 6px 20px rgba(244,121,32,0.5)', flexShrink: 0,
-  },
   brandName: { fontWeight: 900, color: '#fff', letterSpacing: '-0.02em', lineHeight: 1.1 },
   brandSub: { fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, marginTop: 2 },
-  brandDesc: { color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.65 },
-  featureList: { display: 'flex', flexDirection: 'column', gap: 8 },
-  featureItem: { color: 'rgba(255,255,255,0.75)', fontSize: '0.86rem', fontWeight: 500 },
-
-  /* Quick access */
-  quickWrap: {},
-  quickLabel: { fontSize: '0.72rem', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, marginBottom: 10 },
-  quickBtns: { display: 'flex', gap: 8, flexWrap: 'wrap' },
-  quickBtn: {
-    padding: '0.45rem 1rem', borderRadius: 20,
-    background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)',
-    color: '#fff', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer',
-    fontFamily: 'inherit',
-  },
+  brandHero: { marginTop: '1.1rem' },
+  brandTitle: { margin: 0, color: '#fff', fontSize: '2rem', lineHeight: 1.12, fontWeight: 900, letterSpacing: 0 },
+  brandDesc: { color: 'rgba(255,255,255,0.68)', fontSize: '0.93rem', lineHeight: 1.65, margin: '1rem 0 0' },
+  featureList: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: '0.2rem' },
+  featureItem: { color: 'rgba(255,255,255,0.82)', fontSize: '0.88rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 10 },
+  featureIcon: { width: 32, height: 32, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.1)', color: '#F47920', border: '1px solid rgba(255,255,255,0.12)', flexShrink: 0 },
+  brandFooter: { marginTop: 'auto', color: 'rgba(255,255,255,0.62)', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 },
+  statusDot: { width: 8, height: 8, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 0 4px rgba(34,197,94,0.14)' },
 
   /* Form panel */
   formPanel: { background: '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'center' },
-  formTitle: { fontWeight: 800, color: '#0F172A', marginBottom: 4 },
-  formSub: { color: '#64748B', fontSize: '0.86rem', marginBottom: '1.5rem' },
-  form: { display: 'flex', flexDirection: 'column', gap: '1rem' },
-  campo: { display: 'flex', flexDirection: 'column', gap: 6 },
-  label: { fontWeight: 600, fontSize: '0.82rem', color: '#374151' },
+  formHeader: { marginBottom: '1.65rem' },
+  formBadge: { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '0.42rem 0.72rem', borderRadius: 999, background: '#EFF6FF', color: '#003D7C', fontSize: '0.78rem', fontWeight: 800, marginBottom: '0.85rem' },
+  formTitle: { fontWeight: 900, color: '#0F172A', margin: 0, letterSpacing: 0, lineHeight: 1.12 },
+  formSub: { color: '#64748B', fontSize: '0.9rem', margin: '0.55rem 0 0', lineHeight: 1.45 },
+  form: { display: 'flex', flexDirection: 'column', gap: '0.95rem' },
+  campo: { display: 'flex', flexDirection: 'column', gap: 7 },
+  label: { fontWeight: 700, fontSize: '0.82rem', color: '#334155' },
   inputWrap: { position: 'relative', display: 'flex', alignItems: 'center' },
-  inputIcon: { position: 'absolute', left: 13, fontSize: '1rem', userSelect: 'none', pointerEvents: 'none' },
+  inputIcon: { position: 'absolute', left: 14, color: '#94A3B8', userSelect: 'none', pointerEvents: 'none' },
   input: {
-    width: '100%', paddingLeft: '2.5rem', paddingRight: '1rem',
-    paddingTop: '0.78rem', paddingBottom: '0.78rem',
-    borderRadius: 12, border: '2px solid #E5E7EB',
+    width: '100%', paddingLeft: '2.75rem', paddingRight: '1rem',
+    paddingTop: '0.88rem', paddingBottom: '0.88rem',
+    borderRadius: 14, border: '2px solid #E2E8F0',
     fontSize: '0.95rem', outline: 'none',
-    background: '#F8FAFC', color: '#0F172A',
-    fontFamily: 'inherit', transition: 'border-color 0.2s',
+    background: '#F8FAFC', color: '#0F172A', boxSizing: 'border-box',
+    fontFamily: 'inherit', transition: 'border-color 0.2s, box-shadow 0.2s',
   },
   erroBox: {
     background: '#FEF2F2', color: '#DC2626', fontSize: '0.84rem',
@@ -450,17 +328,21 @@ const s = {
     border: '1px solid #FECACA',
   },
   btnEntrar: {
-    padding: '0.9rem', borderRadius: 12, border: 'none',
+    padding: '0.95rem 1rem', borderRadius: 14, border: 'none',
     background: 'linear-gradient(135deg, #F47920 0%, #E8650A 100%)',
     color: '#fff', fontWeight: 800, fontSize: '1rem', cursor: 'pointer',
-    boxShadow: '0 6px 20px rgba(244,121,32,0.4)', marginTop: 4,
+    boxShadow: '0 12px 28px rgba(244,121,32,0.34)', marginTop: 4,
     fontFamily: 'inherit', letterSpacing: '0.01em',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
   cadastroLink: { fontSize: '0.84rem', color: '#64748B', textAlign: 'center' },
   cadastroBtn: { background: 'none', color: '#F47920', fontWeight: 700, fontSize: '0.84rem', padding: 0, border: 'none', cursor: 'pointer', fontFamily: 'inherit' },
+  btnAlternarAcesso: {
+    padding: '0.82rem', borderRadius: 14,
+    background: '#EFF6FF', color: '#003D7C',
+    border: '1px solid #DBEAFE',
+    fontWeight: 800, fontSize: '0.9rem',
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
   esqueceuBtn: { background: 'none', border: 'none', color: '#64748B', fontSize: '0.83rem', cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit', textDecoration: 'underline', padding: '0.2rem 0' },
-
-  /* Mobile quick access inside form panel */
-  quickLabelDark: { fontSize: '0.72rem', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, marginBottom: 10 },
-  quickBtnDark: { padding: '0.4rem 0.9rem', borderRadius: 20, background: '#EFF6FF', border: '1px solid #DBEAFE', color: '#003D7C', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'inherit' },
 }

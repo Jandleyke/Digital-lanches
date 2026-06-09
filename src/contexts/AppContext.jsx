@@ -6,25 +6,32 @@ import { useProdutos } from './hooks/useProdutos'
 import { useAvisos } from './hooks/useAvisos'
 import { usePedidos } from './hooks/usePedidos'
 import { useAuth } from './hooks/useAuth'
+import { useLanchoneteConfig } from './hooks/useLanchoneteConfig'
+import { useProducaoDiaria } from './hooks/useProducaoDiaria'
+import { useAvaliacoes } from './hooks/useAvaliacoes'
 
 const AppContext = createContext()
 
 export function AppProvider({ children }) {
   const [fbStatus, setFbStatus] = useState('conectando')
   const [fbDebug, setFbDebug] = useState('')
-  const carregando = fbStatus === 'conectando'
 
   const onFbStatus = useCallback((status, debug) => { setFbStatus(status); setFbDebug(debug) }, [])
 
-  const { carrinho, setCarrinho, adicionarAoCarrinho, removerDoCarrinho, limparCarrinho, totalCarrinho, qtdCarrinho, favoritos, toggleFavorito } = useCarrinho()
-  const { produtos, atualizarProduto, adicionarProduto, removerProduto, removerProdutos } = useProdutos()
   const {
-    usuarioLogado, login, logout, cadastrar, cadastrarUsuario, alterarSenha, redefinirSenhaTelefone, redefinirSenhaVerificada,
+    usuarioLogado, carregandoAuth, login, logout: sair, cadastrar, cadastrarUsuario, alterarSenha, redefinirSenhaTelefone, redefinirSenhaVerificada,
     usuarios, bloquearUsuario, desbloquearUsuario, excluirUsuario, resetarSenhaAdmin, atualizarUsuario,
-  } = useAuth({ onLogout: limparCarrinho })
-  const { avisos, criarAviso, editarAviso, excluirAviso } = useAvisos(usuarioLogado)
+  } = useAuth({})
+  const carregando = carregandoAuth || fbStatus === 'conectando'
+  const { carrinho, setCarrinho, adicionarAoCarrinho, removerDoCarrinho, limparCarrinho, totalCarrinho, qtdCarrinho, favoritos, toggleFavorito } = useCarrinho(usuarioLogado)
+  const { produtos, atualizarProduto, adicionarProduto, adicionarProdutos, removerProduto, removerProdutos } = useProdutos(usuarioLogado)
+  const logout = useCallback(() => { limparCarrinho(); sair() }, [limparCarrinho, sair])
+  const { avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso } = useAvisos(usuarioLogado)
+  const { avaliacoes, resumoPorProduto: resumoAvaliacoesPorProduto } = useAvaliacoes(usuarioLogado)
+  const { producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao } = useProducaoDiaria(usuarioLogado, criarAviso)
+  const { lanchoneteConfig, salvarLanchoneteConfig } = useLanchoneteConfig(usuarioLogado)
   const {
-    pedidos, fazerPedido, atualizarStatusPedido, cancelarPedido, editarPedido, limparEntregues, avaliarPedido, tempoEstimado,
+    pedidos, fazerPedido, atualizarStatusPedido, cancelarPedido, editarPedido, limparEntregues, avaliarPedido, marcarPedidoPago, tempoEstimado,
   } = usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onFbStatus })
 
   // ─── Debug ────────────────────────────────────────────────────────────────
@@ -41,11 +48,15 @@ export function AppProvider({ children }) {
   return (
     <AppContext.Provider value={{
       usuarioLogado, login, logout, cadastrar, cadastrarUsuario, alterarSenha, redefinirSenhaTelefone, redefinirSenhaVerificada,
+      carregandoAuth,
       usuarios, bloquearUsuario, desbloquearUsuario, excluirUsuario, resetarSenhaAdmin,
       atualizarUsuario,
-      produtos, atualizarProduto, adicionarProduto, removerProduto, removerProdutos,
-      pedidos, fazerPedido, atualizarStatusPedido, cancelarPedido, editarPedido, limparEntregues, avaliarPedido,
-      avisos, criarAviso, editarAviso, excluirAviso,
+      produtos, atualizarProduto, adicionarProduto, adicionarProdutos, removerProduto, removerProdutos,
+      pedidos, fazerPedido, atualizarStatusPedido, cancelarPedido, editarPedido, limparEntregues, avaliarPedido, marcarPedidoPago,
+      avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso,
+      avaliacoes, resumoAvaliacoesPorProduto,
+      producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao,
+      lanchoneteConfig, salvarLanchoneteConfig,
       fbStatus, fbDebug, testarFirebase, carregando,
       carrinho, adicionarAoCarrinho, removerDoCarrinho, limparCarrinho, totalCarrinho, qtdCarrinho,
       favoritos, toggleFavorito, tempoEstimado,

@@ -4,7 +4,7 @@ import { buildContextoAluno, buildContextoAdmin } from './aiContext'
 const usuario = { matricula: '111', nome: 'Ana', alergias: ['amendoim'] }
 
 const produtos = [
-  { id: 1, nome: 'Coxinha', preco: 7, categoria: 'Salgados', alergenios: ['glúten'], disponivel: true, estoque: 2, estoqueBaixo: 5 },
+  { id: 1, nome: 'Coxinha', preco: 7, categoria: 'Salgados', alergenios: ['amendoim'], disponivel: true, estoque: 2, estoqueBaixo: 5 },
   { id: 2, nome: 'Suco de Laranja', preco: 5, categoria: 'Bebidas', alergenios: [], disponivel: true, estoque: 20, estoqueBaixo: 5 },
   { id: 3, nome: 'Esfirra Indisponível', preco: 6, categoria: 'Salgados', alergenios: [], disponivel: false, estoque: 0, estoqueBaixo: 5 },
 ]
@@ -22,13 +22,13 @@ describe('buildContextoAluno', () => {
     expect(ctx.cardapio.map(p => p.nome)).toEqual(['Coxinha', 'Suco de Laranja'])
   })
 
-  it('limita o cardápio a 15 itens', () => {
-    const muitos = Array.from({ length: 20 }, (_, i) => ({ id: i, nome: `Item ${i}`, preco: 1, categoria: 'X', alergenios: [], disponivel: true }))
+  it('limita o cardápio a 30 itens', () => {
+    const muitos = Array.from({ length: 35 }, (_, i) => ({ id: i, nome: `Item ${i}`, preco: 1, categoria: 'X', alergenios: [], disponivel: true }))
     const ctx = buildContextoAluno(usuario, muitos, [])
-    expect(ctx.cardapio.length).toBe(15)
+    expect(ctx.cardapio.length).toBe(30)
   })
 
-  it('inclui apenas os pedidos do próprio aluno, no máximo 3', () => {
+  it('inclui apenas os pedidos do próprio aluno, no máximo 5', () => {
     const ctx = buildContextoAluno(usuario, produtos, pedidos)
     expect(ctx.meusPedidos.length).toBe(2)
     expect(ctx.meusPedidos.every(p => p.itens)).toBe(true)
@@ -48,12 +48,20 @@ describe('buildContextoAluno', () => {
   it('resume favoritos, carrinho e tela atual a partir de extras', () => {
     const ctx = buildContextoAluno(usuario, produtos, pedidos, {
       favoritos: [1, 3],
-      carrinho: [{ nome: 'Suco de Laranja', quantidade: 2 }],
+      carrinho: [{ id: 2, nome: 'Suco de Laranja', quantidade: 2, preco: 5 }],
       tela: { pagina: 'Carrinho' },
     })
     expect(ctx.favoritos).toEqual(['Coxinha', 'Esfirra Indisponível'])
-    expect(ctx.carrinho).toEqual([{ nome: 'Suco de Laranja', quantidade: 2 }])
+    expect(ctx.carrinho).toEqual({
+      itens: [{ id: 2, nome: 'Suco de Laranja', quantidade: 2, subtotal: 10 }],
+      total: 10,
+    })
     expect(ctx.telaAtual).toEqual({ pagina: 'Carrinho' })
+  })
+
+  it('destaca produtos com alergias do aluno', () => {
+    const ctx = buildContextoAluno(usuario, produtos, pedidos)
+    expect(ctx.alertasAlergia).toEqual([{ produto: 'Coxinha', alergenios: ['amendoim'] }])
   })
 })
 
@@ -74,9 +82,10 @@ describe('buildContextoAdmin', () => {
   it('identifica produtos com estoque baixo', () => {
     const ctx = buildContextoAdmin(produtos, pedidos)
     expect(ctx.estoqueBaixo).toEqual([
-      { nome: 'Coxinha', estoque: 2 },
-      { nome: 'Esfirra Indisponível', estoque: 0 },
+      { nome: 'Coxinha', estoque: 2, limite: 5 },
+      { nome: 'Esfirra Indisponível', estoque: 0, limite: 5 },
     ])
+    expect(ctx.indisponiveis).toEqual([{ nome: 'Esfirra Indisponível', estoque: 0, disponivel: false }])
   })
 
   it('calcula a nota média a partir dos pedidos avaliados', () => {

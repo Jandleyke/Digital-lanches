@@ -10,8 +10,8 @@ administração gerencia produtos, estoque, usuários, avisos e relatórios.
 ## Stack técnica
 - **React 19 + Vite** (build/dev server), **react-router-dom v7**
 - **Firebase Firestore** como banco de dados (tempo real via `onSnapshot`)
-- **Autenticação própria**: NÃO usa Firebase Auth — login compara matrícula/senha
-  direto na coleção `usuarios` do Firestore
+- **Autenticação**: Usa Firebase Authentication (e-mail/senha). Dados adicionais 
+  (perfil, matrícula, curso) são sincronizados na coleção `usuarios` do Firestore.
 - Hospedado na **Vercel** (deploy via `npx vercel --prod`, domínio
   `senac-lanches.vercel.app`), com função serverless em `api/` (Node/ESM)
 - **Google Gemini API** (camada gratuita, modelo `gemini-2.5-flash`) para o
@@ -36,7 +36,7 @@ administração gerencia produtos, estoque, usuários, avisos e relatórios.
   (mantém a `GEMINI_API_KEY` só no servidor)
 
 ## Perfis de usuário
-`aluno`, `cozinha`, `admin`/`gerente` — controlam rotas e o que cada um vê.
+`aluno`, `admin`, `vendedora`, `cozinha` — controlam rotas e permissões.
 
 ## Decisões/recursos importantes (e por quê)
 - **Notificações do navegador** (`src/utils/notifications.js`): avisa o aluno
@@ -60,7 +60,7 @@ administração gerencia produtos, estoque, usuários, avisos e relatórios.
     `cancelarPedido`), respeitando as mesmas regras (ex.: só cancela pedido
     com status "Recebido"). Também recebe um resumo da tela atual
     (`telaAtual`) para comentar sobre o que o aluno está vendo.
-  - **admin/gerente**: resume vendas, estoque e avaliações (somente leitura,
+  - **admin**: resume vendas, estoque e avaliações (somente leitura,
     sem ações).
   - A chave `GEMINI_API_KEY` fica só no ambiente da Vercel (nunca no bundle do
     cliente — verificado via grep em `dist/assets/*.js`). O backend

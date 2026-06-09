@@ -20,10 +20,11 @@ export const categorias = ['Todos', 'Lanches', 'Salgados', 'Bebidas', 'Doces'];
 export const pedidosIniciais = [];
 
 export const usuarios = [
-  { id: 1, nome: 'Ana Silva', matricula: '2024001', senha: '1234', perfil: 'aluno', curso: 'Desenvolvimento de Sistemas' },
-  { id: 2, nome: 'Carlos Mendes', matricula: '2024002', senha: '1234', perfil: 'aluno', curso: 'Administração' },
-  { id: 3, nome: 'Maria Santos', matricula: '2024003', senha: '1234', perfil: 'aluno', curso: 'Enfermagem' },
-  { id: 4, nome: 'Cozinha Senac',  matricula: 'COZ001', senha: 'coz123', perfil: 'cozinha',  curso: '', telefone: '(11) 91111-2222', email: '' },
-  { id: 5, nome: 'Admin Senac',   matricula: 'ADM001', senha: 'adm123', perfil: 'admin',    curso: '', telefone: '(11) 93333-4444', email: '' },
-  { id: 6, nome: 'Gerente Senac', matricula: 'GER001', senha: 'ger123', perfil: 'gerente',  curso: '', telefone: '(11) 95555-6666', email: '' },
+  { id: 1, nome: 'Ana Silva', email: 'ana.demo@example.com', matricula: '2024001', role: 'aluno', ativo: true, curso: 'Desenvolvimento de Sistemas' },
+  { id: 2, nome: 'Carlos Mendes', email: 'carlos.demo@example.com', matricula: '2024002', role: 'aluno', ativo: true, curso: 'Administracao' },
+  { id: 3, nome: 'Maria Santos', email: 'maria.demo@example.com', matricula: '2024003', role: 'aluno', ativo: true, curso: 'Enfermagem' },
+  { id: 4, nome: 'Cozinha Senac', email: 'cozinha@senac-lanches.local', matricula: 'COZ001', role: 'cozinha', ativo: true, curso: '', telefone: '(11) 91111-2222' },
+  { id: 5, nome: 'Admin Senac', email: 'adm001@senac-lanches.local', matricula: 'ADM001', role: 'admin', ativo: true, curso: '', telefone: '(11) 93333-4444' },
+  { id: 6, nome: 'Gerente Senac', email: 'gerente@senac-lanches.local', matricula: 'GER001', role: 'gerente', ativo: true, curso: '', telefone: '(11) 95555-6666' },
+  { id: 7, nome: 'Vendedor Senac', email: 'vendedor@senac-lanches.local', matricula: 'VEN001', role: 'vendedor', ativo: true, curso: '', telefone: '' },
 ];

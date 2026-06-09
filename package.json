@@ -10,11 +10,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
-    "deploy": "npx vercel --prod --yes"
+    "deploy": "npx vercel --prod --yes",
+    "deploy:vercel": "npx vercel --prod --yes",
+    "deploy:firebase": "firebase deploy"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
     "firebase": "^12.14.0",
+    "firebase-admin": "^13.10.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.17.0",

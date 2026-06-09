@@ -1,42 +1,61 @@
-// Proxy para a API do Google Gemini (camada gratuita) — mantém a chave no
+// Proxy para a API do Google Gemini (camada gratuita) - mantém a chave no
 // servidor. O frontend nunca fala diretamente com o Gemini.
-const MODELO = 'gemini-2.5-flash'
+const MODELOS = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-2.5-flash']
 const RESPOSTA_INDISPONIVEL = 'Assistente indisponível no momento.'
 const RESPOSTA_LIMITE = 'Limite de uso gratuito do assistente atingido, tente novamente em instantes.'
 const RESPOSTA_ERRO = 'Não consegui responder agora. Tente novamente em instantes.'
+const RESPOSTA_SOBRECARGA = 'O assistente está com alta demanda agora. Tente novamente em alguns instantes.'
+const RESPOSTA_ACAO_INVALIDA = 'Não consegui confirmar essa ação com os dados disponíveis. Confira o item ou pedido e tente de novo.'
+const MAX_PAYLOAD_BYTES = 24 * 1024
+const MAX_MENSAGEM_CHARS = 800
+const MAX_HISTORICO_ITENS = 6
 
-const INSTRUCAO_ALUNO = `Você é o assistente virtual da cantina "Senac Lanches". Converse de forma
-simpática e direta com o aluno, ajudando com dúvidas sobre o cardápio, status dos pedidos,
-horários de retirada, alergênicos, favoritos, carrinho e a tela em que ele está navegando
-("telaAtual" no contexto). Responda APENAS com base nos dados fornecidos em "contexto" — se não
-souber algo a partir deles, diga que não tem essa informação. Se a pergunta não tiver relação com
-a cantina, recuse educadamente e redirecione para o assunto. Seja breve.
+const INSTRUCAO_ALUNO = `Você é o assistente virtual da cantina "Senac Lanches".
+Fale em português do Brasil, com tom simpático, direto e útil. Ajude o aluno com cardápio,
+preços, ingredientes, alergias, favoritos, carrinho, status dos pedidos e tela atual.
 
-Além de responder, você pode EXECUTAR ações para o aluno quando ele pedir explicitamente. Para
-isso, preencha o campo "acao" da resposta (deixe "acao" como null quando for só uma pergunta).
-Ações disponíveis (use exatamente o "nome" do produto/pedido como aparece no contexto):
+Regras obrigatórias:
+- Responda APENAS com base no JSON de contexto enviado pelo sistema.
+- Se faltar informação no contexto, diga claramente que não tem essa informação.
+- Se a pergunta não tiver relação com a cantina, recuse educadamente e redirecione.
+- Se o aluno tiver alergias e um produto tiver alergênicos relacionados, avise antes de recomendar.
+- Para comparações e recomendações, use os campos preço, categoria, descrição, estoque, favorito, avaliacaoMedia e totalAvaliacoes.
+- Quando o aluno pedir o melhor lanche, destaque itens bem avaliados e convide a adicionar ao carrinho sem ser insistente.
+- Seja breve: normalmente 1 a 3 frases.
+
+Você também pode EXECUTAR ações quando o aluno pedir explicitamente. Não execute ação em perguntas
+ambíguas, sugestões ou dúvidas gerais. Quando houver ambiguidade entre produtos, responda pedindo
+para o aluno escolher e deixe "acao" como null.
+
+Ações disponíveis:
 - favoritar: { "tipo": "favoritar", "produto": "Nome exato do produto" }
 - desfavoritar: { "tipo": "desfavoritar", "produto": "Nome exato do produto" }
 - adicionar_carrinho: { "tipo": "adicionar_carrinho", "produto": "Nome exato do produto", "quantidade": 1 }
 - cancelar_pedido: { "tipo": "cancelar_pedido", "pedidoId": "id do pedido em meusPedidos" }
-Só use "cancelar_pedido" se o pedido tiver "podeCancelar": true; caso contrário explique ao aluno
-que esse pedido não pode mais ser cancelado. Só use "favoritar"/"adicionar_carrinho" com produtos
-que existam em "cardapio". Sempre escreva em "resposta" uma frase confirmando o que você está
-fazendo (ex.: "Pronto, adicionei 2 Coxinhas ao seu carrinho!").`
 
-const INSTRUCAO_ADMIN = `Você é o assistente virtual de gestão da cantina "Senac Lanches". Ajude a
-administração a entender vendas, estoque e avaliações, resumindo números e sugerindo ações com
-base nos dados fornecidos em "contexto". Responda APENAS com base nesses dados — se faltar
-informação, diga isso. Se a pergunta não tiver relação com a gestão da cantina, recuse
-educadamente e redirecione para o assunto. Seja objetivo.`
+Use exatamente o nome do produto em contexto.cardapio. Só adicione produtos disponíveis e com estoque.
+Só cancele pedidos com podeCancelar=true. Sempre responda em JSON válido, sem markdown.`
+
+const INSTRUCAO_ADMIN = `Você é o assistente virtual de gestão da cantina "Senac Lanches".
+Fale em português do Brasil, com tom profissional e objetivo. Ajude a administração a entender
+vendas, ticket médio, pedidos, estoque, itens indisponíveis, avaliações e gargalos operacionais.
+
+Regras obrigatórias:
+- Responda APENAS com base no JSON de contexto enviado pelo sistema.
+- Se faltar informação, diga isso e sugira qual dado consultar.
+- Se a pergunta não tiver relação com a gestão da cantina, recuse educadamente e redirecione.
+- Quando fizer análise, cite os números principais e uma ação prática.
+- Seja objetivo: normalmente 2 a 5 bullets curtos.`
 
 const ESQUEMA_RESPOSTA_ALUNO = {
   type: 'OBJECT',
+  propertyOrdering: ['resposta', 'acao'],
   properties: {
     resposta: { type: 'STRING' },
     acao: {
       type: 'OBJECT',
       nullable: true,
+      propertyOrdering: ['tipo', 'produto', 'quantidade', 'pedidoId'],
       properties: {
         tipo: { type: 'STRING', enum: ['favoritar', 'desfavoritar', 'adicionar_carrinho', 'cancelar_pedido'] },
         produto: { type: 'STRING' },
@@ -48,65 +67,333 @@ const ESQUEMA_RESPOSTA_ALUNO = {
   required: ['resposta'],
 }
 
+function normalizar(texto = '') {
+  return String(texto)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+function produtosDoContexto(contexto) {
+  return Array.isArray(contexto?.cardapio) ? contexto.cardapio : []
+}
+
+function pedidosDoContexto(contexto) {
+  return Array.isArray(contexto?.meusPedidos) ? contexto.meusPedidos : []
+}
+
+function tamanhoPayload(body) {
+  try {
+    return Buffer.byteLength(JSON.stringify(body || {}), 'utf8')
+  } catch {
+    return MAX_PAYLOAD_BYTES + 1
+  }
+}
+
+function perfilSeguro(perfil, contexto) {
+  const perfilNormalizado = (perfil === 'admin' || perfil === 'gerente') ? 'admin' : 'aluno'
+  if (perfilNormalizado === 'aluno') return 'aluno'
+
+  const pareceContextoAdmin = [
+    'vendasHoje',
+    'ticketMedio',
+    'totalPedidosHoje',
+    'totalPagosHoje',
+    'statusContagem',
+  ].some(campo => Object.hasOwn(contexto || {}, campo))
+
+  return pareceContextoAdmin ? perfilNormalizado : 'aluno'
+}
+
+function historicoSeguro(historico) {
+  if (!Array.isArray(historico)) return []
+  return historico
+    .slice(-MAX_HISTORICO_ITENS)
+    .filter(item => item && typeof item.texto === 'string')
+    .map(item => ({
+      autor: item.autor === 'bot' ? 'bot' : 'user',
+      texto: item.texto.slice(0, MAX_MENSAGEM_CHARS),
+    }))
+}
+
+function encontrarProduto(contexto, nome) {
+  const alvo = normalizar(nome)
+  if (!alvo) return null
+  return produtosDoContexto(contexto).find(p => normalizar(p.nome) === alvo) || null
+}
+
+function encontrarProdutoNaMensagem(contexto, mensagem) {
+  const texto = normalizar(mensagem)
+  return produtosDoContexto(contexto).find(p => texto.includes(normalizar(p.nome))) || null
+}
+
+function formatarMoeda(valor = 0) {
+  return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function listaItensPedido(pedido) {
+  return (pedido.itens || [])
+    .map(i => `${i.quantidade || 1}x ${i.nome}`)
+    .join(', ')
+}
+
+function responderAlunoLocal(contexto, mensagem) {
+  const texto = normalizar(mensagem)
+  const produtoNaMensagem = encontrarProdutoNaMensagem(contexto, mensagem)
+
+  if (/(adicion|coloca|bota|inclui).*(carrinho|pedido)/.test(texto) && produtoNaMensagem) {
+    return {
+      resposta: `Pronto, vou adicionar ${produtoNaMensagem.nome} ao seu carrinho.`,
+      acao: { tipo: 'adicionar_carrinho', produto: produtoNaMensagem.nome, quantidade: 1 },
+    }
+  }
+
+  if (/favorit/.test(texto) && produtoNaMensagem) {
+    const desfavoritar = /(desfavorit|remov|tir)/.test(texto)
+    return {
+      resposta: desfavoritar
+        ? `Pronto, vou remover ${produtoNaMensagem.nome} dos seus favoritos.`
+        : `Pronto, vou favoritar ${produtoNaMensagem.nome} para você.`,
+      acao: { tipo: desfavoritar ? 'desfavoritar' : 'favoritar', produto: produtoNaMensagem.nome },
+    }
+  }
+
+  if (/(preco|preço|quanto custa|valor)/.test(texto) && produtoNaMensagem) {
+    return { resposta: `${produtoNaMensagem.nome} custa ${formatarMoeda(produtoNaMensagem.preco)}.`, acao: null }
+  }
+
+  if (/(melhor|avaliad|top|gostoso|barat|recomenda|sugere|indica)/.test(texto)) {
+    const produtos = produtosDoContexto(contexto)
+      .filter(p => p.estoque !== 0)
+      .filter(p => !/lanche/.test(texto) || normalizar(p.categoria).includes('lanche'))
+      .sort((a, b) => {
+        if (/(barat|preco|preço)/.test(texto)) return (a.preco || 0) - (b.preco || 0)
+        const nota = (b.avaliacaoMedia || 0) - (a.avaliacaoMedia || 0)
+        if (nota !== 0) return nota
+        return (b.totalAvaliacoes || 0) - (a.totalAvaliacoes || 0)
+      })
+
+    const escolhido = produtos[0]
+    if (escolhido) {
+      return {
+        resposta: `${escolhido.nome} é uma boa pedida hoje: ${formatarMoeda(escolhido.preco)}${escolhido.avaliacaoMedia ? `, nota ${Number(escolhido.avaliacaoMedia).toFixed(1).replace('.', ',')} nas avaliações` : ''}.${escolhido.descricao ? ` ${escolhido.descricao}.` : ''} Quer que eu adicione ao carrinho?`,
+        acao: null,
+      }
+    }
+  }
+
+  if (/carrinho/.test(texto)) {
+    const itens = contexto?.carrinho?.itens || []
+    if (!itens.length) return { resposta: 'Seu carrinho está vazio no momento.', acao: null }
+    return {
+      resposta: `No seu carrinho tem ${itens.map(i => `${i.quantidade}x ${i.nome}`).join(', ')}. Total: ${formatarMoeda(contexto.carrinho.total)}.`,
+      acao: null,
+    }
+  }
+
+  if (/(pedido|status|retirada)/.test(texto)) {
+    const pedidos = pedidosDoContexto(contexto)
+    if (!pedidos.length) return { resposta: 'Não encontrei pedidos seus no contexto atual.', acao: null }
+    const resumo = pedidos
+      .slice(0, 3)
+      .map(p => `${p.id}: ${p.status}${p.horarioRetirada ? `, retirada ${p.horarioRetirada}` : ''}${p.itens?.length ? ` (${listaItensPedido(p)})` : ''}`)
+      .join('\n')
+    return { resposta: `Seus pedidos mais recentes:\n${resumo}`, acao: null }
+  }
+
+  if (/(alerg|alergen)/.test(texto)) {
+    const alertas = contexto?.alertasAlergia || []
+    if (!contexto?.aluno?.alergias?.length) return { resposta: 'Você não tem alergias cadastradas no perfil.', acao: null }
+    if (!alertas.length) return { resposta: 'Não encontrei itens do cardápio atual com as alergias cadastradas no seu perfil.', acao: null }
+    return {
+      resposta: `Atenção: ${alertas.map(a => `${a.produto} (${a.alergenios.join(', ')})`).join('; ')}.`,
+      acao: null,
+    }
+  }
+
+  if (/cardapio|cardápio|tem hoje|opcoes|opções/.test(texto)) {
+    const nomes = produtosDoContexto(contexto).slice(0, 8).map(p => `${p.nome} (${formatarMoeda(p.preco)})`)
+    if (nomes.length) return { resposta: `No cardápio disponível: ${nomes.join(', ')}.`, acao: null }
+  }
+
+  return null
+}
+
+function responderAdminLocal(contexto, mensagem) {
+  const texto = normalizar(mensagem)
+
+  if (/(resumo|venda|hoje|ticket)/.test(texto)) {
+    return `Hoje foram ${contexto?.totalPedidosHoje || 0} pedido(s), ${contexto?.totalPagosHoje || 0} pago(s), vendas de ${formatarMoeda(contexto?.vendasHoje)} e ticket médio de ${formatarMoeda(contexto?.ticketMedio)}.`
+  }
+
+  if (/(estoque|reposi|baixo|indispon)/.test(texto)) {
+    const baixos = contexto?.estoqueBaixo || []
+    const indisponiveis = contexto?.indisponiveis || []
+    if (!baixos.length && !indisponiveis.length) return 'Não encontrei itens com estoque baixo ou indisponíveis no contexto atual.'
+    const partes = []
+    if (baixos.length) partes.push(`Estoque baixo: ${baixos.map(p => `${p.nome} (${p.estoque})`).join(', ')}.`)
+    if (indisponiveis.length) partes.push(`Indisponíveis: ${indisponiveis.map(p => p.nome).join(', ')}.`)
+    return partes.join('\n')
+  }
+
+  if (/(mais vendid|produto vendeu)/.test(texto)) {
+    const maisVendidos = contexto?.maisVendidos || []
+    if (!maisVendidos.length) return 'Ainda não há itens vendidos hoje no contexto atual.'
+    return `Mais vendidos hoje: ${maisVendidos.map(p => `${p.nome} (${p.qtd})`).join(', ')}.`
+  }
+
+  return null
+}
+
+function limitarQuantidade(valor, estoque) {
+  const quantidade = Math.min(Math.max(Number(valor) || 1, 1), 10)
+  if (typeof estoque === 'number' && estoque > 0) return Math.min(quantidade, estoque)
+  return quantidade
+}
+
+function validarAcao(acao, contexto) {
+  if (!acao || typeof acao !== 'object') return null
+
+  if (acao.tipo === 'favoritar' || acao.tipo === 'desfavoritar') {
+    const produto = encontrarProduto(contexto, acao.produto)
+    if (!produto) return null
+    return { tipo: acao.tipo, produto: produto.nome }
+  }
+
+  if (acao.tipo === 'adicionar_carrinho') {
+    const produto = encontrarProduto(contexto, acao.produto)
+    if (!produto || produto.estoque === 0) return null
+    return {
+      tipo: 'adicionar_carrinho',
+      produto: produto.nome,
+      quantidade: limitarQuantidade(acao.quantidade, produto.estoque),
+    }
+  }
+
+  if (acao.tipo === 'cancelar_pedido') {
+    const pedido = pedidosDoContexto(contexto).find(p => String(p.id) === String(acao.pedidoId))
+    if (!pedido || !pedido.podeCancelar) return null
+    return { tipo: 'cancelar_pedido', pedidoId: pedido.id }
+  }
+
+  return null
+}
+
+function extrairRespostaAluno(texto) {
+  try {
+    return JSON.parse(texto)
+  } catch {
+    const trechoJson = texto.match(/\{[\s\S]*\}/)?.[0]
+    if (!trechoJson) return { resposta: texto, acao: null }
+    try {
+      return JSON.parse(trechoJson)
+    } catch {
+      return { resposta: texto, acao: null }
+    }
+  }
+}
+
+function esperar(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function consultarGemini({ apiKey, instrucao, contents, generationConfig }) {
+  let ultimoErro = null
+
+  for (const modelo of MODELOS) {
+    for (let tentativa = 0; tentativa < 2; tentativa += 1) {
+      const resposta = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: instrucao }] },
+            contents,
+            generationConfig,
+          }),
+        }
+      )
+
+      if (resposta.ok) return { ok: true, dados: await resposta.json(), modelo }
+
+      const corpo = await resposta.text()
+      ultimoErro = { status: resposta.status, corpo, modelo }
+
+      if (resposta.status === 429) break
+      if (resposta.status !== 503) return { ok: false, tipo: 'erro', ...ultimoErro }
+      if (tentativa === 0) await esperar(600)
+    }
+  }
+
+  return { ok: false, tipo: ultimoErro?.status === 429 ? 'limite' : 'sobrecarga', ...ultimoErro }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ resposta: RESPOSTA_INDISPONIVEL })
     return
   }
 
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) {
-    res.status(200).json({ resposta: RESPOSTA_INDISPONIVEL })
-    return
-  }
-
   try {
+    if (tamanhoPayload(req.body) > MAX_PAYLOAD_BYTES) {
+      res.status(413).json({ resposta: RESPOSTA_ERRO })
+      return
+    }
+
     const { perfil, contexto, historico, mensagem } = req.body || {}
-    if (!mensagem || typeof mensagem !== 'string') {
+    if (!mensagem || typeof mensagem !== 'string' || mensagem.length > MAX_MENSAGEM_CHARS) {
       res.status(200).json({ resposta: RESPOSTA_ERRO })
       return
     }
 
-    const ehAdmin = perfil === 'admin' || perfil === 'gerente'
+    const perfilValidado = perfilSeguro(perfil, contexto)
+    const ehAdmin = perfilValidado === 'admin'
+    const respostaLocal = ehAdmin
+      ? responderAdminLocal(contexto || {}, mensagem)
+      : responderAlunoLocal(contexto || {}, mensagem)
+    if (respostaLocal) {
+      res.status(200).json(typeof respostaLocal === 'string' ? { resposta: respostaLocal } : respostaLocal)
+      return
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) {
+      res.status(200).json({ resposta: RESPOSTA_INDISPONIVEL })
+      return
+    }
+
     const instrucao = ehAdmin ? INSTRUCAO_ADMIN : INSTRUCAO_ALUNO
 
     const contents = []
-    if (Array.isArray(historico)) {
-      for (const item of historico.slice(-6)) {
-        if (!item?.texto) continue
-        contents.push({ role: item.autor === 'bot' ? 'model' : 'user', parts: [{ text: String(item.texto) }] })
-      }
+    for (const item of historicoSeguro(historico)) {
+      contents.push({ role: item.autor === 'bot' ? 'model' : 'user', parts: [{ text: item.texto }] })
     }
-    contents.push({ role: 'user', parts: [{ text: `Contexto (JSON): ${JSON.stringify(contexto || {})}\n\nPergunta do usuário: ${mensagem}` }] })
+    contents.push({ role: 'user', parts: [{ text: `Contexto (JSON): ${JSON.stringify(contexto || {})}\n\nMensagem do usuário: ${mensagem}` }] })
 
     const generationConfig = ehAdmin
-      ? { maxOutputTokens: 350, temperature: 0.4 }
-      : { maxOutputTokens: 350, temperature: 0.4, responseMimeType: 'application/json', responseSchema: ESQUEMA_RESPOSTA_ALUNO }
+      ? { maxOutputTokens: 500, temperature: 0.35 }
+      : { maxOutputTokens: 450, temperature: 0.35, responseMimeType: 'application/json', responseSchema: ESQUEMA_RESPOSTA_ALUNO }
 
-    const resposta = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: instrucao }] },
-          contents,
-          generationConfig,
-        }),
-      }
-    )
+    const consulta = await consultarGemini({ apiKey, instrucao, contents, generationConfig })
 
-    if (resposta.status === 429) {
+    if (consulta.tipo === 'limite') {
       res.status(200).json({ resposta: RESPOSTA_LIMITE })
       return
     }
-    if (!resposta.ok) {
-      console.error('Gemini respondeu com erro:', resposta.status, await resposta.text())
+    if (consulta.tipo === 'sobrecarga') {
+      console.error('Gemini indisponível por alta demanda:', consulta.status, consulta.modelo, consulta.corpo)
+      res.status(200).json({ resposta: RESPOSTA_SOBRECARGA })
+      return
+    }
+    if (!consulta.ok) {
+      console.error('Gemini respondeu com erro:', consulta.status, consulta.modelo, consulta.corpo)
       res.status(200).json({ resposta: RESPOSTA_ERRO })
       return
     }
 
-    const dados = await resposta.json()
+    const dados = consulta.dados
     const texto = dados?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
     if (!texto) {
       res.status(200).json({ resposta: RESPOSTA_ERRO })
@@ -118,12 +405,13 @@ export default async function handler(req, res) {
       return
     }
 
-    try {
-      const { resposta: textoResposta, acao } = JSON.parse(texto)
-      res.status(200).json({ resposta: textoResposta || RESPOSTA_ERRO, acao: acao || null })
-    } catch {
-      res.status(200).json({ resposta: texto, acao: null })
-    }
+    const respostaAluno = extrairRespostaAluno(texto)
+    const acao = validarAcao(respostaAluno.acao, contexto)
+    const respostaFinal = respostaAluno.acao && !acao
+      ? RESPOSTA_ACAO_INVALIDA
+      : respostaAluno.resposta || RESPOSTA_ERRO
+
+    res.status(200).json({ resposta: respostaFinal, acao })
   } catch (erro) {
     console.error('Falha ao consultar o assistente:', erro)
     res.status(200).json({ resposta: RESPOSTA_ERRO })

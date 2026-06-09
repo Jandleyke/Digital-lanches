@@ -2,11 +2,17 @@ import { useState } from 'react'
 import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
 import { useIsMobile } from '../../utils/useIsMobile'
+import { processarFotoPerfil } from '../../utils/image.js'
+import { normalizarPerfil } from '../../utils/perfis'
 
-const PERFIS = ['aluno', 'cozinha', 'gerente', 'admin']
+const PERFIS = ['aluno', 'professor', 'vendedor', 'cozinha', 'admin']
 const perfilCor = {
   aluno:   { bg: '#DBEAFE', color: '#1D4ED8' },
+  professor: { bg: '#EDE9FE', color: '#5B21B6' },
   cozinha: { bg: '#D1FAE5', color: '#065F46' },
+  cozinheiro: { bg: '#D1FAE5', color: '#065F46' },
+  vendedor: { bg: '#E0F2FE', color: '#075985' },
+  vendedora: { bg: '#E0F2FE', color: '#075985' },
   gerente: { bg: '#FEF3C7', color: '#92400E' },
   admin:   { bg: '#F3E8FF', color: '#6B21A8' },
 }
@@ -24,7 +30,6 @@ export default function Usuarios() {
   const [detalhe, setDetalhe]   = useState(null)
   const [editando, setEditando] = useState(false)
   const [editForm, setEditForm] = useState({})
-  const [novaSenha, setNovaSenha] = useState('')
   const [resetando, setResetando] = useState(false)
   const [salvando, setSalvando]   = useState(false)
   const [msgEdit, setMsgEdit]     = useState('')
@@ -50,13 +55,12 @@ export default function Usuarios() {
     })
 
   function pedidosDoUsuario(m) { return pedidos.filter(p => p.matricula === m) }
-  function totalGasto(m) { return pedidos.filter(p => p.matricula === m && p.pago).reduce((a, p) => a + p.total, 0) }
+  function totalGasto(m) { return pedidos.filter(p => p.matricula === m && p.pago && p.status !== 'Cancelado').reduce((a, p) => a + p.total, 0) }
 
   function abrirDetalhe(u) {
     setDetalhe(u)
     setEditando(false)
-    setEditForm({ nome: u.nome || '', email: u.email || '', telefone: u.telefone || '', curso: u.curso || '', perfil: u.perfil || 'aluno' })
-    setNovaSenha('')
+    setEditForm({ nome: u.nome || '', email: u.email || '', telefone: u.telefone || '', curso: u.curso || '', perfil: normalizarPerfil(u.role || u.perfil || 'aluno'), fotoPerfil: u.fotoPerfil || '' })
     setMsgEdit('')
   }
 
@@ -69,6 +73,7 @@ export default function Usuarios() {
       telefone: editForm.telefone,
       curso: editForm.curso.trim(),
       perfil: editForm.perfil,
+      fotoPerfil: editForm.fotoPerfil || '',
     })
     setSalvando(false)
     if (res.erro) { setMsgEdit(res.erro); return }
@@ -77,18 +82,43 @@ export default function Usuarios() {
     setMsgEdit('Dados atualizados!')
   }
 
+  async function handleFotoUsuario(e) {
+    const file = e.target.files?.[0]
+    if (!file || !detalhe?.matricula) return
+    setMsgEdit('Processando foto...')
+    try {
+      const dataUrl = await processarFotoPerfil(file)
+      setEditForm(p => ({ ...p, fotoPerfil: dataUrl }))
+      const res = await atualizarUsuario(detalhe.matricula, { fotoPerfil: dataUrl })
+      if (res?.erro) { setMsgEdit(res.erro); return }
+      setDetalhe(prev => ({ ...prev, fotoPerfil: dataUrl }))
+      setMsgEdit('Foto atualizada!')
+    } catch (err) {
+      setMsgEdit(err.message || 'Erro ao processar foto.')
+    } finally {
+      e.target.value = ''
+    }
+  }
+
   async function handleResetSenha() {
-    if (!novaSenha.trim() || novaSenha.length < 4) { setMsgEdit('Senha precisa ter pelo menos 4 caracteres.'); return }
+    setMsgEdit('')
+    if (!detalhe?.matricula) { setMsgEdit('Matrícula inválida.'); return }
     setResetando(true)
-    await resetarSenhaAdmin(detalhe.matricula, novaSenha)
-    setNovaSenha('')
+    const res = await resetarSenhaAdmin(detalhe.matricula)
+    if (res?.erro) setMsgEdit(res.erro)
+    else {
+      setMsgEdit('Link de redefinição enviado com sucesso!')
+    }
     setResetando(false)
-    setMsgEdit('Senha redefinida com sucesso!')
   }
 
   async function handleExcluir(u) {
     if (!confirm(`Excluir ${u.nome}? Esta ação é irreversível.`)) return
-    await excluirUsuario(u.matricula)
+    const res = await excluirUsuario(u.matricula)
+    if (res?.erro) {
+      setMsgEdit(res.erro)
+      return
+    }
     setDetalhe(null)
   }
 
@@ -97,7 +127,7 @@ export default function Usuarios() {
     setCadErro('')
     if (!cadForm.nome || !cadForm.matricula || !cadForm.senha) { setCadErro('Preencha nome, matrícula e senha.'); return }
     if (cadForm.senha !== cadForm.confirmar) { setCadErro('As senhas não conferem.'); return }
-    if (cadForm.senha.length < 4) { setCadErro('Senha precisa ter pelo menos 4 caracteres.'); return }
+    if (cadForm.senha.length < 6) { setCadErro('Senha precisa ter pelo menos 6 caracteres.'); return }
     const res = await cadastrarUsuario(cadForm)
     if (res.erro) { setCadErro(res.erro); return }
     setCadOk(true)
@@ -211,18 +241,31 @@ export default function Usuarios() {
         <div style={s.overlay} onClick={e => e.target === e.currentTarget && setDetalhe(null)}>
           <div style={s.modalBox}>
             <div style={s.mHeader}>
-              {detalhe.fotoPerfil
-                ? <img src={detalhe.fotoPerfil} alt={detalhe.nome} style={s.mAvatar} />
+              {(editForm.fotoPerfil || detalhe.fotoPerfil)
+                ? <img src={editForm.fotoPerfil || detalhe.fotoPerfil} alt={detalhe.nome} style={s.mAvatar} />
                 : <div style={s.mAvatarLetras}>{detalhe.nome?.[0]?.toUpperCase()}</div>}
               <div style={{ flex: 1 }}>
                 <p style={{ margin: 0, fontSize: '0.75rem', color: '#94A3B8' }}>{detalhe.matricula}</p>
                 <h3 style={{ margin: '2px 0', fontWeight: 800, color: '#0F172A' }}>{detalhe.nome}</h3>
                 <span style={{ ...s.badge, background: perfilCor[detalhe.perfil]?.bg, color: perfilCor[detalhe.perfil]?.color }}>{detalhe.perfil}</span>
               </div>
-              <button style={s.fecharBtn} onClick={() => setDetalhe(null)}>✕</button>
+              <button style={s.fecharBtn} onClick={() => setDetalhe(null)} aria-label="Fechar detalhes do usuário">✕</button>
             </div>
 
             {/* Estatísticas (só para aluno) */}
+            {isAdmin && (
+              <div style={s.fotoBox}>
+                <div>
+                  <strong style={s.secaoTit}>Foto do perfil</strong>
+                  <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: '0.82rem' }}>Escolha uma foto para aparecer no avatar do usuario.</p>
+                </div>
+                <label style={s.btnFotoAdmin}>
+                  Selecionar foto
+                  <input type="file" accept="image/*" onChange={handleFotoUsuario} style={{ display: 'none' }} />
+                </label>
+              </div>
+            )}
+
             {detalhe.perfil === 'aluno' && (
               <div style={s.statsRow}>
                 <div style={s.statBox}><strong>{pedidosDoUsuario(detalhe.matricula).length}</strong><span>Pedidos</span></div>
@@ -277,15 +320,15 @@ export default function Usuarios() {
               )}
             </div>
 
-            {/* Redefinir senha */}
+            {/* Enviar link de redefinição */}
             <div style={s.secao}>
-              <h4 style={s.secaoTit}>🔑 Redefinir senha</h4>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input style={{ ...s.input, flex: 1 }} type="password" placeholder="Nova senha (mín. 4 caracteres)" value={novaSenha} onChange={e => setNovaSenha(e.target.value)} />
-                <button style={{ ...s.btnSalvar, opacity: resetando ? 0.7 : 1 }} onClick={handleResetSenha} disabled={resetando}>
-                  {resetando ? '...' : 'Redefinir'}
-                </button>
-              </div>
+              <h4 style={s.secaoTit}>🔑 Enviar link de redefinição</h4>
+              <p style={{ margin: 0, color: '#475569', fontSize: '0.88rem', marginBottom: 10 }}>
+                {detalhe?.email ? `Será enviado para ${detalhe.email}` : 'Nenhum e-mail cadastrado. Atualize o e-mail do usuário antes de enviar o link de redefinição.'}
+              </p>
+              <button style={{ ...s.btnSalvar, opacity: resetando ? 0.7 : 1 }} onClick={handleResetSenha} disabled={resetando}>
+                {resetando ? 'Enviando...' : 'Enviar link'}
+              </button>
             </div>
 
             {msgEdit && <p style={{ color: msgEdit.includes('sucesso') || msgEdit.includes('!') ? '#059669' : '#DC2626', fontSize: '0.85rem', margin: '0 0 10px' }}>{msgEdit}</p>}
@@ -307,7 +350,7 @@ export default function Usuarios() {
           <div style={s.modalBox}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
               <h3 style={{ margin: 0, fontWeight: 800, color: '#0F172A' }}>Cadastrar usuário</h3>
-              <button style={s.fecharBtn} onClick={() => setModalCad(false)}>✕</button>
+              <button style={s.fecharBtn} onClick={() => setModalCad(false)} aria-label="Fechar cadastro de usuário">✕</button>
             </div>
             {cadOk ? (
               <div style={{ textAlign: 'center', padding: '2rem', color: '#059669', fontWeight: 700, fontSize: '1.1rem' }}>✅ Usuário cadastrado!</div>
@@ -325,7 +368,7 @@ export default function Usuarios() {
                   { label: 'E-mail', key: 'email', type: 'email', ph: 'Ex: joao@gmail.com' },
                   { label: 'Telefone', key: 'telefone', type: 'tel', ph: '(11) 99999-0001' },
                   { label: 'Curso (opcional)', key: 'curso', type: 'text', ph: 'Ex: Administração' },
-                  { label: 'Senha', key: 'senha', type: 'password', ph: 'Mínimo 4 caracteres' },
+                  { label: 'Senha', key: 'senha', type: 'password', ph: 'Mínimo 6 caracteres' },
                   { label: 'Confirmar senha', key: 'confirmar', type: 'password', ph: 'Repita a senha' },
                 ].map(({ label, key, type, ph }) => (
                   <div key={key}>
@@ -369,6 +412,8 @@ const s = {
   mHeader: { display: 'flex', gap: 12, alignItems: 'center', marginBottom: '1rem' },
   mAvatar: { width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 },
   mAvatarLetras: { width: 52, height: 52, borderRadius: '50%', background: '#003D7C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', fontWeight: 800, flexShrink: 0 },
+  fotoBox: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: '0.75rem', marginBottom: '1rem' },
+  btnFotoAdmin: { background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', borderRadius: 8, padding: '0.5rem 0.8rem', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', whiteSpace: 'nowrap' },
   fecharBtn: { background: '#F1F5F9', border: 'none', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   statsRow: { display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: '1rem' },
   statBox: { background: '#F8FAFC', borderRadius: 10, padding: '0.6rem', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 2, fontSize: '0.78rem', color: '#64748B' },

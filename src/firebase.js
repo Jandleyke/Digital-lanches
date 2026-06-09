@@ -2,7 +2,7 @@ import { initializeApp } from 'firebase/app'
 import { getFirestore } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyAaxvIhS4MGLC-zB_YpCwkJBVxPQTFw7S4",
   authDomain: "senac-lanches.firebaseapp.com",
   projectId: "senac-lanches",
