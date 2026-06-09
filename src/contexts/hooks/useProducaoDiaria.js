@@ -153,7 +153,7 @@ export function useProducaoDiaria(usuarioLogado, criarAviso) {
 
   async function removerProducao(id, atual) {
     if (atual) {
-      await atualizarProducao(id, atual, { status: 'Cancelado' }, { acao: 'Cancelou producao', avisar: true })
+      await atualizarProducao(id, atual, { status: 'Cancelado' }, { acao: 'Cancelou producao', avisar: false })
     }
     await deleteDoc(doc(db, 'producaoDiaria', id))
   }
