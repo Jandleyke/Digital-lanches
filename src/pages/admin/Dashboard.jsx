@@ -8,7 +8,7 @@ import { useApp } from '../../contexts/AppContext'
 import { useIsMobile } from '../../utils/useIsMobile'
 import { formatPrice } from '../../utils/formatters'
 import AvisosBanner from '../../components/AvisosBanner'
-import { DollarSign, Package, Flame, Target, AlertTriangle, Star, PackageCheck, Clock, Trash2, RefreshCcw, ChevronDown, ChevronUp } from 'lucide-react'
+import { DollarSign, Package, Flame, Target, AlertTriangle, Star, PackageCheck, Clock, RefreshCcw, ChevronDown, ChevronUp } from 'lucide-react'
 
 const PIE_CORES = ['#003D7C','#F47920','#22C55E','#EF4444','#A855F7','#F59E0B','#06B6D4']
 
@@ -272,19 +272,6 @@ export default function Dashboard() {
       .slice(0, 5)
   }, [avaliados])
 
-  const totalDesperdicioHoje = useMemo(() => (producaoHoje || [])
-    .reduce((acc, item) => acc + Number(item.quantidadeDesperdicada || 0), 0), [producaoHoje])
-
-  const desperdiciosHojeTodos = useMemo(() => {
-    const lista = []
-    ;(producaoHoje || []).forEach(item => {
-      (item.historicoDesperdicio || []).forEach(h => lista.push({ ...h, produtoNome: h.produtoNome || item.produtoNome }))
-    })
-    return lista.sort((a, b) => (b.dataHora || 0) - (a.dataHora || 0))
-  }, [producaoHoje])
-
-  const desperdiciosHoje = useMemo(() => desperdiciosHojeTodos.slice(0, 5), [desperdiciosHojeTodos])
-
   const ajustesVendedorHoje = useMemo(() => {
     const lista = []
     ;(producaoHoje || []).forEach(item => {
@@ -299,10 +286,6 @@ export default function Dashboard() {
     setDetalheExtra({ titulo: 'Estoque Crítico', tipo: 'estoque', itens: estoqueBaixo })
   }, [estoqueBaixo])
 
-  const abrirDetalheDesperdicio = useCallback(() => {
-    setDetalheExtra({ titulo: 'Desperdício do Dia', tipo: 'desperdicio', itens: desperdiciosHojeTodos })
-  }, [desperdiciosHojeTodos])
-
   const cards = useMemo(() => [
     { icon: DollarSign,    label: 'Total Vendas',   valor: formatPrice(totalVendas),       cor: '#003D7C', onClick: () => abrirListaPedidos('Vendas pagas', pedidosVendidos), title: 'Ver pedidos pagos do período' },
     { icon: Package,       label: 'Total Pedidos',  valor: totalPedidos,                   cor: '#F47920', onClick: () => abrirListaPedidos('Pedidos válidos', pedidosValidos), title: 'Ver pedidos válidos do período' },
@@ -310,8 +293,7 @@ export default function Dashboard() {
     { icon: Target,        label: 'Ticket Médio',   valor: formatPrice(ticketMedio),       cor: '#A855F7', onClick: () => abrirListaPedidos('Pedidos pagos', pedidosPagos), title: 'Ver pedidos que compõem o ticket médio' },
     { icon: Star,          label: 'Nota Média',     valor: notaMedia !== null ? `${notaMedia.toFixed(1)} ⭐` : '—', cor: '#F59E0B', onClick: () => abrirListaPedidos('Pedidos avaliados', avaliados), title: 'Ver pedidos avaliados' },
     { icon: AlertTriangle, label: 'Est. Crítico',   valor: `${estoqueBaixo.length} itens`, cor: '#EF4444', onClick: abrirDetalheEstoque, title: 'Ver produtos com estoque crítico' },
-    { icon: Trash2,        label: 'Desperdício Hoje', valor: `${totalDesperdicioHoje} un`, cor: '#EF4444', onClick: abrirDetalheDesperdicio, title: 'Ver desperdícios registrados hoje' },
-  ], [totalVendas, totalPedidos, pedidosAtivos, pedidosValidos, listaPedidosAtivos, pedidosVendidos, pedidosPagos, abrirListaPedidos, ticketMedio, notaMedia, avaliados, estoqueBaixo.length, totalDesperdicioHoje, abrirDetalheEstoque, abrirDetalheDesperdicio])
+  ], [totalVendas, totalPedidos, pedidosAtivos, pedidosValidos, listaPedidosAtivos, pedidosVendidos, pedidosPagos, abrirListaPedidos, ticketMedio, notaMedia, avaliados, estoqueBaixo.length, abrirDetalheEstoque])
 
   return (
     <Layout titulo="Dashboard">
@@ -421,35 +403,8 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Desperdício e ajustes do vendedor */}
-      <div style={{ ...s.row, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? '0.5rem' : '0.75rem', marginBottom: isMobile ? '0.5rem' : '0.75rem' }}>
-        <div style={{ ...s.box, padding: isMobile ? '0.75rem' : '1.1rem' }}>
-          <div style={s.boxHeader}>
-            <h3 style={{ ...s.boxTitulo, marginBottom: 0, fontSize: isMobile ? '0.85rem' : '0.92rem' }}><Trash2 size={16} /> Desperdício do Dia</h3>
-            <CollapseToggle aberto={!secoesFechadas.desperdicio} onClick={() => alternarSecao('desperdicio')} />
-          </div>
-          {!secoesFechadas.desperdicio && (
-            desperdiciosHoje.length === 0 ? (
-              <p style={s.semDados}>Nenhum desperdício registrado hoje.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-                {desperdiciosHoje.map(item => (
-                  <div key={item.id} style={s.estoqueItem}>
-                    <span style={{ flex: 1, fontSize: '0.84rem', color: '#475569' }}>{item.produtoNome || 'Produto'}</span>
-                    <span style={{ fontSize: '0.78rem', color: '#94A3B8' }}>{item.motivo || 'Outro'} - {horaCurta(item.dataHora)}</span>
-                    <span style={{
-                      fontWeight: 800, fontSize: '0.84rem', color: '#EF4444',
-                      background: '#FEE2E2', padding: '0.15rem 0.55rem', borderRadius: 8,
-                    }}>
-                      {item.quantidade || 0} un
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )
-          )}
-        </div>
-
+      {/* Ajustes do vendedor */}
+      <div style={{ marginBottom: isMobile ? '0.5rem' : '0.75rem' }}>
         <div style={{ ...s.box, padding: isMobile ? '0.75rem' : '1.1rem' }}>
           <div style={s.boxHeader}>
             <h3 style={{ ...s.boxTitulo, marginBottom: 0, fontSize: isMobile ? '0.85rem' : '0.92rem' }}><RefreshCcw size={16} /> Ajustes do Vendedor</h3>
@@ -743,28 +698,6 @@ export default function Dashboard() {
               )
             )}
 
-            {detalheExtra.tipo === 'desperdicio' && (
-              detalheExtra.itens.length === 0 ? (
-                <p style={s.semDados}>Nenhum desperdício registrado hoje.</p>
-              ) : (
-                <div style={s.statusList}>
-                  {detalheExtra.itens.map(item => (
-                    <div key={item.id} style={s.pedidoStatusCard}>
-                      <div style={s.pedidoStatusTop}>
-                        <h3 style={s.pedidoStatusTitle}>{item.produtoNome || 'Produto'}</h3>
-                        <span style={s.statusBadge}>{item.quantidade || 0} un</span>
-                      </div>
-                      <div style={s.pedidoInfoGrid}>
-                        <p style={s.pedidoInfo}><strong>Motivo:</strong> {item.motivo || 'Outro'}</p>
-                        <p style={s.pedidoInfo}><strong>Responsável:</strong> {item.responsavel?.nome || 'Não informado'}</p>
-                        <p style={s.pedidoInfo}><strong>Horário:</strong> {formatDateTime(item.dataHora)}</p>
-                        {item.observacao && <p style={s.pedidoInfo}><strong>Observação:</strong> {item.observacao}</p>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )
-            )}
 
             {detalheExtra.tipo === 'producao' && (() => {
               const item = detalheExtra.item
