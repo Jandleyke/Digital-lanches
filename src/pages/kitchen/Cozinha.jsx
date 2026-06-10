@@ -502,7 +502,6 @@ export default function Cozinha() {
                     <div style={s.acoes}>
                       <button style={s.btnSecundario} onClick={() => mudarStatusProducao(item, 'Em producao')}>Em producao</button>
                       <button style={s.btnPrimario} onClick={() => mudarStatusProducao(item, 'Pronto para venda')}><CheckCircle2 size={15} /> Pronto</button>
-                      <button style={s.btnPerigo} onClick={() => mudarStatusProducao(item, 'Esgotado')}><XCircle size={15} /> Esgotado</button>
                       <button style={s.btnPerigo} onClick={() => abrirDesperdicio(item)} disabled={Number(item.quantidadeRestante || 0) <= 0}><Trash2 size={15} /> Desperdicio</button>
                     </div>
                   </article>
@@ -568,7 +567,6 @@ export default function Cozinha() {
                   {producaoEditando && (
                     <>
                       <button type="button" style={s.btnSecundario} onClick={() => mudarStatusProducao(producaoEditando, 'Pronto para venda')}><CheckCircle2 size={15} /> Marcar pronto</button>
-                      <button type="button" style={s.btnPerigo} onClick={() => mudarStatusProducao(producaoEditando, 'Esgotado')}>Esgotado</button>
                     </>
                   )}
                 </div>
@@ -651,7 +649,6 @@ export default function Cozinha() {
                           <button style={s.btnSecundario} onClick={() => editarPlanejamento(item)}><Edit3 size={15} /> Editar</button>
                           <button style={s.btnSecundario} onClick={() => mudarStatusProducao(item, 'Em producao')}>Em producao</button>
                           <button style={s.btnPrimario} onClick={() => mudarStatusProducao(item, 'Pronto para venda')}><CheckCircle2 size={15} /> Pronto</button>
-                          <button style={s.btnPerigo} onClick={() => mudarStatusProducao(item, 'Esgotado')}>Esgotado</button>
                           <button style={s.btnSecundario} onClick={() => avisarVendedor(item)}><Send size={15} /> Avisar vendedor</button>
                           <button style={s.btnPerigo} onClick={() => abrirDesperdicio(item)} disabled={Number(item.quantidadeRestante || 0) <= 0}><Trash2 size={15} /> Registrar desperdicio</button>
                           <button style={s.btnPerigo} onClick={() => cancelarProducao(item)}>Cancelar</button>
