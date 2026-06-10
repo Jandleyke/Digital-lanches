@@ -71,7 +71,7 @@ function AppRoutes() {
       <Route path="/professor/avisos" element={<Protegida perfil="professor"><AvisosProfessor /></Protegida>} />
 
       <Route path="/cozinha" element={<Protegida perfil="cozinha"><Cozinha /></Protegida>} />
-      <Route path="/cozinha/pedidos" element={<Protegida perfil="cozinha"><Cozinha /></Protegida>} />
+      <Route path="/cozinha/pedidos" element={<Navigate to="/cozinha" replace />} />
       <Route path="/cozinha/producao" element={<Protegida perfil="cozinha"><Cozinha /></Protegida>} />
       <Route path="/cozinha/cardapio" element={<Protegida perfil="cozinha"><Cozinha /></Protegida>} />
       <Route path="/cozinha/avisos" element={<Protegida perfil="cozinha"><Cozinha /></Protegida>} />

@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
-  AlertTriangle, CheckCircle2, ClipboardList, Clock, Edit3, Eye, Flame,
+  AlertTriangle, CheckCircle2, ClipboardList, Edit3, Flame,
   Megaphone, PackageCheck, PlusCircle, Save, Search, Send, Timer, Trash2, Utensils, XCircle,
 } from 'lucide-react'
 import Layout from '../../components/Layout'
 import AvisosSetor from '../../components/AvisosSetor'
+import ProdutoFormModal from '../../components/ProdutoFormModal'
+import { PRODUTO_FORM_VAZIO, formParaProduto } from '../../utils/produtoForm'
 import { useApp } from '../../contexts/AppContext'
 import { MOTIVOS_DESPERDICIO } from '../../contexts/hooks/useProducaoDiaria'
 import { DIAS_CARDAPIO, DIAS_LABEL, diaDaSemanaAtual, produtoDisponivelNoDia } from '../../utils/cardapioDias'
@@ -14,28 +16,17 @@ import { useIsMobile } from '../../utils/useIsMobile'
 
 const ROTAS_ABA = {
   dashboard: '/cozinha',
-  pedidos: '/cozinha/pedidos',
   producao: '/cozinha/producao',
   cardapio: '/cozinha/cardapio',
   avisos: '/cozinha/avisos',
 }
 
 function abaPorRota(pathname) {
-  if (pathname.includes('/pedidos')) return 'pedidos'
   if (pathname.includes('/producao')) return 'producao'
   if (pathname.includes('/cardapio')) return 'cardapio'
   if (pathname.includes('/avisos')) return 'avisos'
   return 'dashboard'
 }
-
-const FILTROS = [
-  ['todos', 'Todos'],
-  ['pendentes', 'Pendentes'],
-  ['preparo', 'Em preparo'],
-  ['prontos', 'Prontos'],
-  ['entregues', 'Entregues'],
-  ['cancelados', 'Cancelados'],
-]
 
 const STATUS_PRODUCAO = [
   'Planejado',
@@ -65,12 +56,6 @@ const FORM_PRODUCAO = {
   observacao: '',
   visivelParaVendedor: true,
   visivelParaAdmin: true,
-}
-
-const FLUXO = {
-  Recebido: 'Em preparo',
-  'Em preparo': 'Pronto',
-  Pronto: 'Entregue',
 }
 
 function inicioDoDia() {
@@ -132,19 +117,6 @@ function alunoNome(pedido) {
   return pedido?.alunoNome || pedido?.nomeAluno || pedido?.aluno || pedido?.nome || 'Aluno não informado'
 }
 
-function pedidoHora(pedido) {
-  if (pedido?.horarioPedido) return pedido.horarioPedido
-  const valor = pedido?.criadoEm || pedido?.createdAt
-  if (!valor) return '--:--'
-  try {
-    const date = valor?.toDate ? valor.toDate() : new Date(valor)
-    if (Number.isNaN(date.getTime())) return '--:--'
-    return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return '--:--'
-  }
-}
-
 function formatarDataHora(valor) {
   if (!valor) return 'Não informado'
   try {
@@ -161,21 +133,6 @@ function diasProduto(produto) {
   if (Array.isArray(dias)) return dias
   if (typeof dias === 'string') return dias.split(',').map(d => d.trim()).filter(Boolean)
   return []
-}
-
-function filtrarPedidos(pedidos, filtro, busca = '') {
-  const termo = busca.trim().toLowerCase()
-  const porBusca = pedidos.filter(p => !termo
-    || alunoNome(p).toLowerCase().includes(termo)
-    || pedidoCodigo(p).toLowerCase().includes(termo)
-    || String(p.matricula || '').toLowerCase().includes(termo))
-  const base = porBusca
-  if (filtro === 'pendentes') return base.filter(p => ['recebido', 'pendente'].includes(normalizeStatus(p.status)))
-  if (filtro === 'preparo') return base.filter(p => ['em preparo', 'preparando'].includes(normalizeStatus(p.status)))
-  if (filtro === 'prontos') return base.filter(p => normalizeStatus(p.status) === 'pronto')
-  if (filtro === 'entregues') return base.filter(p => normalizeStatus(p.status) === 'entregue')
-  if (filtro === 'cancelados') return base.filter(p => normalizeStatus(p.status) === 'cancelado')
-  return base
 }
 
 function EmptyState({ children }) {
@@ -211,14 +168,11 @@ function StatusBadge({ status }) {
 }
 
 export default function Cozinha() {
-  const { pedidos, produtos, atualizarProduto, atualizarStatusPedido, cancelarPedido, criarAviso, avisos, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio } = useApp()
+  const { pedidos, produtos, atualizarProduto, adicionarProduto, criarAviso, avisos, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio } = useApp()
   const location = useLocation()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const aba = abaPorRota(location.pathname)
-  const [filtro, setFiltro] = useState('todos')
-  const [busca, setBusca] = useState('')
-  const [detalhe, setDetalhe] = useState(null)
   const [formProducao, setFormProducao] = useState(FORM_PRODUCAO)
   const [loteProducao, setLoteProducao] = useState([])
   const [producaoEditando, setProducaoEditando] = useState(null)
@@ -229,6 +183,10 @@ export default function Cozinha() {
   const [painelDetalhe, setPainelDetalhe] = useState(null)
   const [diaSelecionado, setDiaSelecionado] = useState(diaDaSemanaAtual())
   const [loteDesperdicioForm, setLoteDesperdicioForm] = useState({})
+  const [novoProdutoAberto, setNovoProdutoAberto] = useState(false)
+  const [novoProdutoForm, setNovoProdutoForm] = useState(PRODUTO_FORM_VAZIO)
+  const [salvandoProduto, setSalvandoProduto] = useState(false)
+  const [erroSalvarProduto, setErroSalvarProduto] = useState('')
 
   function selecionarAba(id) {
     navigate(ROTAS_ABA[id] || '/cozinha')
@@ -240,7 +198,6 @@ export default function Cozinha() {
     .sort((a, b) => (a.criadoEm || 0) - (b.criadoEm || 0))
   , [pedidos])
   const pedidosHoje = useMemo(() => pedidos.filter(p => (p.criadoEm || 0) >= hoje), [pedidos, hoje])
-  const pedidosFiltrados = useMemo(() => filtrarPedidos(pedidosPreparo, filtro, busca), [pedidosPreparo, filtro, busca])
   const pedidosAtivos = useMemo(() => pedidosPreparo.filter(p => !['entregue', 'cancelado'].includes(normalizeStatus(p.status))), [pedidosPreparo])
   const cardapioHoje = useMemo(() => produtos.filter(p => p.disponivel !== false && Number(p.estoque || 0) > 0), [produtos])
   const produtosDoDia = useMemo(() => produtos.filter(p => produtoDisponivelNoDia(p, diaSelecionado)), [produtos, diaSelecionado])
@@ -274,22 +231,6 @@ export default function Cozinha() {
     .filter(a => ['cozinha', 'todos'].includes(a.destino || a.destinatario))
     .sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0))
     .slice(0, 3), [avisos])
-
-  const pendentes = pedidosPreparo.filter(p => ['recebido', 'pendente'].includes(normalizeStatus(p.status))).length
-  const emPreparo = pedidosPreparo.filter(p => ['em preparo', 'preparando'].includes(normalizeStatus(p.status))).length
-  const prontos = pedidosPreparo.filter(p => normalizeStatus(p.status) === 'pronto').length
-  const tempoMedio = emPreparo > 0 ? '15 min' : '--'
-
-  async function avancarStatus(pedido) {
-    const proximo = FLUXO[pedido.status]
-    if (!proximo) return
-    await atualizarStatusPedido(pedido.id, proximo)
-  }
-
-  async function cancelar(pedido) {
-    if (!confirm(`Cancelar pedido #${pedidoCodigo(pedido)}?`)) return
-    await cancelarPedido(pedido.id, 'Cancelado pela cozinha')
-  }
 
   function montarPayloadProducao(dados, itemEditando = null) {
     const produto = produtos.find(p => String(p.id) === String(dados.produtoId))
@@ -472,6 +413,30 @@ export default function Cozinha() {
     setLoteDesperdicioForm({})
   }
 
+  function abrirNovoProduto() {
+    setNovoProdutoForm(PRODUTO_FORM_VAZIO)
+    setErroSalvarProduto('')
+    setNovoProdutoAberto(true)
+  }
+
+  async function salvarNovoProduto(e) {
+    e.preventDefault()
+    if (!novoProdutoForm.nome.trim()) {
+      setErroSalvarProduto('Informe o nome do produto.')
+      return
+    }
+    setSalvandoProduto(true)
+    setErroSalvarProduto('')
+    try {
+      await adicionarProduto(formParaProduto(novoProdutoForm))
+      setNovoProdutoAberto(false)
+    } catch {
+      setErroSalvarProduto('Não foi possível salvar o produto. Tente novamente.')
+    } finally {
+      setSalvandoProduto(false)
+    }
+  }
+
   async function avisarVendedor(item) {
     await criarAviso({
       titulo: `Producao: ${item.produtoNome}`,
@@ -481,57 +446,9 @@ export default function Cozinha() {
     })
   }
 
-  function PedidoCard({ pedido }) {
-    const itens = Array.isArray(pedido.itens) ? pedido.itens : []
-    return (
-      <article style={s.pedidoCard}>
-        <div style={s.pedidoTop}>
-          <div>
-            <strong style={s.codigo}>Pedido #{pedidoCodigo(pedido)}</strong>
-            <p style={s.meta}>{alunoNome(pedido)} {pedido.matricula ? `- ${pedido.matricula}` : ''}</p>
-          </div>
-          <StatusBadge status={pedido.status} />
-        </div>
-        <div style={s.pedidoInfoGrid}>
-          <span><Clock size={14} /> Pedido {pedidoHora(pedido)}</span>
-          <span><Timer size={14} /> Retirada {pedido.horarioRetirada || '--:--'}</span>
-        </div>
-        <div style={s.itens}>
-          {itens.length === 0 ? <span style={s.meta}>Itens não informados.</span> : itens.map((item, i) => (
-            <span key={`${pedido.id}-${i}`} style={s.item}>{item.quantidade || 1}x {item.nome || item.produtoNome || 'Produto'}</span>
-          ))}
-        </div>
-        {pedido.observacao && <p style={s.obs}>Obs: {pedido.observacao}</p>}
-        <div style={{ ...s.acoes, flexDirection: isMobile ? 'column' : 'row' }}>
-          {FLUXO[pedido.status] && (
-            <button style={{ ...s.btnPrimario, width: isMobile ? '100%' : 'auto' }} onClick={() => avancarStatus(pedido)}>
-              <CheckCircle2 size={15} /> {pedido.status === 'Recebido' ? 'Iniciar preparo' : pedido.status === 'Em preparo' ? 'Marcar pronto' : 'Entregar'}
-            </button>
-          )}
-          <button style={{ ...s.btnSecundario, width: isMobile ? '100%' : 'auto' }} onClick={() => setDetalhe(pedido)}>
-            <Eye size={15} /> Ver detalhes
-          </button>
-          {normalizeStatus(pedido.status) !== 'entregue' && (
-            <button style={{ ...s.btnPerigo, width: isMobile ? '100%' : 'auto' }} onClick={() => cancelar(pedido)}>Cancelar</button>
-          )}
-        </div>
-      </article>
-    )
-  }
-
   return (
     <Layout titulo="Painel da Cozinha">
       <div style={{ ...s.page, paddingBottom: isMobile ? 128 : 32 }}>
-        {aba === 'pedidos' && (
-          <div style={{ ...s.statsGrid, gridTemplateColumns: isMobile ? '1fr' : 'repeat(5, minmax(0, 1fr))' }}>
-            <StatCard icon={ClipboardList} label="Pendentes" value={pendentes} color="#F59E0B" />
-            <StatCard icon={Flame} label="Em preparo" value={emPreparo} color="#1D4ED8" />
-            <StatCard icon={PackageCheck} label="Prontos" value={prontos} color="#22C55E" />
-            <StatCard icon={Timer} label="Tempo medio" value={tempoMedio} color="#A855F7" />
-            <StatCard icon={Utensils} label="Pedidos hoje" value={pedidosHoje.length} color="#003D7C" />
-          </div>
-        )}
-
         {aba === 'dashboard' && (
           <>
             <section style={s.sectionCard}>
@@ -593,26 +510,6 @@ export default function Cozinha() {
               })}
             </section>
           </>
-        )}
-
-        {aba === 'pedidos' && (
-          <section style={s.sectionCard}>
-            <div style={s.sectionHeader}>
-              <h3 style={s.sectionTitle}>Pedidos da cozinha</h3>
-              <div style={s.searchBox}>
-                <Search size={16} color="#64748B" />
-                <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar pedido ou aluno" style={s.searchInput} />
-              </div>
-              <div style={s.filtros}>
-                {FILTROS.map(([id, label]) => (
-                  <button key={id} style={{ ...s.filtroBtn, ...(filtro === id ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltro(id)}>{label}</button>
-                ))}
-              </div>
-            </div>
-            <div style={s.lista}>
-              {pedidosFiltrados.length === 0 ? <EmptyState>Nenhum pedido aguardando preparo.</EmptyState> : pedidosFiltrados.map(pedido => <PedidoCard key={pedido.id} pedido={pedido} />)}
-            </div>
-          </section>
         )}
 
         {aba === 'producao' && (
@@ -822,8 +719,11 @@ export default function Cozinha() {
         {aba === 'cardapio' && (
           <section style={s.sectionCard}>
             <div style={s.sectionHeader}>
-              <h3 style={s.sectionTitle}>Cardápio disponivel</h3>
-              <span style={s.meta}>{cardapioHoje.length} produto(s)</span>
+              <div>
+                <h3 style={s.sectionTitle}>Cardápio disponivel</h3>
+                <span style={s.meta}>{cardapioHoje.length} produto(s)</span>
+              </div>
+              <button style={s.btnPrimario} onClick={abrirNovoProduto}><PlusCircle size={15} /> Novo produto</button>
             </div>
             <div style={s.produtosGrid}>
               {cardapioHoje.length === 0 ? <EmptyState>Nenhum produto disponivel no momento.</EmptyState> : cardapioHoje.map(produto => (
@@ -930,35 +830,18 @@ export default function Cozinha() {
         </div>
       )}
 
-      {detalhe && (
-        <div style={s.modalOverlay} role="dialog" aria-modal="true">
-          <div style={{ ...s.modal, padding: isMobile ? 18 : 24 }}>
-            <div style={s.modalHeader}>
-              <div>
-                <h3 style={s.modalTitle}>Pedido #{pedidoCodigo(detalhe)}</h3>
-                <p style={s.meta}>{alunoNome(detalhe)} {detalhe.matricula ? `- ${detalhe.matricula}` : ''}</p>
-              </div>
-              <button style={s.closeBtn} onClick={() => setDetalhe(null)}>Fechar</button>
-            </div>
-            <div style={s.detailGrid}>
-              <p><strong>Status:</strong> <StatusBadge status={detalhe.status} /></p>
-              <p><strong>Horario:</strong> {formatarDataHora(detalhe.criadoEm || detalhe.createdAt)}</p>
-              <p><strong>Retirada:</strong> {detalhe.horarioRetirada || '--:--'}</p>
-              <p><strong>Total:</strong> {formatPrice(detalhe.total || 0)}</p>
-            </div>
-            <h4 style={s.detailTitle}>Itens</h4>
-            <div style={s.lista}>
-              {(detalhe.itens || []).map((item, index) => (
-                <div key={`${item.nome || 'item'}-${index}`} style={s.linhaResumo}>
-                  <span>{item.quantidade || 1}x {item.nome || item.produtoNome || 'Produto'}</span>
-                  <strong>{formatPrice(item.preco || item.valor || 0)}</strong>
-                </div>
-              ))}
-            </div>
-            <h4 style={s.detailTitle}>Observacoes</h4>
-            <p style={s.obs}>{detalhe.observacao || detalhe.observacoes || 'Nenhuma observacao informada.'}</p>
-          </div>
-        </div>
+    {novoProdutoAberto && (
+        <ProdutoFormModal
+          titulo="Novo produto"
+          subtitulo="Cadastre um novo produto para o cardápio"
+          form={novoProdutoForm}
+          setForm={setNovoProdutoForm}
+          onSalvar={salvarNovoProduto}
+          onFechar={() => setNovoProdutoAberto(false)}
+          salvando={salvandoProduto}
+          erroSalvar={erroSalvarProduto}
+          isMobile={isMobile}
+        />
       )}
     </Layout>
   )
@@ -983,10 +866,8 @@ const s = {
   sectionHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
   sectionTitle: { margin: 0, fontWeight: 900, color: '#0F172A', fontSize: '1rem', display: 'inline-flex', alignItems: 'center', gap: 8 },
   lista: { display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 },
-  pedidoCard: { border: '1px solid #E5E7EB', background: '#F8FAFC', borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 },
   producaoCard: { border: '1px solid #E5E7EB', borderLeft: '5px solid #CBD5E1', background: '#fff', borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 6px 18px rgba(15,23,42,0.05)' },
   pedidoTop: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
-  pedidoInfoGrid: { display: 'flex', gap: 14, flexWrap: 'wrap', color: '#64748B', fontSize: '0.82rem', fontWeight: 700 },
   codigo: { color: '#0F172A', fontWeight: 900 },
   meta: { color: '#64748B', fontSize: '0.84rem', margin: 0, lineHeight: 1.45 },
   badge: { borderRadius: 999, padding: '0.25rem 0.7rem', fontSize: '0.74rem', fontWeight: 900, whiteSpace: 'nowrap' },
@@ -999,8 +880,6 @@ const s = {
   inputMini: { border: '1px solid #CBD5E1', borderRadius: 10, padding: '0.55rem 0.65rem', fontFamily: 'inherit', outlineColor: '#003D7C', minHeight: 38, minWidth: 0, width: '100%', boxSizing: 'border-box' },
   checkRow: { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' },
   checkLabel: { display: 'inline-flex', alignItems: 'center', gap: 7, color: '#475569', fontWeight: 800, fontSize: '0.83rem' },
-  itens: { display: 'flex', gap: 7, flexWrap: 'wrap' },
-  item: { background: '#fff', color: '#475569', borderRadius: 20, padding: '0.3rem 0.7rem', fontSize: '0.8rem', fontWeight: 700, border: '1px solid #E2E8F0' },
   obs: { color: '#475569', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, margin: 0, lineHeight: 1.45 },
   acoes: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   btnPrimario: { background: '#003D7C', color: '#fff', border: 'none', borderRadius: 12, padding: '0.68rem 0.95rem', fontWeight: 900, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, minHeight: 44, fontFamily: 'inherit' },
@@ -1029,6 +908,4 @@ const s = {
   modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, marginBottom: 16 },
   modalTitle: { margin: 0, color: '#0F172A', fontSize: '1.2rem', fontWeight: 900 },
   closeBtn: { border: 'none', background: '#003D7C', color: '#fff', borderRadius: 10, minHeight: 40, padding: '0 0.9rem', fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' },
-  detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, color: '#475569', fontSize: '0.88rem' },
-  detailTitle: { margin: '16px 0 8px', color: '#0F172A' },
 }

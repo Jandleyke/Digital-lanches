@@ -2,17 +2,18 @@ import { useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   AlertTriangle, CheckCircle2, ClipboardList, Clock, CreditCard, Edit3, Eye,
-  ImagePlus, Megaphone, Package, PackageCheck, PlusCircle, Save, Search, ShoppingBag, XCircle,
+  Megaphone, Package, PackageCheck, PlusCircle, Save, Search, ShoppingBag, XCircle,
 } from 'lucide-react'
 import Layout from '../../components/Layout'
 import AvisosSetor from '../../components/AvisosSetor'
+import ProdutoFormModal from '../../components/ProdutoFormModal'
 import { useApp } from '../../contexts/AppContext'
 import { formatPrice } from '../../utils/formatters'
 import { estoqueNivel } from '../../utils/statusColors'
 import { useIsMobile } from '../../utils/useIsMobile'
-import { processarFotoPerfil } from '../../utils/image.js'
 import { DIAS_CARDAPIO, DIAS_LABEL, resumoDiasProduto } from '../../utils/cardapioDias'
 import { ehGestao } from '../../utils/perfis'
+import { PRODUTO_FORM_VAZIO, produtoParaForm, formParaProduto } from '../../utils/produtoForm'
 
 const ROTAS_ABA = {
   dashboard: '/vendedor',
@@ -32,7 +33,6 @@ function abaPorRota(pathname) {
   return 'dashboard'
 }
 
-const PRODUTO_VAZIO = { nome: '', categoria: '', preco: '', estoque: '', estoqueBaixo: '', disponivel: true, composicao: '', foto: '', diasProducao: [] }
 const PRODUTO_LOTE_VAZIO = { nome: '', categoria: 'Lanches', preco: '', estoque: '', estoqueBaixo: '', diasProducao: [], disponivel: true }
 
 const FILTROS_PEDIDOS = [
@@ -215,10 +215,12 @@ export default function Vendedor() {
   const [filtroEstoque, setFiltroEstoque] = useState('todos')
   const [detalhePedido, setDetalhePedido] = useState(null)
   const [detalheProduto, setDetalheProduto] = useState(null)
-  const [produtoForm, setProdutoForm] = useState(PRODUTO_VAZIO)
+  const [produtoForm, setProdutoForm] = useState(PRODUTO_FORM_VAZIO)
   const [loteProdutos, setLoteProdutos] = useState([{ ...PRODUTO_LOTE_VAZIO }])
   const [produtoEditando, setProdutoEditando] = useState(null)
   const [editorProdutoAberto, setEditorProdutoAberto] = useState(false)
+  const [salvandoProduto, setSalvandoProduto] = useState(false)
+  const [erroSalvarProduto, setErroSalvarProduto] = useState('')
   const [filtroCategoria, setFiltroCategoria] = useState('todas')
   const [filtroDisponivel, setFiltroDisponivel] = useState('todos')
   const [ajusteItem, setAjusteItem] = useState(null)
@@ -310,66 +312,49 @@ export default function Vendedor() {
     setFormAjuste(FORM_AJUSTE_VAZIO)
   }
 
-  function editarProduto(produto) {
-    setProdutoEditando(produto.id)
-    setProdutoForm({
-      nome: produto.nome || '',
-      categoria: produto.categoria || '',
-      preco: String(produto.preco ?? ''),
-      estoque: String(produto.estoque ?? ''),
-      estoqueBaixo: String(produto.estoqueBaixo ?? ''),
-      disponivel: produto.disponivel !== false,
-      composicao: produto.composicao || produto.descricao || '',
-      foto: produto.foto || '',
-      diasProducao: produto.diasCardapio || produto.diasProducao || [],
-    })
+  function abrirNovoProduto() {
+    setProdutoEditando(null)
+    setProdutoForm(PRODUTO_FORM_VAZIO)
+    setErroSalvarProduto('')
     setEditorProdutoAberto(true)
   }
 
-  async function handleFotoProduto(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const dataUrl = await processarFotoPerfil(file, 900, 650000)
-    setProdutoForm(p => ({ ...p, foto: dataUrl }))
-    e.target.value = ''
+  function editarProduto(produto) {
+    setProdutoEditando(produto.id)
+    setProdutoForm(produtoParaForm(produto))
+    setErroSalvarProduto('')
+    setEditorProdutoAberto(true)
   }
 
   async function salvarProduto(e) {
     e.preventDefault()
-    if (!produtoForm.nome.trim()) return
-    const payload = {
-      nome: produtoForm.nome.trim(),
-      categoria: produtoForm.categoria.trim() || 'Lanches',
-      preco: Number(produtoForm.preco || 0),
-      estoque: Math.max(0, Number(produtoForm.estoque || 0)),
-      estoqueBaixo: Math.max(0, Number(produtoForm.estoqueBaixo || 0)),
-      disponivel: !!produtoForm.disponivel,
-      composicao: produtoForm.composicao.trim(),
-      foto: produtoForm.foto || '',
-      diasProducao: produtoForm.diasProducao || [],
-      diasCardapio: produtoForm.diasProducao || [],
+    if (!produtoForm.nome.trim()) {
+      setErroSalvarProduto('Informe o nome do produto.')
+      return
     }
-    if (produtoEditando) {
-      const original = produtos.find(p => p.id === produtoEditando)
-      if (!podeEditarPreco) payload.preco = Number(original?.preco || 0)
-      await atualizarProduto({ ...original, ...payload })
-    } else {
-      await adicionarProduto(payload)
+    setSalvandoProduto(true)
+    setErroSalvarProduto('')
+    try {
+      const payload = formParaProduto(produtoForm)
+      if (produtoEditando) {
+        const original = produtos.find(p => p.id === produtoEditando)
+        if (!podeEditarPreco) payload.preco = Number(original?.preco || 0)
+        await atualizarProduto({ ...original, ...payload })
+      } else {
+        await adicionarProduto(payload)
+      }
+      setProdutoEditando(null)
+      setProdutoForm(PRODUTO_FORM_VAZIO)
+      setEditorProdutoAberto(false)
+    } catch {
+      setErroSalvarProduto('Não foi possível salvar o produto. Tente novamente.')
+    } finally {
+      setSalvandoProduto(false)
     }
-    setProdutoEditando(null)
-    setProdutoForm(PRODUTO_VAZIO)
-    setEditorProdutoAberto(false)
   }
 
   function atualizarLinhaLote(index, campo, valor) {
     setLoteProdutos(prev => prev.map((item, i) => i === index ? { ...item, [campo]: valor } : item))
-  }
-
-  function toggleDiaProdutoForm(dia) {
-    setProdutoForm(prev => {
-      const dias = prev.diasProducao || []
-      return { ...prev, diasProducao: dias.includes(dia) ? dias.filter(d => d !== dia) : [...dias, dia] }
-    })
   }
 
   function toggleDiaLote(index, dia) {
@@ -563,89 +548,50 @@ export default function Vendedor() {
 
         {aba === 'produtos' && (
           <div style={{ ...s.contentGrid, gridTemplateColumns: isMobile ? '1fr' : 'minmax(300px, 390px) 1fr' }}>
-            <form onSubmit={salvarProduto} style={s.sectionCard}>
-              <h3 style={s.sectionTitle}>{produtoEditando ? 'Editar produto' : 'Novo produto'}</h3>
-              <div style={s.fotoLinha}>
-                <div style={s.fotoPreview}>
-                  {produtoForm.foto ? <img src={produtoForm.foto} alt="Produto" style={s.fotoImg} /> : <ImagePlus size={28} color="#94A3B8" />}
-                </div>
-                <label style={s.btnSecundario}>
-                  <ImagePlus size={15} /> Imagem
-                  <input type="file" accept="image/*" onChange={handleFotoProduto} style={{ display: 'none' }} />
-                </label>
+            <section style={s.sectionCard}>
+              <div style={s.sectionHeader}>
+                <h3 style={s.sectionTitle}>Cadastro de produtos</h3>
               </div>
-              <input value={produtoForm.nome} onChange={e => setProdutoForm({ ...produtoForm, nome: e.target.value })} placeholder="Nome do produto" style={s.input} />
-              <input value={produtoForm.categoria} onChange={e => setProdutoForm({ ...produtoForm, categoria: e.target.value })} placeholder="Categoria" style={s.input} />
-              <input
-                type="number" step="0.01" value={produtoForm.preco}
-                onChange={e => setProdutoForm({ ...produtoForm, preco: e.target.value })}
-                placeholder="Preço" style={s.input}
-                disabled={!!produtoEditando && !podeEditarPreco}
-                title={!!produtoEditando && !podeEditarPreco ? 'Apenas administradores podem alterar o preço de um produto ja cadastrado.' : undefined}
-              />
-              {!!produtoEditando && !podeEditarPreco && <p style={s.meta}>Apenas administradores podem alterar o preço de um produto ja cadastrado.</p>}
-              <div style={s.formGrid}>
-                <input type="number" value={produtoForm.estoque} onChange={e => setProdutoForm({ ...produtoForm, estoque: e.target.value })} placeholder="Estoque" style={s.input} />
-                <input type="number" value={produtoForm.estoqueBaixo} onChange={e => setProdutoForm({ ...produtoForm, estoqueBaixo: e.target.value })} placeholder="Estoque minimo" style={s.input} />
-              </div>
-              <textarea value={produtoForm.composicao} onChange={e => setProdutoForm({ ...produtoForm, composicao: e.target.value })} placeholder="Descrição / composição" rows={3} style={{ ...s.input, resize: 'vertical' }} />
-              <div>
-                <label style={s.label}>Dias no cardapio</label>
-                <div style={s.diasLinha}>
-                  {DIAS_CARDAPIO.map(dia => {
-                    const ativo = (produtoForm.diasProducao || []).includes(dia)
-                    return (
-                      <button key={dia} type="button" onClick={() => toggleDiaProdutoForm(dia)} style={{ ...s.diaBtn, ...(ativo ? s.diaBtnAtivo : {}) }}>
-                        {DIAS_LABEL[dia] || dia}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-              <label style={s.check}><input type="checkbox" checked={produtoForm.disponivel} onChange={e => setProdutoForm({ ...produtoForm, disponivel: e.target.checked })} /> Produto ativo no cardapio</label>
+              <p style={s.meta}>Cadastre um novo produto com foto, informações nutricionais e alérgenos.</p>
               <div style={s.acoes}>
-                <button type="submit" style={s.btnPrimario}><Save size={15} /> Salvar</button>
-                {produtoEditando && <button type="button" style={s.btnSecundario} onClick={() => { setProdutoEditando(null); setProdutoForm(PRODUTO_VAZIO) }}><XCircle size={15} /> Cancelar</button>}
+                <button type="button" style={s.btnPrimario} onClick={abrirNovoProduto}><PlusCircle size={15} /> Novo produto</button>
               </div>
 
-              {!produtoEditando && (
-                <div style={s.loteBox}>
-                  <div style={s.sectionHeader}>
-                    <h3 style={s.sectionTitle}>Cadastro em lote</h3>
-                    <span style={s.meta}>{loteProdutos.filter(item => item.nome.trim()).length} pronto(s)</span>
-                  </div>
-                  {loteProdutos.map((item, index) => (
-                    <div key={index} style={s.loteItem}>
-                      <input value={item.nome} onChange={e => atualizarLinhaLote(index, 'nome', e.target.value)} placeholder="Nome" style={s.input} />
-                      <div style={s.formGrid}>
-                        <input type="number" step="0.01" value={item.preco} onChange={e => atualizarLinhaLote(index, 'preco', e.target.value)} placeholder="Preço" style={s.input} />
-                        <input type="number" value={item.estoque} onChange={e => atualizarLinhaLote(index, 'estoque', e.target.value)} placeholder="Estoque" style={s.input} />
-                      </div>
-                      <div style={s.diasLinha}>
-                        {DIAS_CARDAPIO.map(dia => {
-                          const ativo = (item.diasProducao || []).includes(dia)
-                          return (
-                            <button key={dia} type="button" onClick={() => toggleDiaLote(index, dia)} style={{ ...s.diaBtn, ...(ativo ? s.diaBtnAtivo : {}) }}>
-                              {DIAS_LABEL[dia] || dia}
-                            </button>
-                          )
-                        })}
-                      </div>
-                      <button type="button" style={s.btnPerigo} onClick={() => removerLinhaLote(index)}>Remover linha</button>
-                    </div>
-                  ))}
-                  <div style={s.acoes}>
-                    <button type="button" style={s.btnSecundario} onClick={adicionarLinhaLote}><PlusCircle size={15} /> Adicionar linha</button>
-                    <button type="button" style={s.btnPrimario} onClick={salvarProdutosEmLote}><Save size={15} /> Salvar lote</button>
-                  </div>
+              <div style={s.loteBox}>
+                <div style={s.sectionHeader}>
+                  <h3 style={s.sectionTitle}>Cadastro em lote</h3>
+                  <span style={s.meta}>{loteProdutos.filter(item => item.nome.trim()).length} pronto(s)</span>
                 </div>
-              )}
-            </form>
+                {loteProdutos.map((item, index) => (
+                  <div key={index} style={s.loteItem}>
+                    <input value={item.nome} onChange={e => atualizarLinhaLote(index, 'nome', e.target.value)} placeholder="Nome" style={s.input} />
+                    <div style={s.formGrid}>
+                      <input type="number" step="0.01" value={item.preco} onChange={e => atualizarLinhaLote(index, 'preco', e.target.value)} placeholder="Preço" style={s.input} />
+                      <input type="number" value={item.estoque} onChange={e => atualizarLinhaLote(index, 'estoque', e.target.value)} placeholder="Estoque" style={s.input} />
+                    </div>
+                    <div style={s.diasLinha}>
+                      {DIAS_CARDAPIO.map(dia => {
+                        const ativo = (item.diasProducao || []).includes(dia)
+                        return (
+                          <button key={dia} type="button" onClick={() => toggleDiaLote(index, dia)} style={{ ...s.diaBtn, ...(ativo ? s.diaBtnAtivo : {}) }}>
+                            {DIAS_LABEL[dia] || dia}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <button type="button" style={s.btnPerigo} onClick={() => removerLinhaLote(index)}>Remover linha</button>
+                  </div>
+                ))}
+                <div style={s.acoes}>
+                  <button type="button" style={s.btnSecundario} onClick={adicionarLinhaLote}><PlusCircle size={15} /> Adicionar linha</button>
+                  <button type="button" style={s.btnPrimario} onClick={salvarProdutosEmLote}><Save size={15} /> Salvar lote</button>
+                </div>
+              </div>
+            </section>
 
             <section style={s.sectionCard}>
               <div style={s.sectionHeader}>
                 <h3 style={s.sectionTitle}>Produtos cadastrados</h3>
-                <button style={s.linkBtn} onClick={() => { setProdutoEditando(null); setProdutoForm(PRODUTO_VAZIO) }}><PlusCircle size={15} /> Limpar formulario</button>
               </div>
               <div style={s.searchBox}>
                 <Search size={16} color="#64748B" />
@@ -789,68 +735,18 @@ export default function Vendedor() {
       )}
 
       {editorProdutoAberto && (
-        <div style={s.modalOverlay} role="dialog" aria-modal="true">
-          <form onSubmit={salvarProduto} style={{ ...s.modal, padding: isMobile ? 18 : 24 }}>
-            <div style={s.modalHeader}>
-              <div>
-                <h3 style={s.modalTitle}>Editar produto</h3>
-                <p style={s.meta}>Atualize preco, estoque, imagem e disponibilidade.</p>
-              </div>
-              <button
-                type="button"
-                style={s.closeBtn}
-                onClick={() => { setEditorProdutoAberto(false); setProdutoEditando(null); setProdutoForm(PRODUTO_VAZIO) }}
-              >
-                Fechar
-              </button>
-            </div>
-
-            <div style={s.fotoLinha}>
-              <div style={s.fotoPreview}>
-                {produtoForm.foto ? <img src={produtoForm.foto} alt="Produto" style={s.fotoImg} /> : <ImagePlus size={28} color="#94A3B8" />}
-              </div>
-              <label style={s.btnSecundario}>
-                <ImagePlus size={15} /> Imagem
-                <input type="file" accept="image/*" onChange={handleFotoProduto} style={{ display: 'none' }} />
-              </label>
-            </div>
-
-            <div style={{ ...s.formGrid, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' }}>
-              <input value={produtoForm.nome} onChange={e => setProdutoForm({ ...produtoForm, nome: e.target.value })} placeholder="Nome do produto" style={s.input} />
-              <input value={produtoForm.categoria} onChange={e => setProdutoForm({ ...produtoForm, categoria: e.target.value })} placeholder="Categoria" style={s.input} />
-              <input
-                type="number" step="0.01" value={produtoForm.preco}
-                onChange={e => setProdutoForm({ ...produtoForm, preco: e.target.value })}
-                placeholder="Preço" style={s.input}
-                disabled={!!produtoEditando && !podeEditarPreco}
-                title={!!produtoEditando && !podeEditarPreco ? 'Apenas administradores podem alterar o preço de um produto ja cadastrado.' : undefined}
-              />
-              <input type="number" value={produtoForm.estoque} onChange={e => setProdutoForm({ ...produtoForm, estoque: e.target.value })} placeholder="Estoque" style={s.input} />
-              <input type="number" value={produtoForm.estoqueBaixo} onChange={e => setProdutoForm({ ...produtoForm, estoqueBaixo: e.target.value })} placeholder="Estoque minimo" style={s.input} />
-            </div>
-            {!!produtoEditando && !podeEditarPreco && <p style={s.meta}>Apenas administradores podem alterar o preço de um produto ja cadastrado.</p>}
-
-            <textarea value={produtoForm.composicao} onChange={e => setProdutoForm({ ...produtoForm, composicao: e.target.value })} placeholder="Descrição / composição" rows={3} style={{ ...s.input, resize: 'vertical' }} />
-            <div>
-              <label style={s.label}>Dias no cardapio</label>
-              <div style={s.diasLinha}>
-                {DIAS_CARDAPIO.map(dia => {
-                  const ativo = (produtoForm.diasProducao || []).includes(dia)
-                  return (
-                    <button key={dia} type="button" onClick={() => toggleDiaProdutoForm(dia)} style={{ ...s.diaBtn, ...(ativo ? s.diaBtnAtivo : {}) }}>
-                      {DIAS_LABEL[dia] || dia}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-            <label style={s.check}><input type="checkbox" checked={produtoForm.disponivel} onChange={e => setProdutoForm({ ...produtoForm, disponivel: e.target.checked })} /> Produto ativo no cardapio</label>
-            <div style={s.acoes}>
-              <button type="submit" style={s.btnPrimario}><Save size={15} /> Salvar alteracoes</button>
-              <button type="button" style={s.btnSecundario} onClick={() => { setEditorProdutoAberto(false); setProdutoEditando(null); setProdutoForm(PRODUTO_VAZIO) }}><XCircle size={15} /> Cancelar</button>
-            </div>
-          </form>
-        </div>
+        <ProdutoFormModal
+          titulo={produtoEditando ? 'Editar produto' : 'Novo produto'}
+          subtitulo={produtoEditando ? 'Atualize as informações do produto.' : 'Cadastre um novo produto para o cardápio'}
+          form={produtoForm}
+          setForm={setProdutoForm}
+          onSalvar={salvarProduto}
+          onFechar={() => { setEditorProdutoAberto(false); setProdutoEditando(null); setProdutoForm(PRODUTO_FORM_VAZIO) }}
+          salvando={salvandoProduto}
+          erroSalvar={erroSalvarProduto}
+          isMobile={isMobile}
+          precoDesabilitado={!!produtoEditando && !podeEditarPreco}
+        />
       )}
 
       {detalheProduto && (

@@ -111,7 +111,6 @@ export default function Layout({ children, titulo }) {
 
   const navCozinha = [
     { icon: LayoutDashboard, labelFull: 'Dashboard', path: '/cozinha' },
-    { icon: ClipboardList, labelFull: 'Pedidos', path: '/cozinha/pedidos' },
     { icon: Utensils, labelFull: 'Produção', path: '/cozinha/producao' },
     { icon: ChefHat, labelFull: 'Cardápio', path: '/cozinha/cardapio' },
     { icon: Megaphone, labelFull: 'Avisos', path: '/cozinha/avisos' },
