@@ -78,7 +78,28 @@ service cloud.firestore {
     function atualizacaoApenasEstoque() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estoque'])
         && request.resource.data.estoque is number
-        && request.resource.data.estoque >= 0;
+        && request.resource.data.estoque >= 0
+        && request.resource.data.estoque != resource.data.estoque
+        && (request.resource.data.estoque - resource.data.estoque) <= 20
+        && (request.resource.data.estoque - resource.data.estoque) >= -20;
+    }
+
+    function atualizacaoProdutoOperacional() {
+      return hasRole(['vendedor', 'vendedora', 'cozinha'])
+        && !('preco' in request.resource.data.diff(resource.data).affectedKeys());
+    }
+
+    function atualizacaoAjusteProducaoVendedor() {
+      return hasRole(['vendedor', 'vendedora'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'quantidadePronta',
+          'quantidadeRestante',
+          'status',
+          'observacao',
+          'atualizadoPor',
+          'atualizadoEm',
+          'historico'
+        ]);
     }
 
     function isPedidoOwner() {
@@ -119,7 +140,9 @@ service cloud.firestore {
     match /produtos/{produtoId} {
       allow read: if isSignedIn();
       allow create, delete: if isStaff();
-      allow update: if isStaff() || (isSignedIn() && atualizacaoApenasEstoque());
+      allow update: if hasRole(['admin'])
+        || atualizacaoProdutoOperacional()
+        || (isSignedIn() && atualizacaoApenasEstoque());
     }
 
     match /pedidos/{pedidoId} {
@@ -161,7 +184,8 @@ service cloud.firestore {
 
     match /producaoDiaria/{producaoId} {
       allow read: if isStaff();
-      allow create, update, delete: if isCozinhaOuAdmin();
+      allow create, delete: if isCozinhaOuAdmin();
+      allow update: if isCozinhaOuAdmin() || atualizacaoAjusteProducaoVendedor();
     }
 
     match /pushSubscriptions/{uid} {

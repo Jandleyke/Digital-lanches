@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { collection, doc, onSnapshot, updateDoc, deleteDoc, query, where, runTransaction, writeBatch } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { notificarPedidoPronto } from '../../utils/notifications'
+import { notificarPush } from '../../utils/notificarPush'
 import { ehStaff } from '../../utils/perfis'
 
 const JANELA_CANCELAMENTO_MS = 10 * 60 * 1000
@@ -104,6 +105,12 @@ export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onF
         })
       })
       setCarrinho([])
+      notificarPush({
+        destino: 'cozinha',
+        titulo: 'Novo pedido recebido',
+        mensagem: `${usuarioLogado.nome || 'Aluno'} fez um novo pedido.`,
+        url: '/cozinha',
+      })
       return novoPedido
     } catch (error) {
       console.error("Erro ao processar pedido:", error)
@@ -123,6 +130,32 @@ export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onF
         updates.retiradoEm = Date.now()
       }
       await updateDoc(doc(db, 'pedidos', id), updates)
+
+      const pedido = pedidos.find(p => p.id === id)
+      if (pedido?.uid && novoStatus === 'Em preparo') {
+        notificarPush({
+          destino: pedido.uid,
+          titulo: 'Pedido em preparo',
+          mensagem: 'Seu pedido entrou em preparo na cantina.',
+          url: '/aluno/pedidos',
+        })
+      }
+      if (novoStatus === 'Pronto') {
+        if (pedido?.uid) {
+          notificarPush({
+            destino: pedido.uid,
+            titulo: 'Pedido pronto',
+            mensagem: 'Seu pedido esta pronto para retirada!',
+            url: '/aluno/pedidos',
+          })
+        }
+        notificarPush({
+          destino: 'vendedor',
+          titulo: 'Pedido pronto',
+          mensagem: `O pedido de ${pedido?.aluno || 'um aluno'} esta pronto para retirada.`,
+          url: '/vendedor',
+        })
+      }
     } catch (e) { console.error('atualizarStatusPedido:', e) }
   }
 
@@ -198,6 +231,7 @@ export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onF
   }
 
   async function cancelarPedido(pedidoId, motivo = '') {
+    let pedidoCancelado = null
     try {
       await runTransaction(db, async transaction => {
         const pedidoRef = doc(db, 'pedidos', pedidoId)
@@ -227,7 +261,15 @@ export function usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onF
           const estoqueAtual = Number(snap.data().estoque || 0)
           transaction.update(ref, { estoque: estoqueAtual + Number(item.quantidade || 0) })
         })
+
+        pedidoCancelado = pedido
       })
+
+      if (pedidoCancelado) {
+        const mensagem = `Pedido de ${pedidoCancelado.aluno || 'um aluno'} foi cancelado${motivo ? `: ${motivo}` : '.'}`
+        notificarPush({ destino: 'admin', titulo: 'Pedido cancelado', mensagem, url: '/admin/relatorios' })
+        notificarPush({ destino: 'vendedor', titulo: 'Pedido cancelado', mensagem, url: '/vendedor' })
+      }
     } catch (e) { console.error('cancelarPedido:', e) }
   }
 

@@ -28,7 +28,7 @@ export function AppProvider({ children }) {
   const logout = useCallback(() => { limparCarrinho(); sair() }, [limparCarrinho, sair])
   const { avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso } = useAvisos(usuarioLogado)
   const { avaliacoes, resumoPorProduto: resumoAvaliacoesPorProduto } = useAvaliacoes(usuarioLogado)
-  const { producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao } = useProducaoDiaria(usuarioLogado)
+  const { producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio, ajustarProducaoVendedor } = useProducaoDiaria(usuarioLogado)
   const { lanchoneteConfig, salvarLanchoneteConfig } = useLanchoneteConfig(usuarioLogado)
   const {
     pedidos, fazerPedido, atualizarStatusPedido, cancelarPedido, editarPedido, limparEntregues, avaliarPedido, marcarPedidoPago, tempoEstimado,
@@ -55,7 +55,7 @@ export function AppProvider({ children }) {
       pedidos, fazerPedido, atualizarStatusPedido, cancelarPedido, editarPedido, limparEntregues, avaliarPedido, marcarPedidoPago,
       avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso,
       avaliacoes, resumoAvaliacoesPorProduto,
-      producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao,
+      producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio, ajustarProducaoVendedor,
       lanchoneteConfig, salvarLanchoneteConfig,
       fbStatus, fbDebug, testarFirebase, carregando,
       carrinho, adicionarAoCarrinho, removerDoCarrinho, limparCarrinho, totalCarrinho, qtdCarrinho,

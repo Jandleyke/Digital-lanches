@@ -50,12 +50,12 @@ export default function Layout({ children, titulo }) {
   useEffect(() => {
     if (!usuarioLogado || !suportaNotificacao() || !suportaPush()) return
     const perfil = normalizarPerfil(usuarioLogado.perfil)
-    if (!['aluno', 'professor'].includes(perfil)) return
+    if (!['aluno', 'professor', 'admin', 'vendedor', 'cozinha'].includes(perfil)) return
     if (permissaoNotificacao() === 'granted') inscreverPush(usuarioLogado)
   }, [usuarioLogado])
 
   const podeMostrarNotifBanner = !notifDismissed && usuarioLogado && suportaNotificacao() && suportaPush()
-    && ['aluno', 'professor'].includes(normalizarPerfil(usuarioLogado.perfil))
+    && ['aluno', 'professor', 'admin', 'vendedor', 'cozinha'].includes(normalizarPerfil(usuarioLogado.perfil))
     && permissaoNotificacao() === 'default'
 
   async function ativarNotificacoes() {

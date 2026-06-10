@@ -1,20 +1,7 @@
 import { useState, useEffect } from 'react'
 import { arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
-import { db, auth } from '../../firebase'
-
-async function notificarPromocao({ titulo, mensagem, destino }) {
-  try {
-    const token = await auth.currentUser?.getIdToken()
-    if (!token) return
-    await fetch('/api/sendPush', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ destino, titulo, mensagem, url: '/aluno/cardapio' }),
-    })
-  } catch (e) {
-    console.error('notificarPromocao:', e)
-  }
-}
+import { db } from '../../firebase'
+import { notificarPush } from '../../utils/notificarPush'
 
 export function useAvisos(usuarioLogado) {
   const [avisos, setAvisos] = useState([])
@@ -67,7 +54,9 @@ export function useAvisos(usuarioLogado) {
         criadoEm: agora,
       })
       if (tipo === 'promo' && (destinoFinal === 'aluno' || destinoFinal === 'todos')) {
-        notificarPromocao({ titulo, mensagem: conteudo, destino: destinoFinal })
+        notificarPush({ titulo, mensagem: conteudo, destino: destinoFinal, url: '/aluno/cardapio' })
+      } else if (prioridade === 'alta') {
+        notificarPush({ titulo, mensagem: conteudo, destino: destinoFinal, url: '/' })
       }
     } catch (e) {
       console.error(e)

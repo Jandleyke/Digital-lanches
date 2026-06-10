@@ -7,6 +7,7 @@ import {
 import Layout from '../../components/Layout'
 import AvisosSetor from '../../components/AvisosSetor'
 import { useApp } from '../../contexts/AppContext'
+import { MOTIVOS_DESPERDICIO } from '../../contexts/hooks/useProducaoDiaria'
 import { formatPrice } from '../../utils/formatters'
 import { useIsMobile } from '../../utils/useIsMobile'
 
@@ -43,6 +44,12 @@ const STATUS_PRODUCAO = [
   'Esgotado',
   'Cancelado',
 ]
+
+const FORM_DESPERDICIO = {
+  quantidade: '',
+  motivo: MOTIVOS_DESPERDICIO[0],
+  observacao: '',
+}
 
 const FORM_PRODUCAO = {
   produtoId: '',
@@ -199,7 +206,7 @@ function StatusBadge({ status }) {
 }
 
 export default function Cozinha() {
-  const { pedidos, produtos, atualizarProduto, atualizarStatusPedido, cancelarPedido, criarAviso, producaoHoje, salvarProducao, atualizarProducao, removerProducao } = useApp()
+  const { pedidos, produtos, atualizarProduto, atualizarStatusPedido, cancelarPedido, criarAviso, avisos, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio } = useApp()
   const location = useLocation()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
@@ -212,6 +219,8 @@ export default function Cozinha() {
   const [producaoEditando, setProducaoEditando] = useState(null)
   const [buscaProducao, setBuscaProducao] = useState('')
   const [filtroProducao, setFiltroProducao] = useState('todos')
+  const [desperdicioItem, setDesperdicioItem] = useState(null)
+  const [formDesperdicio, setFormDesperdicio] = useState(FORM_DESPERDICIO)
 
   function selecionarAba(id) {
     navigate(ROTAS_ABA[id] || '/cozinha')
@@ -241,6 +250,14 @@ export default function Cozinha() {
   const produtosEmProducao = producaoOrdenada.filter(item => normalizeStatus(item.status) === 'em producao').length
   const produtosProntos = producaoOrdenada.filter(item => normalizeStatus(item.status) === 'pronto para venda' || normalizeStatus(item.status) === 'parcialmente pronto').length
   const produtosEsgotados = producaoOrdenada.filter(item => normalizeStatus(item.status) === 'esgotado').length
+  const totalDisponivelHoje = producaoOrdenada.reduce((acc, item) => acc + Number(item.quantidadeRestante || 0), 0)
+  const totalDesperdicadoHoje = producaoOrdenada.reduce((acc, item) => acc + Number(item.quantidadeDesperdicada || 0), 0)
+  const totalVendidoHoje = producaoOrdenada.reduce((acc, item) => acc + Number(item.quantidadeVendida || 0), 0)
+  const houveRegistroVendas = producaoOrdenada.some(item => Number(item.quantidadeVendida || 0) > 0)
+  const avisosCozinha = useMemo(() => (avisos || [])
+    .filter(a => ['cozinha', 'todos'].includes(a.destino || a.destinatario))
+    .sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0))
+    .slice(0, 3), [avisos])
 
   const pendentes = pedidosPreparo.filter(p => ['recebido', 'pendente'].includes(normalizeStatus(p.status))).length
   const emPreparo = pedidosPreparo.filter(p => ['em preparo', 'preparando'].includes(normalizeStatus(p.status))).length
@@ -378,6 +395,35 @@ export default function Cozinha() {
     await removerProducao(item.id, item)
   }
 
+  function abrirDesperdicio(item) {
+    setDesperdicioItem(item)
+    setFormDesperdicio(FORM_DESPERDICIO)
+  }
+
+  async function confirmarDesperdicio(e) {
+    e.preventDefault()
+    const quantidade = Number(formDesperdicio.quantidade)
+    if (!desperdicioItem || !quantidade || quantidade <= 0) {
+      alert('Informe uma quantidade valida para registrar o desperdicio.')
+      return
+    }
+    if (quantidade > Number(desperdicioItem.quantidadeRestante || 0)) {
+      alert('A quantidade informada e maior que o disponivel para este produto.')
+      return
+    }
+    const resultado = await registrarDesperdicio(desperdicioItem.id, desperdicioItem, {
+      quantidade,
+      motivo: formDesperdicio.motivo,
+      observacao: formDesperdicio.observacao,
+    })
+    const produto = produtos.find(p => String(p.id) === String(desperdicioItem.produtoId))
+    if (produto) {
+      await atualizarProduto({ ...produto, estoque: resultado.quantidadeRestante })
+    }
+    setDesperdicioItem(null)
+    setFormDesperdicio(FORM_DESPERDICIO)
+  }
+
   async function avisarVendedor(item) {
     await criarAviso({
       titulo: `Producao: ${item.produtoNome}`,
@@ -439,22 +485,50 @@ export default function Cozinha() {
         )}
 
         {aba === 'dashboard' && (
-          <div style={{ ...s.contentGrid, gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr' }}>
+          <>
             <section style={s.sectionCard}>
               <div style={s.sectionHeader}>
-                <h3 style={s.sectionTitle}>Fila de preparo</h3>
-                <button style={s.linkBtn} onClick={() => selecionarAba('pedidos')}>Ver pedidos</button>
+                <h3 style={s.sectionTitle}>Resumo de hoje</h3>
+                <button style={s.linkBtn} onClick={() => selecionarAba('producao')}>Ver producao</button>
               </div>
-              {pedidosAtivos.length === 0 ? <EmptyState>Nenhum pedido aguardando preparo.</EmptyState> : pedidosAtivos.slice(0, 4).map(pedido => <PedidoCard key={pedido.id} pedido={pedido} />)}
+              <div style={{ ...s.statsGrid, gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, minmax(0, 1fr))' }}>
+                <StatCard icon={Utensils} label="Total produzido" value={`${totalProduzidoHoje} un`} color="#7C3AED" />
+                <StatCard icon={PackageCheck} label="Disponivel" value={`${totalDisponivelHoje} un`} color="#22C55E" />
+                <StatCard icon={Trash2} label="Desperdicado" value={`${totalDesperdicadoHoje} un`} color="#EF4444" />
+                <StatCard icon={XCircle} label="Esgotados" value={produtosEsgotados} color="#B91C1C" />
+                <StatCard icon={Flame} label="Em producao" value={produtosEmProducao} color="#F59E0B" />
+                <StatCard icon={CheckCircle2} label="Total vendido" value={houveRegistroVendas ? `${totalVendidoHoje} un` : 'Nao informado'} color="#0EA5E9" />
+              </div>
+              {avisosCozinha.length > 0 && (
+                <div style={s.loteBox}>
+                  <strong style={{ color: '#0F172A' }}>Ultimos avisos</strong>
+                  {avisosCozinha.map(aviso => (
+                    <div key={aviso.id} style={s.linhaResumo}>
+                      <span>{aviso.titulo}</span>
+                      <span style={s.meta}>{formatarHoraAtualizacao(aviso.criadoEm)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
-            <section style={s.sectionCard}>
-              <h3 style={s.sectionTitle}>O que produzir agora</h3>
-              {resumoProducao.length === 0 ? <EmptyState>Sem itens aguardando preparo.</EmptyState> : resumoProducao.map(([nome, qtd]) => (
-                <div key={nome} style={s.linhaResumo}><span>{nome}</span><strong>{qtd} un</strong></div>
-              ))}
-            </section>
-          </div>
+            <div style={{ ...s.contentGrid, gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr' }}>
+              <section style={s.sectionCard}>
+                <div style={s.sectionHeader}>
+                  <h3 style={s.sectionTitle}>Fila de preparo</h3>
+                  <button style={s.linkBtn} onClick={() => selecionarAba('pedidos')}>Ver pedidos</button>
+                </div>
+                {pedidosAtivos.length === 0 ? <EmptyState>Nenhum pedido aguardando preparo.</EmptyState> : pedidosAtivos.slice(0, 4).map(pedido => <PedidoCard key={pedido.id} pedido={pedido} />)}
+              </section>
+
+              <section style={s.sectionCard}>
+                <h3 style={s.sectionTitle}>O que produzir agora</h3>
+                {resumoProducao.length === 0 ? <EmptyState>Sem itens aguardando preparo.</EmptyState> : resumoProducao.map(([nome, qtd]) => (
+                  <div key={nome} style={s.linhaResumo}><span>{nome}</span><strong>{qtd} un</strong></div>
+                ))}
+              </section>
+            </div>
+          </>
         )}
 
         {aba === 'pedidos' && (
@@ -601,6 +675,7 @@ export default function Cozinha() {
                           <span>Em producao <strong>{item.quantidadeEmProducao || 0}</strong></span>
                           <span>Pronto <strong>{item.quantidadePronta || 0}</strong></span>
                           <span>Restante <strong>{item.quantidadeRestante || 0}</strong></span>
+                          <span>Desperdicado <strong>{item.quantidadeDesperdicada || 0}</strong></span>
                           <span>Previsão <strong>{item.horarioPrevisto || '--:--'}</strong></span>
                         </div>
                         {item.observacao && <p style={s.obs}>{item.observacao}</p>}
@@ -611,8 +686,17 @@ export default function Cozinha() {
                           <button style={s.btnPrimario} onClick={() => mudarStatusProducao(item, 'Pronto para venda')}><CheckCircle2 size={15} /> Pronto</button>
                           <button style={s.btnPerigo} onClick={() => mudarStatusProducao(item, 'Esgotado')}>Esgotado</button>
                           <button style={s.btnSecundario} onClick={() => avisarVendedor(item)}><Send size={15} /> Avisar vendedor</button>
+                          <button style={s.btnPerigo} onClick={() => abrirDesperdicio(item)} disabled={Number(item.quantidadeRestante || 0) <= 0}><Trash2 size={15} /> Registrar desperdicio</button>
                           <button style={s.btnPerigo} onClick={() => cancelarProducao(item)}>Cancelar</button>
                         </div>
+                        {Array.isArray(item.historicoDesperdicio) && item.historicoDesperdicio.length > 0 && (
+                          <details style={s.historicoBox}>
+                            <summary>Historico de desperdicio</summary>
+                            {item.historicoDesperdicio.slice(-5).reverse().map(h => (
+                              <p key={h.id} style={s.meta}>{formatarDataHora(h.dataHora)} - {h.quantidade} un ({h.motivo}) por {h.responsavel?.nome || 'Usuario'}{h.observacao ? ` - ${h.observacao}` : ''}</p>
+                            ))}
+                          </details>
+                        )}
                         {Array.isArray(item.historico) && item.historico.length > 0 && (
                           <details style={s.historicoBox}>
                             <summary>Historico de alteracoes</summary>
@@ -662,6 +746,40 @@ export default function Cozinha() {
           </section>
         )}
       </div>
+
+      {desperdicioItem && (
+        <div style={s.modalOverlay} role="dialog" aria-modal="true">
+          <div style={{ ...s.modal, maxWidth: 480, padding: isMobile ? 18 : 24 }}>
+            <div style={s.modalHeader}>
+              <div>
+                <h3 style={s.modalTitle}>Registrar desperdicio</h3>
+                <p style={s.meta}>{desperdicioItem.produtoNome} - Disponivel: {desperdicioItem.quantidadeRestante || 0} un</p>
+              </div>
+              <button style={s.closeBtn} onClick={() => setDesperdicioItem(null)}>Fechar</button>
+            </div>
+            <form onSubmit={confirmarDesperdicio} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <input
+                type="number" min="1" max={desperdicioItem.quantidadeRestante || 0}
+                value={formDesperdicio.quantidade}
+                onChange={e => setFormDesperdicio({ ...formDesperdicio, quantidade: e.target.value })}
+                placeholder="Quantidade desperdicada" style={s.input} required
+              />
+              <select value={formDesperdicio.motivo} onChange={e => setFormDesperdicio({ ...formDesperdicio, motivo: e.target.value })} style={s.input}>
+                {MOTIVOS_DESPERDICIO.map(motivo => <option key={motivo} value={motivo}>{motivo}</option>)}
+              </select>
+              <input
+                value={formDesperdicio.observacao}
+                onChange={e => setFormDesperdicio({ ...formDesperdicio, observacao: e.target.value })}
+                placeholder="Observacao (opcional)" style={s.input}
+              />
+              <div style={s.acoes}>
+                <button type="submit" style={s.btnPrimario}><Trash2 size={15} /> Confirmar desperdicio</button>
+                <button type="button" style={s.btnSecundario} onClick={() => setDesperdicioItem(null)}>Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {detalhe && (
         <div style={s.modalOverlay} role="dialog" aria-modal="true">

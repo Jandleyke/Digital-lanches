@@ -216,12 +216,13 @@ function motivoCancelamento(pedido) {
 }
 
 export default function Relatorios() {
-  const { pedidos = [] } = useApp()
+  const { pedidos = [], producaoHoje = [] } = useApp()
   const isMobile = useIsMobile()
   const [gerandoPDF, setGerandoPDF] = useState(false)
   const [filtroTipo, setFiltroTipo] = useState('dia')
   const [filtroDia, setFiltroDia] = useState(hojeInput())
   const [filtroMes, setFiltroMes] = useState(mesInput())
+  const [pedidoCanceladoSelecionado, setPedidoCanceladoSelecionado] = useState(null)
 
   const periodoRelatorio = filtroTipo === 'dia'
     ? `Dia ${formatDateLabel(filtroDia)}`
@@ -295,6 +296,31 @@ export default function Relatorios() {
       })),
     }
   }, [pedidos, filtroTipo, filtroDia, filtroMes])
+
+  const producaoResumo = useMemo(() => {
+    const lista = producaoHoje || []
+    if (lista.length === 0) return null
+
+    const totalProduzido = lista.reduce((acc, item) => acc + Number(item.quantidadePronta || 0), 0)
+    const totalDisponivel = lista.reduce((acc, item) => acc + Number(item.quantidadeRestante || 0), 0)
+    const totalVendido = lista.reduce((acc, item) => acc + Number(item.quantidadeVendida || 0), 0)
+    const totalDesperdicado = lista.reduce((acc, item) => acc + Number(item.quantidadeDesperdicada || 0), 0)
+    const produtosEsgotados = lista.filter(item => normalizeStatus(item.status) === 'esgotado' || Number(item.quantidadeRestante || 0) <= 0).length
+    const diferenca = totalProduzido - totalDisponivel - totalVendido - totalDesperdicado
+
+    const historicoDesperdicio = []
+    const ajustesVendedor = []
+    lista.forEach(item => {
+      ;(item.historicoDesperdicio || []).forEach(h => historicoDesperdicio.push({ ...h, produtoNome: h.produtoNome || item.produtoNome }))
+      ;(item.historico || []).forEach(h => {
+        if (h.acao === 'Ajuste de producao recebida') ajustesVendedor.push({ ...h, produtoNome: h.produtoNome || item.produtoNome })
+      })
+    })
+    historicoDesperdicio.sort((a, b) => (b.dataHora || 0) - (a.dataHora || 0))
+    ajustesVendedor.sort((a, b) => (b.dataHora || b.data || 0) - (a.dataHora || a.data || 0))
+
+    return { totalProduzido, totalDisponivel, totalVendido, totalDesperdicado, produtosEsgotados, diferenca, historicoDesperdicio, ajustesVendedor }
+  }, [producaoHoje])
 
   const resumo = [
     ['Periodo', periodoRelatorio],
@@ -595,6 +621,76 @@ export default function Relatorios() {
           </div>
         </section>
 
+        <section style={{ ...s.section, padding: isMobile ? 18 : 24 }}>
+          <h3 style={s.sectionTitle}>Producao do Dia</h3>
+          <p style={s.sectionSub}>Dados da producao registrada hoje pela cozinha (independente do filtro de periodo acima).</p>
+          {!producaoResumo ? (
+            <p style={s.empty}>Nenhuma producao registrada hoje.</p>
+          ) : (
+            <>
+              <div style={{ ...s.resumoGrid, gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, minmax(0, 1fr))' }}>
+                <div style={s.resumoItem}>
+                  <span style={s.resumoLabel}>Total produzido</span>
+                  <strong style={{ ...s.resumoValue, fontSize: '1.2rem' }}>{formatNumber(producaoResumo.totalProduzido)}</strong>
+                </div>
+                <div style={s.resumoItem}>
+                  <span style={s.resumoLabel}>Disponivel</span>
+                  <strong style={{ ...s.resumoValue, fontSize: '1.2rem' }}>{formatNumber(producaoResumo.totalDisponivel)}</strong>
+                </div>
+                <div style={s.resumoItem}>
+                  <span style={s.resumoLabel}>Vendido</span>
+                  <strong style={{ ...s.resumoValue, fontSize: '1.2rem' }}>{formatNumber(producaoResumo.totalVendido)}</strong>
+                </div>
+                <div style={s.resumoItem}>
+                  <span style={s.resumoLabel}>Desperdicado</span>
+                  <strong style={{ ...s.resumoValue, fontSize: '1.2rem', color: '#EF4444' }}>{formatNumber(producaoResumo.totalDesperdicado)}</strong>
+                </div>
+                <div style={s.resumoItem}>
+                  <span style={s.resumoLabel}>Produtos esgotados</span>
+                  <strong style={{ ...s.resumoValue, fontSize: '1.2rem' }}>{formatNumber(producaoResumo.produtosEsgotados)}</strong>
+                </div>
+              </div>
+              {producaoResumo.diferenca !== 0 && (
+                <p style={s.sectionSub}>Diferenca entre produzido e (disponivel + vendido + desperdicado): <strong>{formatNumber(producaoResumo.diferenca)}</strong> un.</p>
+              )}
+            </>
+          )}
+        </section>
+
+        <div style={{ ...s.grid, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' }}>
+          <section style={{ ...s.section, padding: isMobile ? 18 : 24 }}>
+            <h3 style={s.sectionTitle}>Historico de Desperdicio (hoje)</h3>
+            {!producaoResumo || producaoResumo.historicoDesperdicio.length === 0 ? (
+              <p style={s.empty}>Nenhum desperdicio registrado hoje.</p>
+            ) : (
+              <div style={s.produtoList}>
+                {producaoResumo.historicoDesperdicio.map(h => (
+                  <div key={h.id} style={s.produtoItem}>
+                    <span style={s.produtoNome}>{h.produtoNome || 'Produto'}</span>
+                    <span style={s.produtoMeta}>{h.quantidade || 0} un · {h.motivo || 'Outro'}{h.observacao ? ` (${h.observacao})` : ''} · {formatDateTime(h.dataHora)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section style={{ ...s.section, padding: isMobile ? 18 : 24 }}>
+            <h3 style={s.sectionTitle}>Ajustes do Vendedor (hoje)</h3>
+            {!producaoResumo || producaoResumo.ajustesVendedor.length === 0 ? (
+              <p style={s.empty}>Nenhum ajuste de producao recebida registrado hoje.</p>
+            ) : (
+              <div style={s.produtoList}>
+                {producaoResumo.ajustesVendedor.map(h => (
+                  <div key={h.id} style={s.produtoItem}>
+                    <span style={s.produtoNome}>{h.produtoNome || 'Produto'}</span>
+                    <span style={s.produtoMeta}>{h.quantidadeAnterior ?? '-'} → {h.quantidadeNova ?? '-'} un · {h.motivo || 'Sem motivo'} · por {h.alteradoPorNome || 'Vendedor'} · {formatDateTime(h.dataHora || h.data)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
         <div style={{ ...s.grid, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' }}>
           <section style={{ ...s.section, padding: isMobile ? 18 : 24 }}>
             <h3 style={s.sectionTitle}>Formas de Pagamento</h3>
@@ -688,7 +784,58 @@ export default function Relatorios() {
             </div>
           </section>
         )}
+
+        {relatorio.pedidosCancelados.length > 0 && (
+          <section style={{ ...s.section, padding: isMobile ? 18 : 24 }}>
+            <h3 style={s.sectionTitle}>Pedidos Cancelados</h3>
+            <p style={s.sectionSub}>Pedidos cancelados nao contam como vendas, faturamento ou ticket medio. Clique em um pedido para ver detalhes.</p>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={s.table}>
+                <thead>
+                  <tr style={s.theadRow}>
+                    {['Pedido', 'Aluno', 'Itens', 'Total', 'Cancelado em', 'Status'].map(col => (
+                      <th key={col} style={s.th}>{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {relatorio.pedidosCancelados.map(p => (
+                    <tr key={p.id || p.numero} style={{ ...s.trow, cursor: 'pointer' }} onClick={() => setPedidoCanceladoSelecionado(p)}>
+                      <td style={s.td}>#{p.id || p.numero || 'Não informado'}</td>
+                      <td style={s.td}>{alunoNome(p)}</td>
+                      <td style={s.td}>{getItensTexto(p)}</td>
+                      <td style={{ ...s.td, fontWeight: 700, color: '#EF4444' }}>{formatCurrency(getTotalPedido(p))}</td>
+                      <td style={s.td}>{formatDateTime(p.canceladoEm || p.dataCancelamento)}</td>
+                      <td style={s.td}>{p.status || 'Cancelado'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
       </div>
+
+      {pedidoCanceladoSelecionado && (
+        <div style={s.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="pedido-cancelado-title">
+          <div style={{ ...s.modal, padding: isMobile ? 18 : 24 }}>
+            <div style={s.modalHeader}>
+              <h3 id="pedido-cancelado-title" style={s.sectionTitle}>Pedido Cancelado #{pedidoCanceladoSelecionado.id || pedidoCanceladoSelecionado.numero || 'Não informado'}</h3>
+              <button type="button" style={s.closeBtn} onClick={() => setPedidoCanceladoSelecionado(null)}>Fechar</button>
+            </div>
+            <div style={s.modalBody}>
+              <p style={s.td}><strong>Aluno:</strong> {alunoNome(pedidoCanceladoSelecionado)}</p>
+              <p style={s.td}><strong>Matricula / E-mail:</strong> {alunoContato(pedidoCanceladoSelecionado)}</p>
+              <p style={s.td}><strong>Itens:</strong> {getItensTexto(pedidoCanceladoSelecionado)}</p>
+              <p style={s.td}><strong>Valor:</strong> {formatCurrency(getTotalPedido(pedidoCanceladoSelecionado))}</p>
+              <p style={s.td}><strong>Horario do pedido:</strong> {formatDateTime(getPedidoDate(pedidoCanceladoSelecionado) || pedidoCanceladoSelecionado.criadoEm || pedidoCanceladoSelecionado.createdAt || pedidoCanceladoSelecionado.dataPedido || pedidoCanceladoSelecionado.data)}</p>
+              <p style={s.td}><strong>Horario do cancelamento:</strong> {formatDateTime(pedidoCanceladoSelecionado.canceladoEm || pedidoCanceladoSelecionado.dataCancelamento)}</p>
+              <p style={s.td}><strong>Motivo:</strong> {motivoCancelamento(pedidoCanceladoSelecionado)}</p>
+              <p style={s.td}><strong>Status anterior:</strong> {pedidoCanceladoSelecionado.statusAnterior || pedidoCanceladoSelecionado.statusAntesCancelamento || 'Não informado'}</p>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   )
 }
@@ -731,4 +878,9 @@ const s = {
   th: { padding: '0.7rem 1rem', textAlign: 'left', fontWeight: 800, color: '#64748B', borderBottom: '1px solid #E2E8F0', whiteSpace: 'nowrap' },
   trow: { borderBottom: '1px solid #F1F5F9' },
   td: { padding: '0.7rem 1rem', color: '#475569', verticalAlign: 'top' },
+  modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 },
+  modal: { width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', background: '#fff', borderRadius: 18, boxShadow: '0 24px 80px rgba(15,23,42,0.25)' },
+  modalHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 12 },
+  modalBody: { display: 'flex', flexDirection: 'column', gap: 4 },
+  closeBtn: { border: 'none', borderRadius: 10, background: '#003D7C', color: '#fff', minHeight: 42, padding: '0 1rem', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' },
 }

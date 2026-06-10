@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
-  AlertTriangle, CheckCircle2, ClipboardList, Clock, CreditCard, Eye,
+  AlertTriangle, CheckCircle2, ClipboardList, Clock, CreditCard, Edit3, Eye,
   ImagePlus, Megaphone, Package, PackageCheck, PlusCircle, Save, Search, ShoppingBag, XCircle,
 } from 'lucide-react'
 import Layout from '../../components/Layout'
@@ -12,6 +12,7 @@ import { estoqueNivel } from '../../utils/statusColors'
 import { useIsMobile } from '../../utils/useIsMobile'
 import { processarFotoPerfil } from '../../utils/image.js'
 import { DIAS_CARDAPIO, DIAS_LABEL, resumoDiasProduto } from '../../utils/cardapioDias'
+import { ehGestao } from '../../utils/perfis'
 
 const ROTAS_ABA = {
   dashboard: '/vendedor',
@@ -46,6 +47,14 @@ const FILTROS_ESTOQUE = [
   ['critico', 'Critico'],
   ['baixo', 'Baixo'],
 ]
+
+const STATUS_AJUSTE_PRODUCAO = [
+  'Pronto para venda',
+  'Parcialmente pronto',
+  'Esgotado',
+]
+
+const FORM_AJUSTE_VAZIO = { quantidade: '', status: '', motivo: '', observacao: '' }
 
 function inicioDoDia() {
   const data = new Date()
@@ -189,10 +198,12 @@ function horaAtualizacao(valor) {
 
 export default function Vendedor() {
   const {
-    pedidos, produtos, producaoHoje,
+    usuarioLogado, pedidos, produtos, producaoHoje,
     atualizarStatusPedido, cancelarPedido, marcarPedidoPago,
     atualizarProduto, adicionarProduto, adicionarProdutos,
+    ajustarProducaoVendedor,
   } = useApp()
+  const podeEditarPreco = ehGestao(usuarioLogado?.role || usuarioLogado?.perfil)
   const location = useLocation()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
@@ -210,6 +221,8 @@ export default function Vendedor() {
   const [editorProdutoAberto, setEditorProdutoAberto] = useState(false)
   const [filtroCategoria, setFiltroCategoria] = useState('todas')
   const [filtroDisponivel, setFiltroDisponivel] = useState('todos')
+  const [ajusteItem, setAjusteItem] = useState(null)
+  const [formAjuste, setFormAjuste] = useState(FORM_AJUSTE_VAZIO)
 
   function selecionarAba(id) {
     navigate(ROTAS_ABA[id] || '/vendedor')
@@ -265,6 +278,38 @@ export default function Vendedor() {
     await atualizarProduto({ ...produto, estoque: Math.max(0, Number(estoque || 0)) })
   }
 
+  function abrirAjusteProducao(item) {
+    setAjusteItem(item)
+    setFormAjuste({
+      quantidade: String(item.quantidadeRestante || 0),
+      status: item.status || '',
+      motivo: '',
+      observacao: item.observacao || '',
+    })
+  }
+
+  async function confirmarAjusteProducao(e) {
+    e.preventDefault()
+    if (!ajusteItem) return
+    if (!formAjuste.motivo.trim()) {
+      alert('Informe o motivo do ajuste.')
+      return
+    }
+    const resultado = await ajustarProducaoVendedor(ajusteItem.id, ajusteItem, {
+      novaQuantidade: Number(formAjuste.quantidade || 0),
+      novoStatus: formAjuste.status || ajusteItem.status,
+      motivo: formAjuste.motivo.trim(),
+      observacao: formAjuste.observacao.trim(),
+    })
+    const produto = produtos.find(p => String(p.id) === String(ajusteItem.produtoId))
+    if (produto) {
+      const esgotado = normalizeStatus(resultado.status) === 'esgotado' || resultado.quantidadeRestante <= 0
+      await atualizarProduto({ ...produto, estoque: resultado.quantidadeRestante, disponivel: !esgotado })
+    }
+    setAjusteItem(null)
+    setFormAjuste(FORM_AJUSTE_VAZIO)
+  }
+
   function editarProduto(produto) {
     setProdutoEditando(produto.id)
     setProdutoForm({
@@ -306,6 +351,7 @@ export default function Vendedor() {
     }
     if (produtoEditando) {
       const original = produtos.find(p => p.id === produtoEditando)
+      if (!podeEditarPreco) payload.preco = Number(original?.preco || 0)
       await atualizarProduto({ ...original, ...payload })
     } else {
       await adicionarProduto(payload)
@@ -464,6 +510,7 @@ export default function Vendedor() {
                         <span>Atualizado as <strong>{horaAtualizacao(item.atualizadoEm)}</strong></span>
                       </div>
                       {item.observacao && <p style={s.obs}>{item.observacao}</p>}
+                      <button type="button" style={s.btnSecundario} onClick={() => abrirAjusteProducao(item)}><Edit3 size={15} /> Ajustar producao recebida</button>
                     </article>
                   )
                 })}
@@ -529,7 +576,14 @@ export default function Vendedor() {
               </div>
               <input value={produtoForm.nome} onChange={e => setProdutoForm({ ...produtoForm, nome: e.target.value })} placeholder="Nome do produto" style={s.input} />
               <input value={produtoForm.categoria} onChange={e => setProdutoForm({ ...produtoForm, categoria: e.target.value })} placeholder="Categoria" style={s.input} />
-              <input type="number" step="0.01" value={produtoForm.preco} onChange={e => setProdutoForm({ ...produtoForm, preco: e.target.value })} placeholder="Preço" style={s.input} />
+              <input
+                type="number" step="0.01" value={produtoForm.preco}
+                onChange={e => setProdutoForm({ ...produtoForm, preco: e.target.value })}
+                placeholder="Preço" style={s.input}
+                disabled={!!produtoEditando && !podeEditarPreco}
+                title={!!produtoEditando && !podeEditarPreco ? 'Apenas administradores podem alterar o preço de um produto ja cadastrado.' : undefined}
+              />
+              {!!produtoEditando && !podeEditarPreco && <p style={s.meta}>Apenas administradores podem alterar o preço de um produto ja cadastrado.</p>}
               <div style={s.formGrid}>
                 <input type="number" value={produtoForm.estoque} onChange={e => setProdutoForm({ ...produtoForm, estoque: e.target.value })} placeholder="Estoque" style={s.input} />
                 <input type="number" value={produtoForm.estoqueBaixo} onChange={e => setProdutoForm({ ...produtoForm, estoqueBaixo: e.target.value })} placeholder="Estoque minimo" style={s.input} />
@@ -661,6 +715,50 @@ export default function Vendedor() {
         )}
       </div>
 
+      {ajusteItem && (
+        <div style={s.modalOverlay} role="dialog" aria-modal="true">
+          <div style={{ ...s.modal, maxWidth: 480, padding: isMobile ? 18 : 24 }}>
+            <div style={s.modalHeader}>
+              <div>
+                <h3 style={s.modalTitle}>Ajustar producao recebida</h3>
+                <p style={s.meta}>{ajusteItem.produtoNome} - Disponivel atual: {ajusteItem.quantidadeRestante || 0} un</p>
+              </div>
+              <button style={s.closeBtn} onClick={() => setAjusteItem(null)}>Fechar</button>
+            </div>
+            <form onSubmit={confirmarAjusteProducao} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <label style={s.label}>Nova quantidade disponivel</label>
+              <input
+                type="number" min="0"
+                value={formAjuste.quantidade}
+                onChange={e => setFormAjuste({ ...formAjuste, quantidade: e.target.value })}
+                style={s.input} required
+              />
+              <label style={s.label}>Novo status do dia</label>
+              <select value={formAjuste.status} onChange={e => setFormAjuste({ ...formAjuste, status: e.target.value })} style={s.input}>
+                <option value={ajusteItem.status}>{ajusteItem.status} (manter)</option>
+                {STATUS_AJUSTE_PRODUCAO.filter(st => st !== ajusteItem.status).map(status => <option key={status} value={status}>{status}</option>)}
+              </select>
+              <label style={s.label}>Motivo do ajuste</label>
+              <input
+                value={formAjuste.motivo}
+                onChange={e => setFormAjuste({ ...formAjuste, motivo: e.target.value })}
+                placeholder="Ex.: contagem fisica, produto esgotou, sobrou estoque..." style={s.input} required
+              />
+              <label style={s.label}>Observacao (opcional)</label>
+              <input
+                value={formAjuste.observacao}
+                onChange={e => setFormAjuste({ ...formAjuste, observacao: e.target.value })}
+                placeholder="Observacao adicional" style={s.input}
+              />
+              <div style={s.acoes}>
+                <button type="submit" style={s.btnPrimario}><Save size={15} /> Salvar ajuste</button>
+                <button type="button" style={s.btnSecundario} onClick={() => setAjusteItem(null)}>Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {detalhePedido && (
         <div style={s.modalOverlay} role="dialog" aria-modal="true">
           <div style={{ ...s.modal, padding: isMobile ? 18 : 24 }}>
@@ -720,10 +818,17 @@ export default function Vendedor() {
             <div style={{ ...s.formGrid, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' }}>
               <input value={produtoForm.nome} onChange={e => setProdutoForm({ ...produtoForm, nome: e.target.value })} placeholder="Nome do produto" style={s.input} />
               <input value={produtoForm.categoria} onChange={e => setProdutoForm({ ...produtoForm, categoria: e.target.value })} placeholder="Categoria" style={s.input} />
-              <input type="number" step="0.01" value={produtoForm.preco} onChange={e => setProdutoForm({ ...produtoForm, preco: e.target.value })} placeholder="Preço" style={s.input} />
+              <input
+                type="number" step="0.01" value={produtoForm.preco}
+                onChange={e => setProdutoForm({ ...produtoForm, preco: e.target.value })}
+                placeholder="Preço" style={s.input}
+                disabled={!!produtoEditando && !podeEditarPreco}
+                title={!!produtoEditando && !podeEditarPreco ? 'Apenas administradores podem alterar o preço de um produto ja cadastrado.' : undefined}
+              />
               <input type="number" value={produtoForm.estoque} onChange={e => setProdutoForm({ ...produtoForm, estoque: e.target.value })} placeholder="Estoque" style={s.input} />
               <input type="number" value={produtoForm.estoqueBaixo} onChange={e => setProdutoForm({ ...produtoForm, estoqueBaixo: e.target.value })} placeholder="Estoque minimo" style={s.input} />
             </div>
+            {!!produtoEditando && !podeEditarPreco && <p style={s.meta}>Apenas administradores podem alterar o preço de um produto ja cadastrado.</p>}
 
             <textarea value={produtoForm.composicao} onChange={e => setProdutoForm({ ...produtoForm, composicao: e.target.value })} placeholder="Descrição / composição" rows={3} style={{ ...s.input, resize: 'vertical' }} />
             <div>

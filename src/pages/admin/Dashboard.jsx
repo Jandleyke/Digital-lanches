@@ -8,7 +8,7 @@ import { useApp } from '../../contexts/AppContext'
 import { useIsMobile } from '../../utils/useIsMobile'
 import { formatPrice } from '../../utils/formatters'
 import AvisosBanner from '../../components/AvisosBanner'
-import { DollarSign, Package, Flame, Target, AlertTriangle, Star, PackageCheck, Clock } from 'lucide-react'
+import { DollarSign, Package, Flame, Target, AlertTriangle, Star, PackageCheck, Clock, Trash2, RefreshCcw } from 'lucide-react'
 
 const PIE_CORES = ['#003D7C','#F47920','#22C55E','#EF4444','#A855F7','#F59E0B','#06B6D4']
 
@@ -256,6 +256,27 @@ export default function Dashboard() {
       .slice(0, 5)
   }, [avaliados])
 
+  const totalDesperdicioHoje = useMemo(() => (producaoHoje || [])
+    .reduce((acc, item) => acc + Number(item.quantidadeDesperdicada || 0), 0), [producaoHoje])
+
+  const desperdiciosHoje = useMemo(() => {
+    const lista = []
+    ;(producaoHoje || []).forEach(item => {
+      (item.historicoDesperdicio || []).forEach(h => lista.push({ ...h, produtoNome: h.produtoNome || item.produtoNome }))
+    })
+    return lista.sort((a, b) => (b.dataHora || 0) - (a.dataHora || 0)).slice(0, 5)
+  }, [producaoHoje])
+
+  const ajustesVendedorHoje = useMemo(() => {
+    const lista = []
+    ;(producaoHoje || []).forEach(item => {
+      (item.historico || []).forEach(h => {
+        if (h.acao === 'Ajuste de producao recebida') lista.push({ ...h, produtoNome: h.produtoNome || item.produtoNome })
+      })
+    })
+    return lista.sort((a, b) => (b.dataHora || b.data || 0) - (a.dataHora || a.data || 0)).slice(0, 5)
+  }, [producaoHoje])
+
   const cards = useMemo(() => [
     { icon: DollarSign,    label: 'Total Vendas',   valor: formatPrice(totalVendas),       cor: '#003D7C' },
     { icon: Package,       label: 'Total Pedidos',  valor: totalPedidos,                   cor: '#F47920', onClick: () => abrirListaPedidos('Pedidos válidos', pedidosValidos), title: 'Ver pedidos válidos do período' },
@@ -263,7 +284,8 @@ export default function Dashboard() {
     { icon: Target,        label: 'Ticket Médio',   valor: formatPrice(ticketMedio),       cor: '#A855F7' },
     { icon: Star,          label: 'Nota Média',     valor: notaMedia !== null ? `${notaMedia.toFixed(1)} ⭐` : '—', cor: '#F59E0B' },
     { icon: AlertTriangle, label: 'Est. Crítico',   valor: `${estoqueBaixo.length} itens`, cor: '#EF4444' },
-  ], [totalVendas, totalPedidos, pedidosAtivos, pedidosValidos, listaPedidosAtivos, abrirListaPedidos, ticketMedio, notaMedia, estoqueBaixo.length])
+    { icon: Trash2,        label: 'Desperdício Hoje', valor: `${totalDesperdicioHoje} un`, cor: '#EF4444' },
+  ], [totalVendas, totalPedidos, pedidosAtivos, pedidosValidos, listaPedidosAtivos, abrirListaPedidos, ticketMedio, notaMedia, estoqueBaixo.length, totalDesperdicioHoje])
 
   return (
     <Layout titulo="Dashboard">
@@ -361,6 +383,53 @@ export default function Dashboard() {
             })}
           </div>
         )}
+      </div>
+
+      {/* Desperdício e ajustes do vendedor */}
+      <div style={{ ...s.row, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? '0.5rem' : '0.75rem', marginBottom: isMobile ? '0.5rem' : '0.75rem' }}>
+        <div style={{ ...s.box, padding: isMobile ? '0.75rem' : '1.1rem' }}>
+          <h3 style={{ ...s.boxTitulo, marginBottom: isMobile ? '0.4rem' : '0.75rem', fontSize: isMobile ? '0.85rem' : '0.92rem' }}><Trash2 size={16} /> Desperdício do Dia</h3>
+          {desperdiciosHoje.length === 0 ? (
+            <p style={s.semDados}>Nenhum desperdício registrado hoje.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+              {desperdiciosHoje.map(item => (
+                <div key={item.id} style={s.estoqueItem}>
+                  <span style={{ flex: 1, fontSize: '0.84rem', color: '#475569' }}>{item.produtoNome || 'Produto'}</span>
+                  <span style={{ fontSize: '0.78rem', color: '#94A3B8' }}>{item.motivo || 'Outro'} - {horaCurta(item.dataHora)}</span>
+                  <span style={{
+                    fontWeight: 800, fontSize: '0.84rem', color: '#EF4444',
+                    background: '#FEE2E2', padding: '0.15rem 0.55rem', borderRadius: 8,
+                  }}>
+                    {item.quantidade || 0} un
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ ...s.box, padding: isMobile ? '0.75rem' : '1.1rem' }}>
+          <h3 style={{ ...s.boxTitulo, marginBottom: isMobile ? '0.4rem' : '0.75rem', fontSize: isMobile ? '0.85rem' : '0.92rem' }}><RefreshCcw size={16} /> Ajustes do Vendedor</h3>
+          {ajustesVendedorHoje.length === 0 ? (
+            <p style={s.semDados}>Nenhum ajuste de produção registrado hoje.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+              {ajustesVendedorHoje.map(item => (
+                <div key={item.id} style={s.estoqueItem}>
+                  <span style={{ flex: 1, fontSize: '0.84rem', color: '#475569' }}>{item.produtoNome || 'Produto'}</span>
+                  <span style={{ fontSize: '0.78rem', color: '#94A3B8' }}>{item.quantidadeAnterior ?? '-'} → {item.quantidadeNova ?? '-'} un - {horaCurta(item.dataHora || item.data)}</span>
+                  <span style={{
+                    fontWeight: 800, fontSize: '0.78rem', color: '#003D7C',
+                    background: '#E0ECFF', padding: '0.15rem 0.55rem', borderRadius: 8,
+                  }}>
+                    {item.alteradoPorNome || item.usuario?.nome || 'Vendedor'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ ...s.row, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? '0.5rem' : '0.75rem', marginBottom: isMobile ? '0.5rem' : '0.75rem' }}>

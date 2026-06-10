@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { collection, doc, onSnapshot, setDoc, deleteDoc, writeBatch } from 'firebase/firestore'
 import { db } from '../../firebase'
+import { notificarPush } from '../../utils/notificarPush'
 
 export function useProdutos(usuarioLogado) {
   const [produtos, setProdutos] = useState([])
@@ -19,7 +20,16 @@ export function useProdutos(usuarioLogado) {
   }, [usuarioLogado])
 
   async function atualizarProduto(produto) {
-    try { await setDoc(doc(db, 'produtos', String(produto.id)), produto) } catch (e) { console.error(e) }
+    const anterior = produtos.find(p => String(p.id) === String(produto.id))
+    try {
+      await setDoc(doc(db, 'produtos', String(produto.id)), produto)
+      const limite = Number(produto.estoqueBaixo || 0)
+      if (limite > 0 && Number(produto.estoque) <= limite && Number(anterior?.estoque ?? produto.estoque) > limite) {
+        const mensagem = `${produto.nome}: ${produto.estoque} un restante(s).`
+        notificarPush({ destino: 'admin', titulo: 'Estoque baixo', mensagem, url: '/admin/estoque' })
+        notificarPush({ destino: 'vendedor', titulo: 'Estoque baixo', mensagem, url: '/vendedor' })
+      }
+    } catch (e) { console.error(e) }
   }
   async function adicionarProduto(produto) {
     const id = Date.now()

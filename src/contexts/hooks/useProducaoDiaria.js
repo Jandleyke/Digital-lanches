@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, deleteDoc, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
+import { notificarPush } from '../../utils/notificarPush'
 
 function inicioDoDia() {
   const data = new Date()
@@ -39,15 +40,20 @@ function historicoItem(acao, usuarioLogado, extra = {}) {
 function normalizarProducao(item) {
   const quantidadePronta = Number(item.quantidadePronta || 0)
   const quantidadeVendida = Number(item.quantidadeVendida || 0)
+  const quantidadeDesperdicada = Number(item.quantidadeDesperdicada || 0)
   return {
     ...item,
     quantidadePlanejada: Number(item.quantidadePlanejada || 0),
     quantidadeEmProducao: Number(item.quantidadeEmProducao || 0),
     quantidadePronta,
     quantidadeVendida,
-    quantidadeRestante: Math.max(0, Number(item.quantidadeRestante ?? (quantidadePronta - quantidadeVendida))),
+    quantidadeDesperdicada,
+    historicoDesperdicio: Array.isArray(item.historicoDesperdicio) ? item.historicoDesperdicio : [],
+    quantidadeRestante: Math.max(0, Number(item.quantidadeRestante ?? (quantidadePronta - quantidadeVendida - quantidadeDesperdicada))),
   }
 }
+
+export const MOTIVOS_DESPERDICIO = ['Queimou', 'Venceu', 'Caiu no chao', 'Sobrou', 'Erro de producao', 'Danificado', 'Outro']
 
 export function useProducaoDiaria(usuarioLogado) {
   const [producaoDiaria, setProducaoDiaria] = useState([])
@@ -113,6 +119,26 @@ export function useProducaoDiaria(usuarioLogado) {
       atualizadoEm: agora,
       historico: [...(atual.historico || []), historicoItem(opcoes.acao || 'Atualizou producao', usuarioLogado, { status: proxima.status })],
     })
+
+    const statusNovo = dados.status
+    if (statusNovo && statusNovo !== atual.status) {
+      if (statusNovo === 'Esgotado') {
+        notificarPush({
+          destino: 'vendedor',
+          titulo: 'Produto esgotado',
+          mensagem: `${atual.produtoNome || 'Produto'} esta esgotado.`,
+          url: '/vendedor',
+        })
+      } else if (statusNovo === 'Pronto para venda' || statusNovo === 'Parcialmente pronto') {
+        notificarPush({
+          destino: 'vendedor',
+          titulo: 'Producao pronta',
+          mensagem: `${atual.produtoNome || 'Produto'} esta disponivel para venda.`,
+          url: '/vendedor',
+        })
+      }
+    }
+
     return proxima
   }
 
@@ -123,5 +149,88 @@ export function useProducaoDiaria(usuarioLogado) {
     await deleteDoc(doc(db, 'producaoDiaria', id))
   }
 
-  return { producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao }
+  async function registrarDesperdicio(id, atual, { quantidade, motivo, observacao }) {
+    const agora = Date.now()
+    const qtd = Math.max(0, Number(quantidade || 0))
+    const quantidadeDesperdicada = Number(atual.quantidadeDesperdicada || 0) + qtd
+    const quantidadeRestante = Math.max(0, Number(atual.quantidadeRestante || 0) - qtd)
+    const usuario = usuarioResumo(usuarioLogado)
+    const entradaDesperdicio = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      produtoId: atual.produtoId || '',
+      produtoNome: atual.produtoNome || '',
+      quantidade: qtd,
+      motivo: motivo || 'Outro',
+      observacao: observacao || '',
+      responsavel: usuario,
+      dataHora: agora,
+    }
+    await updateDoc(doc(db, 'producaoDiaria', id), {
+      quantidadeDesperdicada,
+      quantidadeRestante,
+      historicoDesperdicio: [...(atual.historicoDesperdicio || []), entradaDesperdicio],
+      atualizadoPor: usuario,
+      atualizadoEm: agora,
+      historico: [...(atual.historico || []), historicoItem('Registrou desperdicio', usuarioLogado, {
+        quantidade: qtd,
+        motivo: motivo || 'Outro',
+        observacao: observacao || '',
+      })],
+    })
+    notificarPush({
+      destino: 'admin',
+      titulo: 'Desperdicio registrado',
+      mensagem: `${atual.produtoNome || 'Produto'}: ${qtd} un (${motivo || 'Outro'})`,
+      url: '/admin/relatorios',
+    })
+    return { quantidadeDesperdicada, quantidadeRestante }
+  }
+
+  async function ajustarProducaoVendedor(id, atual, { novaQuantidade, novoStatus, motivo, observacao }) {
+    const agora = Date.now()
+    const quantidadeAnterior = Number(atual.quantidadeRestante || 0)
+    const quantidadeNova = Math.max(0, Number(novaQuantidade ?? quantidadeAnterior))
+    const statusAnterior = atual.status || 'Planejado'
+    const statusNovo = novoStatus || statusAnterior
+    const usuario = usuarioResumo(usuarioLogado)
+    const quantidadePronta = quantidadeNova + Number(atual.quantidadeVendida || 0) + Number(atual.quantidadeDesperdicada || 0)
+    const entrada = {
+      ...historicoItem('Ajuste de producao recebida', usuarioLogado, {
+        produtoId: atual.produtoId || '',
+        produtoNome: atual.produtoNome || '',
+        quantidadeAnterior,
+        quantidadeNova,
+        statusAnterior,
+        statusNovo,
+        motivo: motivo || '',
+        observacao: observacao || '',
+        alteradoPorId: usuario.id,
+        alteradoPorNome: usuario.nome,
+        perfil: usuario.perfil,
+        dataHora: agora,
+      }),
+      acao: 'Ajuste de producao recebida',
+    }
+    await updateDoc(doc(db, 'producaoDiaria', id), {
+      quantidadePronta,
+      quantidadeRestante: quantidadeNova,
+      status: statusNovo,
+      observacao: observacao || atual.observacao || '',
+      atualizadoPor: usuario,
+      atualizadoEm: agora,
+      historico: [...(atual.historico || []), entrada],
+    })
+    notificarPush({
+      destino: 'admin',
+      titulo: 'Ajuste de producao recebida',
+      mensagem: `${atual.produtoNome || 'Produto'}: ${quantidadeAnterior} -> ${quantidadeNova} un (${motivo || 'Sem motivo informado'})`,
+      url: '/admin/relatorios',
+    })
+    return { quantidadeRestante: quantidadeNova, status: statusNovo }
+  }
+
+  return {
+    producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao,
+    registrarDesperdicio, ajustarProducaoVendedor,
+  }
 }

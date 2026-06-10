@@ -55,12 +55,13 @@ async function exigirAutorizado(req, app) {
   const snap = await admin.firestore(app).doc(`usuarios/${decoded.uid}`).get()
   const dados = snap.data()
   const perfil = normalizarPerfil(dados?.role || dados?.perfil)
-  const podeEnviar = ['admin', 'vendedor', 'cozinha', 'professor'].includes(perfil)
+  const podeEnviar = ['admin', 'vendedor', 'cozinha', 'professor', 'aluno'].includes(perfil)
   if (!snap.exists || dados?.ativo === false || !podeEnviar) {
     const erro = new Error('Sem permissao para enviar notificacoes.')
     erro.status = 403
     throw erro
   }
+  return perfil
 }
 
 function configurarWebPush() {
@@ -84,12 +85,17 @@ export default async function handler(req, res) {
 
   try {
     const app = appAdmin()
-    await exigirAutorizado(req, app)
+    const perfil = await exigirAutorizado(req, app)
     configurarWebPush()
 
     const { destino, titulo, mensagem, url } = req.body || {}
     if (!titulo || !mensagem) {
       res.status(400).json({ erro: 'Informe titulo e mensagem.' })
+      return
+    }
+
+    if (perfil === 'aluno' && !['cozinha', 'vendedor', 'admin'].includes(destino)) {
+      res.status(403).json({ erro: 'Aluno so pode notificar a equipe da cantina.' })
       return
     }
 
@@ -101,7 +107,9 @@ export default async function handler(req, res) {
     await Promise.all(snap.docs.map(async (docSnap) => {
       const dados = docSnap.data()
       const role = normalizarPerfil(dados.role)
-      if (destino && destino !== 'todos' && role !== destino) return
+      const matchRole = !destino || destino === 'todos' || role === destino
+      const matchUid = destino && docSnap.id === destino
+      if (!matchRole && !matchUid) return
       try {
         await webpush.sendNotification(dados.subscription, payload)
         enviados++
