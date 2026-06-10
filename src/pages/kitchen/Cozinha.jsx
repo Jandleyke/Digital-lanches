@@ -8,6 +8,7 @@ import Layout from '../../components/Layout'
 import AvisosSetor from '../../components/AvisosSetor'
 import { useApp } from '../../contexts/AppContext'
 import { MOTIVOS_DESPERDICIO } from '../../contexts/hooks/useProducaoDiaria'
+import { DIAS_CARDAPIO, DIAS_LABEL, diaDaSemanaAtual, produtoDisponivelNoDia } from '../../utils/cardapioDias'
 import { formatPrice } from '../../utils/formatters'
 import { useIsMobile } from '../../utils/useIsMobile'
 
@@ -44,6 +45,8 @@ const STATUS_PRODUCAO = [
   'Esgotado',
   'Cancelado',
 ]
+
+const STATUS_PRODUCAO_FORM = ['Planejado', 'Em producao', 'Pronto para venda', 'Cancelado']
 
 const FORM_DESPERDICIO = {
   quantidade: '',
@@ -224,6 +227,8 @@ export default function Cozinha() {
   const [desperdicioItem, setDesperdicioItem] = useState(null)
   const [formDesperdicio, setFormDesperdicio] = useState(FORM_DESPERDICIO)
   const [painelDetalhe, setPainelDetalhe] = useState(null)
+  const [diaSelecionado, setDiaSelecionado] = useState(diaDaSemanaAtual())
+  const [loteDesperdicioForm, setLoteDesperdicioForm] = useState({})
 
   function selecionarAba(id) {
     navigate(ROTAS_ABA[id] || '/cozinha')
@@ -238,6 +243,7 @@ export default function Cozinha() {
   const pedidosFiltrados = useMemo(() => filtrarPedidos(pedidosPreparo, filtro, busca), [pedidosPreparo, filtro, busca])
   const pedidosAtivos = useMemo(() => pedidosPreparo.filter(p => !['entregue', 'cancelado'].includes(normalizeStatus(p.status))), [pedidosPreparo])
   const cardapioHoje = useMemo(() => produtos.filter(p => p.disponivel !== false && Number(p.estoque || 0) > 0), [produtos])
+  const produtosDoDia = useMemo(() => produtos.filter(p => produtoDisponivelNoDia(p, diaSelecionado)), [produtos, diaSelecionado])
   const producaoOrdenada = useMemo(() => [...(producaoHoje || [])].sort((a, b) => (b.atualizadoEm || b.criadoEm || 0) - (a.atualizadoEm || a.criadoEm || 0)), [producaoHoje])
   const producaoFiltrada = useMemo(() => {
     const termo = buscaProducao.trim().toLowerCase()
@@ -434,6 +440,38 @@ export default function Cozinha() {
     setFormDesperdicio(FORM_DESPERDICIO)
   }
 
+  function atualizarLoteDesperdicio(id, campo, valor) {
+    setLoteDesperdicioForm(prev => ({
+      ...prev,
+      [id]: { quantidade: '', motivo: MOTIVOS_DESPERDICIO[0], observacao: '', ...prev[id], [campo]: valor },
+    }))
+  }
+
+  async function registrarLoteDesperdicio() {
+    const itens = Object.entries(loteDesperdicioForm)
+      .map(([id, dados]) => ({ id, ...dados, quantidade: Number(dados.quantidade) }))
+      .filter(({ quantidade }) => quantidade > 0)
+    if (itens.length === 0) {
+      alert('Informe a quantidade desperdicada de pelo menos um produto.')
+      return
+    }
+    for (const { id, quantidade, motivo, observacao } of itens) {
+      const item = producaoOrdenada.find(p => p.id === id)
+      if (!item) continue
+      if (quantidade > Number(item.quantidadeRestante || 0)) continue
+      const resultado = await registrarDesperdicio(item.id, item, {
+        quantidade,
+        motivo: motivo || MOTIVOS_DESPERDICIO[0],
+        observacao: observacao || '',
+      })
+      const produto = produtos.find(p => String(p.id) === String(item.produtoId))
+      if (produto) {
+        await atualizarProduto({ ...produto, estoque: resultado.quantidadeRestante })
+      }
+    }
+    setLoteDesperdicioForm({})
+  }
+
   async function avisarVendedor(item) {
     await criarAviso({
       titulo: `Producao: ${item.produtoNome}`,
@@ -499,7 +537,6 @@ export default function Cozinha() {
             <section style={s.sectionCard}>
               <div style={s.sectionHeader}>
                 <h3 style={s.sectionTitle}>Resumo de hoje</h3>
-                <button style={s.linkBtn} onClick={() => selecionarAba('producao')}>Cadastrar producao em lote</button>
               </div>
               <div style={{ ...s.statsGrid, gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, minmax(0, 1fr))' }}>
                 <StatCard icon={ClipboardList} label="Pedidos hoje" value={pedidosHoje.length} color="#003D7C" onClick={() => setPainelDetalhe('pedidos')} />
@@ -598,10 +635,16 @@ export default function Cozinha() {
                   </div>
                   {producaoEditando && <button type="button" style={s.linkBtn} onClick={() => { setFormProducao(FORM_PRODUCAO); setProducaoEditando(null) }}>Novo lote</button>}
                 </div>
+                <div style={{ ...s.formGrid2, gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px, 0.45fr) 1fr', marginBottom: 12 }}>
+                  <select value={diaSelecionado} onChange={e => setDiaSelecionado(e.target.value)} style={s.input}>
+                    {DIAS_CARDAPIO.map(dia => <option key={dia} value={dia}>{DIAS_LABEL[dia]}</option>)}
+                  </select>
+                  <p style={s.meta}>Mostrando produtos programados para {DIAS_LABEL[diaSelecionado]}.</p>
+                </div>
                 <div style={{ ...s.formGridRapido, gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px, 1.5fr) repeat(3, minmax(120px, 0.7fr)) minmax(150px, 1fr)' }}>
                   <select value={formProducao.produtoId} onChange={e => setFormProducao({ ...formProducao, produtoId: e.target.value })} style={s.input} required>
                     <option value="">Selecionar produto</option>
-                    {produtos.map(produto => <option key={produto.id} value={produto.id}>{produto.nome}</option>)}
+                    {produtosDoDia.map(produto => <option key={produto.id} value={produto.id}>{produto.nome}</option>)}
                   </select>
                   <input type="number" min="0" value={formProducao.quantidadePlanejada} onChange={e => setFormProducao({ ...formProducao, quantidadePlanejada: e.target.value })} placeholder="Planejada" style={s.input} />
                   <input type="number" min="0" value={formProducao.quantidadeEmProducao} onChange={e => setFormProducao({ ...formProducao, quantidadeEmProducao: e.target.value })} placeholder="Em producao" style={s.input} />
@@ -610,7 +653,7 @@ export default function Cozinha() {
                 </div>
                 <div style={{ ...s.formGrid2, gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px, 0.45fr) 1fr' }}>
                   <select value={formProducao.status} onChange={e => setFormProducao({ ...formProducao, status: e.target.value })} style={s.input}>
-                    {STATUS_PRODUCAO.map(status => <option key={status} value={status}>{status}</option>)}
+                    {STATUS_PRODUCAO_FORM.map(status => <option key={status} value={status}>{status}</option>)}
                   </select>
                   <input value={formProducao.observacao} onChange={e => setFormProducao({ ...formProducao, observacao: e.target.value })} placeholder="Observacao rapida" style={s.input} />
                 </div>
@@ -656,7 +699,7 @@ export default function Cozinha() {
                             <input type="number" min="0" value={item.quantidadeEmProducao} onChange={e => atualizarItemLote(index, 'quantidadeEmProducao', e.target.value)} placeholder="Prod." style={s.inputMini} />
                             <input type="number" min="0" value={item.quantidadePronta} onChange={e => atualizarItemLote(index, 'quantidadePronta', e.target.value)} placeholder="Pronta" style={s.inputMini} />
                             <select value={item.status} onChange={e => atualizarItemLote(index, 'status', e.target.value)} style={s.inputMini}>
-                              {STATUS_PRODUCAO.map(status => <option key={status} value={status}>{status}</option>)}
+                              {STATUS_PRODUCAO_FORM.map(status => <option key={status} value={status}>{status}</option>)}
                             </select>
                             <button type="button" title="Remover" style={s.iconBtnPerigo} onClick={() => removerItemLote(index)}><Trash2 size={17} /></button>
                           </div>
@@ -736,6 +779,41 @@ export default function Cozinha() {
                     )
                   })}
                 </div>
+              </section>
+
+              <section style={s.sectionCard}>
+                <div style={s.sectionHeader}>
+                  <h3 style={s.sectionTitle}>Registrar desperdicio em lote</h3>
+                  <p style={s.meta}>Informe a quantidade perdida de cada produto e registre tudo de uma vez.</p>
+                </div>
+                {itensDisponiveis.length === 0 ? (
+                  <EmptyState>Nenhum produto disponivel para registrar desperdicio.</EmptyState>
+                ) : (
+                  <>
+                    <div style={s.loteLista}>
+                      {itensDisponiveis.map(item => (
+                        <div key={item.id} style={{ ...s.loteItem, gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px, 1.5fr) minmax(110px, 0.6fr) minmax(86px, 0.55fr) minmax(160px, 1fr) minmax(160px, 1fr)' }}>
+                          <div style={s.produtoMini}>
+                            {item.produtoFoto && <img src={item.produtoFoto} alt={item.produtoNome} style={s.produtoMiniImg} />}
+                            <div>
+                              <strong style={s.codigo}>{item.produtoNome}</strong>
+                              <p style={s.meta}>Disponivel: {item.quantidadeRestante || 0} un</p>
+                            </div>
+                          </div>
+                          <p style={s.meta}>Disponivel <strong>{item.quantidadeRestante || 0}</strong></p>
+                          <input type="number" min="0" max={item.quantidadeRestante || 0} value={loteDesperdicioForm[item.id]?.quantidade || ''} onChange={e => atualizarLoteDesperdicio(item.id, 'quantidade', e.target.value)} placeholder="Qtd." style={s.inputMini} />
+                          <select value={loteDesperdicioForm[item.id]?.motivo || MOTIVOS_DESPERDICIO[0]} onChange={e => atualizarLoteDesperdicio(item.id, 'motivo', e.target.value)} style={s.inputMini}>
+                            {MOTIVOS_DESPERDICIO.map(motivo => <option key={motivo} value={motivo}>{motivo}</option>)}
+                          </select>
+                          <input value={loteDesperdicioForm[item.id]?.observacao || ''} onChange={e => atualizarLoteDesperdicio(item.id, 'observacao', e.target.value)} placeholder="Observacao (opcional)" style={s.inputMini} />
+                        </div>
+                      ))}
+                    </div>
+                    <div style={s.acoes}>
+                      <button type="button" style={s.btnPerigo} onClick={registrarLoteDesperdicio}><Trash2 size={15} /> Registrar desperdicios</button>
+                    </div>
+                  </>
+                )}
               </section>
             </div>
           </div>
