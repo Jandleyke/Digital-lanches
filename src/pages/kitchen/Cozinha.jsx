@@ -153,17 +153,6 @@ function formatarDataHora(valor) {
   }
 }
 
-function contarItens(pedidos) {
-  const mapa = {}
-  pedidos.forEach(pedido => {
-    pedido.itens?.forEach(item => {
-      const nome = item.nome || item.produtoNome || 'Produto'
-      mapa[nome] = (mapa[nome] || 0) + Number(item.quantidade || 1)
-    })
-  })
-  return Object.entries(mapa).sort((a, b) => b[1] - a[1])
-}
-
 function diasProduto(produto) {
   const dias = produto.diasProducao || produto.dias || produto.cardapioSemanal
   if (Array.isArray(dias)) return dias
@@ -190,14 +179,27 @@ function EmptyState({ children }) {
   return <div style={s.vazio}>{children}</div>
 }
 
-function StatCard({ icon: Icon, label, value, color }) {
+function StatCard({ icon: Icon, label, value, color, onClick }) {
   return (
-    <div style={{ ...s.statCard, borderTop: `4px solid ${color}` }}>
+    <div
+      style={{ ...s.statCard, borderTop: `4px solid ${color}`, cursor: onClick ? 'pointer' : 'default' }}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+    >
       <div style={s.statIcon}><Icon size={18} color={color} /></div>
       <span style={s.statLabel}>{label}</span>
       <strong style={{ ...s.statValue, color }}>{value}</strong>
     </div>
   )
+}
+
+const TITULOS_PAINEL = {
+  pedidos: 'Pedidos de hoje',
+  produzido: 'Total produzido hoje',
+  disponivel: 'Disponivel para venda',
+  desperdicio: 'Desperdicio registrado hoje',
+  esgotados: 'Produtos esgotados',
 }
 
 function StatusBadge({ status }) {
@@ -221,6 +223,7 @@ export default function Cozinha() {
   const [filtroProducao, setFiltroProducao] = useState('todos')
   const [desperdicioItem, setDesperdicioItem] = useState(null)
   const [formDesperdicio, setFormDesperdicio] = useState(FORM_DESPERDICIO)
+  const [painelDetalhe, setPainelDetalhe] = useState(null)
 
   function selecionarAba(id) {
     navigate(ROTAS_ABA[id] || '/cozinha')
@@ -234,7 +237,6 @@ export default function Cozinha() {
   const pedidosHoje = useMemo(() => pedidos.filter(p => (p.criadoEm || 0) >= hoje), [pedidos, hoje])
   const pedidosFiltrados = useMemo(() => filtrarPedidos(pedidosPreparo, filtro, busca), [pedidosPreparo, filtro, busca])
   const pedidosAtivos = useMemo(() => pedidosPreparo.filter(p => !['entregue', 'cancelado'].includes(normalizeStatus(p.status))), [pedidosPreparo])
-  const resumoProducao = useMemo(() => contarItens(pedidosAtivos.filter(p => ['recebido', 'pendente', 'em preparo', 'preparando'].includes(normalizeStatus(p.status)))), [pedidosAtivos])
   const cardapioHoje = useMemo(() => produtos.filter(p => p.disponivel !== false && Number(p.estoque || 0) > 0), [produtos])
   const producaoOrdenada = useMemo(() => [...(producaoHoje || [])].sort((a, b) => (b.atualizadoEm || b.criadoEm || 0) - (a.atualizadoEm || a.criadoEm || 0)), [producaoHoje])
   const producaoFiltrada = useMemo(() => {
@@ -252,8 +254,16 @@ export default function Cozinha() {
   const produtosEsgotados = producaoOrdenada.filter(item => normalizeStatus(item.status) === 'esgotado').length
   const totalDisponivelHoje = producaoOrdenada.reduce((acc, item) => acc + Number(item.quantidadeRestante || 0), 0)
   const totalDesperdicadoHoje = producaoOrdenada.reduce((acc, item) => acc + Number(item.quantidadeDesperdicada || 0), 0)
-  const totalVendidoHoje = producaoOrdenada.reduce((acc, item) => acc + Number(item.quantidadeVendida || 0), 0)
-  const houveRegistroVendas = producaoOrdenada.some(item => Number(item.quantidadeVendida || 0) > 0)
+  const desperdiciosHoje = useMemo(() => {
+    const lista = []
+    producaoOrdenada.forEach(item => {
+      ;(item.historicoDesperdicio || []).forEach(h => lista.push({ ...h, produtoNome: h.produtoNome || item.produtoNome }))
+    })
+    return lista.sort((a, b) => (b.dataHora || 0) - (a.dataHora || 0))
+  }, [producaoOrdenada])
+  const itensProduzidos = useMemo(() => producaoOrdenada.filter(item => Number(item.quantidadePronta || 0) > 0), [producaoOrdenada])
+  const itensDisponiveis = useMemo(() => producaoOrdenada.filter(item => Number(item.quantidadeRestante || 0) > 0), [producaoOrdenada])
+  const itensEsgotados = useMemo(() => producaoOrdenada.filter(item => normalizeStatus(item.status) === 'esgotado'), [producaoOrdenada])
   const avisosCozinha = useMemo(() => (avisos || [])
     .filter(a => ['cozinha', 'todos'].includes(a.destino || a.destinatario))
     .sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0))
@@ -474,7 +484,7 @@ export default function Cozinha() {
   return (
     <Layout titulo="Painel da Cozinha">
       <div style={{ ...s.page, paddingBottom: isMobile ? 128 : 32 }}>
-        {(aba === 'dashboard' || aba === 'pedidos') && (
+        {aba === 'pedidos' && (
           <div style={{ ...s.statsGrid, gridTemplateColumns: isMobile ? '1fr' : 'repeat(5, minmax(0, 1fr))' }}>
             <StatCard icon={ClipboardList} label="Pendentes" value={pendentes} color="#F59E0B" />
             <StatCard icon={Flame} label="Em preparo" value={emPreparo} color="#1D4ED8" />
@@ -489,15 +499,14 @@ export default function Cozinha() {
             <section style={s.sectionCard}>
               <div style={s.sectionHeader}>
                 <h3 style={s.sectionTitle}>Resumo de hoje</h3>
-                <button style={s.linkBtn} onClick={() => selecionarAba('producao')}>Ver producao</button>
+                <button style={s.linkBtn} onClick={() => selecionarAba('producao')}>Cadastrar producao em lote</button>
               </div>
-              <div style={{ ...s.statsGrid, gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, minmax(0, 1fr))' }}>
-                <StatCard icon={Utensils} label="Total produzido" value={`${totalProduzidoHoje} un`} color="#7C3AED" />
-                <StatCard icon={PackageCheck} label="Disponivel" value={`${totalDisponivelHoje} un`} color="#22C55E" />
-                <StatCard icon={Trash2} label="Desperdicado" value={`${totalDesperdicadoHoje} un`} color="#EF4444" />
-                <StatCard icon={XCircle} label="Esgotados" value={produtosEsgotados} color="#B91C1C" />
-                <StatCard icon={Flame} label="Em producao" value={produtosEmProducao} color="#F59E0B" />
-                <StatCard icon={CheckCircle2} label="Total vendido" value={houveRegistroVendas ? `${totalVendidoHoje} un` : 'Nao informado'} color="#0EA5E9" />
+              <div style={{ ...s.statsGrid, gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, minmax(0, 1fr))' }}>
+                <StatCard icon={ClipboardList} label="Pedidos hoje" value={pedidosHoje.length} color="#003D7C" onClick={() => setPainelDetalhe('pedidos')} />
+                <StatCard icon={Utensils} label="Total produzido" value={`${totalProduzidoHoje} un`} color="#7C3AED" onClick={() => setPainelDetalhe('produzido')} />
+                <StatCard icon={Trash2} label="Desperdicado" value={`${totalDesperdicadoHoje} un`} color="#EF4444" onClick={() => setPainelDetalhe('desperdicio')} />
+                <StatCard icon={XCircle} label="Esgotados" value={produtosEsgotados} color="#B91C1C" onClick={() => setPainelDetalhe('esgotados')} />
+                <StatCard icon={PackageCheck} label="Disponivel" value={`${totalDisponivelHoje} un`} color="#22C55E" onClick={() => setPainelDetalhe('disponivel')} />
               </div>
               {avisosCozinha.length > 0 && (
                 <div style={s.loteBox}>
@@ -512,22 +521,40 @@ export default function Cozinha() {
               )}
             </section>
 
-            <div style={{ ...s.contentGrid, gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr' }}>
-              <section style={s.sectionCard}>
-                <div style={s.sectionHeader}>
-                  <h3 style={s.sectionTitle}>Fila de preparo</h3>
-                  <button style={s.linkBtn} onClick={() => selecionarAba('pedidos')}>Ver pedidos</button>
+            <section style={s.sectionCard}>
+              <div style={s.sectionHeader}>
+                <div>
+                  <h3 style={s.sectionTitle}>Producao do dia</h3>
+                  <p style={s.meta}>Atualize o status, registre desperdicio ou marque como esgotado.</p>
                 </div>
-                {pedidosAtivos.length === 0 ? <EmptyState>Nenhum pedido aguardando preparo.</EmptyState> : pedidosAtivos.slice(0, 4).map(pedido => <PedidoCard key={pedido.id} pedido={pedido} />)}
-              </section>
-
-              <section style={s.sectionCard}>
-                <h3 style={s.sectionTitle}>O que produzir agora</h3>
-                {resumoProducao.length === 0 ? <EmptyState>Sem itens aguardando preparo.</EmptyState> : resumoProducao.map(([nome, qtd]) => (
-                  <div key={nome} style={s.linhaResumo}><span>{nome}</span><strong>{qtd} un</strong></div>
-                ))}
-              </section>
-            </div>
+                <button style={s.linkBtn} onClick={() => selecionarAba('producao')}>Editar / lote</button>
+              </div>
+              {producaoOrdenada.length === 0 ? (
+                <EmptyState>Nenhuma producao registrada hoje. Cadastre o que sera produzido na aba Producao.</EmptyState>
+              ) : producaoOrdenada.map(item => {
+                const visual = producaoStatusVisual(item.status)
+                return (
+                  <article key={item.id} style={{ ...s.producaoCard, borderLeftColor: visual.border }}>
+                    <div style={s.pedidoTop}>
+                      <div style={s.produtoMini}>
+                        {item.produtoFoto && <img src={item.produtoFoto} alt={item.produtoNome} style={s.produtoMiniImg} />}
+                        <div>
+                          <strong style={s.codigo}>{item.produtoNome}</strong>
+                          <p style={s.meta}>Pronto {item.quantidadePronta || 0} un - Disponivel {item.quantidadeRestante || 0} un - Desperdicado {item.quantidadeDesperdicada || 0} un</p>
+                        </div>
+                      </div>
+                      <span style={{ ...s.badge, background: visual.bg, color: visual.color }}>{visual.label}</span>
+                    </div>
+                    <div style={s.acoes}>
+                      <button style={s.btnSecundario} onClick={() => mudarStatusProducao(item, 'Em producao')}>Em producao</button>
+                      <button style={s.btnPrimario} onClick={() => mudarStatusProducao(item, 'Pronto para venda')}><CheckCircle2 size={15} /> Pronto</button>
+                      <button style={s.btnPerigo} onClick={() => mudarStatusProducao(item, 'Esgotado')}><XCircle size={15} /> Esgotado</button>
+                      <button style={s.btnPerigo} onClick={() => abrirDesperdicio(item)} disabled={Number(item.quantidadeRestante || 0) <= 0}><Trash2 size={15} /> Desperdicio</button>
+                    </div>
+                  </article>
+                )
+              })}
+            </section>
           </>
         )}
 
@@ -746,6 +773,50 @@ export default function Cozinha() {
           </section>
         )}
       </div>
+
+      {painelDetalhe && (
+        <div style={s.modalOverlay} role="dialog" aria-modal="true">
+          <div style={{ ...s.modal, maxWidth: 520, padding: isMobile ? 18 : 24 }}>
+            <div style={s.modalHeader}>
+              <h3 style={s.modalTitle}>{TITULOS_PAINEL[painelDetalhe]}</h3>
+              <button style={s.closeBtn} onClick={() => setPainelDetalhe(null)}>Fechar</button>
+            </div>
+            <div style={s.lista}>
+              {painelDetalhe === 'pedidos' && (
+                pedidosHoje.length === 0 ? <EmptyState>Nenhum pedido hoje.</EmptyState> : pedidosHoje.map(p => (
+                  <div key={p.id} style={s.linhaResumo}>
+                    <span>#{pedidoCodigo(p)} - {alunoNome(p)}</span>
+                    <StatusBadge status={p.status} />
+                  </div>
+                ))
+              )}
+              {painelDetalhe === 'produzido' && (
+                itensProduzidos.length === 0 ? <EmptyState>Nenhuma producao registrada hoje.</EmptyState> : itensProduzidos.map(item => (
+                  <div key={item.id} style={s.linhaResumo}><span>{item.produtoNome}</span><strong>{item.quantidadePronta || 0} un</strong></div>
+                ))
+              )}
+              {painelDetalhe === 'disponivel' && (
+                itensDisponiveis.length === 0 ? <EmptyState>Nenhum produto disponivel agora.</EmptyState> : itensDisponiveis.map(item => (
+                  <div key={item.id} style={s.linhaResumo}><span>{item.produtoNome}</span><strong>{item.quantidadeRestante || 0} un</strong></div>
+                ))
+              )}
+              {painelDetalhe === 'desperdicio' && (
+                desperdiciosHoje.length === 0 ? <EmptyState>Nenhum desperdicio registrado hoje.</EmptyState> : desperdiciosHoje.map(h => (
+                  <div key={h.id} style={s.linhaResumo}>
+                    <span>{h.produtoNome} - {h.quantidade} un ({h.motivo})</span>
+                    <span style={s.meta}>{formatarHoraAtualizacao(h.dataHora)}</span>
+                  </div>
+                ))
+              )}
+              {painelDetalhe === 'esgotados' && (
+                itensEsgotados.length === 0 ? <EmptyState>Nenhum produto esgotado hoje.</EmptyState> : itensEsgotados.map(item => (
+                  <div key={item.id} style={s.linhaResumo}><span>{item.produtoNome}</span><span style={s.meta}>Atualizado {tempoDesde(item.atualizadoEm)}</span></div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {desperdicioItem && (
         <div style={s.modalOverlay} role="dialog" aria-modal="true">
