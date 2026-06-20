@@ -181,7 +181,7 @@ export default function Cozinha() {
   const [desperdicioItem, setDesperdicioItem] = useState(null)
   const [formDesperdicio, setFormDesperdicio] = useState(FORM_DESPERDICIO)
   const [painelDetalhe, setPainelDetalhe] = useState(null)
-  const [diaSelecionado, setDiaSelecionado] = useState(diaDaSemanaAtual())
+  const [diaSelecionado, setDiaSelecionado] = useState(diaDaSemanaAtual()) // mantido para compatibilidade
   const [loteDesperdicioForm, setLoteDesperdicioForm] = useState({})
   const [novoProdutoAberto, setNovoProdutoAberto] = useState(false)
   const [novoProdutoForm, setNovoProdutoForm] = useState(PRODUTO_FORM_VAZIO)
@@ -200,7 +200,7 @@ export default function Cozinha() {
   const pedidosHoje = useMemo(() => pedidos.filter(p => (p.criadoEm || 0) >= hoje), [pedidos, hoje])
   const pedidosAtivos = useMemo(() => pedidosPreparo.filter(p => !['entregue', 'cancelado'].includes(normalizeStatus(p.status))), [pedidosPreparo])
   const cardapioHoje = useMemo(() => produtos.filter(p => p.disponivel !== false && Number(p.estoque || 0) > 0), [produtos])
-  const produtosDoDia = useMemo(() => produtos.filter(p => produtoDisponivelNoDia(p, diaSelecionado)), [produtos, diaSelecionado])
+  const produtosDoDia = useMemo(() => produtos, [produtos])
   const producaoOrdenada = useMemo(() => [...(producaoHoje || [])].sort((a, b) => (b.atualizadoEm || b.criadoEm || 0) - (a.atualizadoEm || a.criadoEm || 0)), [producaoHoje])
   const producaoFiltrada = useMemo(() => {
     const termo = buscaProducao.trim().toLowerCase()
@@ -530,12 +530,6 @@ export default function Cozinha() {
                     <p style={s.meta}>{producaoEditando ? 'Atualize apenas este item.' : 'Adicione vários produtos na lista e salve tudo de uma vez.'}</p>
                   </div>
                   {producaoEditando && <button type="button" style={s.linkBtn} onClick={() => { setFormProducao(FORM_PRODUCAO); setProducaoEditando(null) }}>Novo lote</button>}
-                </div>
-                <div style={{ ...s.formGrid2, gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px, 0.45fr) 1fr', marginBottom: 12 }}>
-                  <select value={diaSelecionado} onChange={e => setDiaSelecionado(e.target.value)} style={s.input}>
-                    {DIAS_CARDAPIO.map(dia => <option key={dia} value={dia}>{DIAS_LABEL[dia]}</option>)}
-                  </select>
-                  <p style={s.meta}>Mostrando produtos programados para {DIAS_LABEL[diaSelecionado]}.</p>
                 </div>
                 <div style={{ ...s.formGridRapido, gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px, 1.5fr) repeat(3, minmax(120px, 0.7fr)) minmax(150px, 1fr)' }}>
                   <select value={formProducao.produtoId} onChange={e => setFormProducao({ ...formProducao, produtoId: e.target.value })} style={s.input} required>
