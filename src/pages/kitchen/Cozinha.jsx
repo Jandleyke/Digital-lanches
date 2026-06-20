@@ -14,6 +14,23 @@ import { DIAS_CARDAPIO, DIAS_LABEL, diaDaSemanaAtual, produtoDisponivelNoDia } f
 import { formatPrice } from '../../utils/formatters'
 import { useIsMobile } from '../../utils/useIsMobile'
 
+const DIAS_SEMANA_ORD = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
+const DIAS_CURTO = { domingo: 'Dom', segunda: 'Seg', terca: 'Ter', quarta: 'Qua', quinta: 'Qui', sexta: 'Sex', sabado: 'Sáb' }
+const DIAS_FULL  = { domingo: 'Domingo', segunda: 'Segunda-feira', terca: 'Terça-feira', quarta: 'Quarta-feira', quinta: 'Quinta-feira', sexta: 'Sexta-feira', sabado: 'Sábado' }
+
+function datasSemannaAtual() {
+  const hoje = new Date()
+  const dom = new Date(hoje)
+  dom.setDate(hoje.getDate() - hoje.getDay())
+  dom.setHours(0, 0, 0, 0)
+  return DIAS_SEMANA_ORD.map((dia, i) => {
+    const d = new Date(dom)
+    d.setDate(dom.getDate() + i)
+    d.setHours(0, 0, 0, 0)
+    return { dia, ts: d.getTime(), isoDate: d.toISOString().slice(0, 10), numero: d.getDate(), isHoje: i === hoje.getDay() }
+  })
+}
+
 const ROTAS_ABA = {
   dashboard: '/cozinha',
   producao: '/cozinha/producao',
@@ -168,7 +185,7 @@ function StatusBadge({ status }) {
 }
 
 export default function Cozinha() {
-  const { pedidos, produtos, atualizarProduto, adicionarProduto, criarAviso, avisos, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio } = useApp()
+  const { pedidos, produtos, atualizarProduto, adicionarProduto, criarAviso, avisos, producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio } = useApp()
   const location = useLocation()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
@@ -181,7 +198,10 @@ export default function Cozinha() {
   const [desperdicioItem, setDesperdicioItem] = useState(null)
   const [formDesperdicio, setFormDesperdicio] = useState(FORM_DESPERDICIO)
   const [painelDetalhe, setPainelDetalhe] = useState(null)
-  const [diaSelecionado, setDiaSelecionado] = useState(diaDaSemanaAtual()) // mantido para compatibilidade
+  const [diaSelecionado, setDiaSelecionado] = useState(diaDaSemanaAtual())
+  const [qtdPorProduto, setQtdPorProduto] = useState({})
+  const [buscaProduto, setBuscaProduto] = useState('')
+  const [horarioPrevistoForm, setHorarioPrevistoForm] = useState('')
   const [loteDesperdicioForm, setLoteDesperdicioForm] = useState({})
   const [novoProdutoAberto, setNovoProdutoAberto] = useState(false)
   const [novoProdutoForm, setNovoProdutoForm] = useState(PRODUTO_FORM_VAZIO)
@@ -231,6 +251,34 @@ export default function Cozinha() {
     .filter(a => ['cozinha', 'todos'].includes(a.destino || a.destinatario))
     .sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0))
     .slice(0, 3), [avisos])
+  const semanaDatas = useMemo(() => datasSemannaAtual(), [])
+  const producaoDoDia = useMemo(() => {
+    const diaInfo = semanaDatas.find(d => d.dia === diaSelecionado)
+    if (!diaInfo) return []
+    const fim = diaInfo.ts + 24 * 60 * 60 * 1000 - 1
+    return (producaoDiaria || [])
+      .filter(item => { const t = Number(item.dataProducaoTs || item.criadoEm || 0); return t >= diaInfo.ts && t <= fim })
+      .sort((a, b) => (b.atualizadoEm || b.criadoEm || 0) - (a.atualizadoEm || a.criadoEm || 0))
+  }, [producaoDiaria, diaSelecionado, semanaDatas])
+  const producaoDoDiaFiltrada = useMemo(() => {
+    const termo = buscaProducao.trim().toLowerCase()
+    return producaoDoDia.filter(item => {
+      const statusOk = filtroProducao === 'todos' || normalizeStatus(item.status) === normalizeStatus(filtroProducao)
+      const buscaOk = !termo || String(item.produtoNome || '').toLowerCase().includes(termo)
+      return statusOk && buscaOk
+    })
+  }, [producaoDoDia, buscaProducao, filtroProducao])
+  const produtosFiltrados = useMemo(() => {
+    const t = buscaProduto.trim().toLowerCase()
+    return t ? produtos.filter(p => p.nome?.toLowerCase().includes(t) || p.categoria?.toLowerCase().includes(t)) : produtos
+  }, [produtos, buscaProduto])
+  const temProducaoNoDia = useMemo(() => {
+    return Object.fromEntries(semanaDatas.map(({ dia, ts }) => {
+      const fim = ts + 24 * 60 * 60 * 1000 - 1
+      const tem = (producaoDiaria || []).some(item => { const t = Number(item.dataProducaoTs || item.criadoEm || 0); return t >= ts && t <= fim })
+      return [dia, tem]
+    }))
+  }, [producaoDiaria, semanaDatas])
 
   function montarPayloadProducao(dados, itemEditando = null) {
     const produto = produtos.find(p => String(p.id) === String(dados.produtoId))
@@ -437,6 +485,25 @@ export default function Cozinha() {
     }
   }
 
+  async function planejarProduto(produto) {
+    const qtd = Math.max(1, Number(qtdPorProduto[produto.id] || 1))
+    const diaInfo = semanaDatas.find(d => d.dia === diaSelecionado)
+    if (!diaInfo) return
+    const jaExiste = producaoDoDia.find(p => String(p.produtoId) === String(produto.id) && normalizeStatus(p.status) !== 'cancelado')
+    if (jaExiste) {
+      await atualizarProducao(jaExiste.id, jaExiste, { quantidadePlanejada: Number(jaExiste.quantidadePlanejada || 0) + qtd }, { acao: 'Adicionou quantidade ao planejamento' })
+    } else {
+      await salvarProducao({
+        produtoId: produto.id, produtoNome: produto.nome,
+        produtoCategoria: produto.categoria || '', produtoFoto: produto.foto || '',
+        quantidadePlanejada: qtd, horarioPrevisto: horarioPrevistoForm,
+        status: 'Planejado', dataProducao: diaInfo.isoDate, dataProducaoTs: diaInfo.ts,
+        visivelParaVendedor: true, visivelParaAdmin: true,
+      })
+    }
+    setQtdPorProduto(p => ({ ...p, [produto.id]: 1 }))
+  }
+
   async function avisarVendedor(item) {
     await criarAviso({
       titulo: `Producao: ${item.produtoNome}`,
@@ -513,109 +580,166 @@ export default function Cozinha() {
 
         {aba === 'producao' && (
           <div style={s.producaoPage}>
-            <div style={{ ...s.statsGrid, gridTemplateColumns: isMobile ? '1fr' : 'repeat(6, minmax(0, 1fr))' }}>
-              <StatCard icon={ClipboardList} label="Planejados hoje" value={produtosPlanejados} color="#003D7C" />
-              <StatCard icon={Flame} label="Em producao" value={produtosEmProducao} color="#F59E0B" />
-              <StatCard icon={PackageCheck} label="Prontos venda" value={produtosProntos} color="#22C55E" />
-              <StatCard icon={XCircle} label="Esgotados" value={produtosEsgotados} color="#EF4444" />
-              <StatCard icon={Utensils} label="Total produzido" value={`${totalProduzidoHoje} un`} color="#7C3AED" />
+
+            {/* Seletor de dias da semana */}
+            <div style={s.sectionCard}>
+              <div style={s.sectionHeader}>
+                <div>
+                  <h3 style={s.sectionTitle}>Semana atual</h3>
+                  <p style={s.meta}>Selecione o dia para planejar ou visualizar a produção</p>
+                </div>
+                {producaoEditando && (
+                  <button style={s.linkBtn} onClick={() => { setFormProducao(FORM_PRODUCAO); setProducaoEditando(null) }}>
+                    ← Voltar ao planejamento
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+                {semanaDatas.map(({ dia, numero, isHoje }) => {
+                  const ativo = diaSelecionado === dia
+                  const temItem = temProducaoNoDia[dia]
+                  return (
+                    <button key={dia} onClick={() => { setDiaSelecionado(dia); setProducaoEditando(null); setBuscaProducao(''); setFiltroProducao('todos') }}
+                      style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                        padding: '0.55rem 0.9rem', borderRadius: 14, border: 'none', cursor: 'pointer',
+                        minWidth: 58, fontFamily: 'inherit', position: 'relative',
+                        background: ativo ? '#003D7C' : isHoje ? '#EFF6FF' : '#F8FAFC',
+                        color: ativo ? '#fff' : isHoje ? '#003D7C' : '#64748B',
+                        fontWeight: ativo || isHoje ? 900 : 700,
+                        boxShadow: ativo ? '0 4px 12px rgba(0,61,124,0.25)' : 'none',
+                        outline: isHoje && !ativo ? '2px solid #003D7C' : 'none',
+                      }}>
+                      <span style={{ fontSize: '0.68rem' }}>{DIAS_CURTO[dia]}</span>
+                      <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>{numero}</span>
+                      {temItem && <span style={{ width: 6, height: 6, borderRadius: '50%', background: ativo ? '#7DD3FC' : '#22C55E', marginTop: 2 }} />}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Stats do dia selecionado */}
+            <div style={{ ...s.statsGrid, gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, minmax(0, 1fr))' }}>
+              <StatCard icon={ClipboardList} label={`Planejados — ${DIAS_CURTO[diaSelecionado]}`} value={producaoDoDia.filter(i => normalizeStatus(i.status) !== 'cancelado').length} color="#003D7C" />
+              <StatCard icon={Flame} label="Em produção" value={producaoDoDia.filter(i => normalizeStatus(i.status) === 'em producao').length} color="#F59E0B" />
+              <StatCard icon={PackageCheck} label="Prontos" value={producaoDoDia.filter(i => ['pronto para venda','parcialmente pronto'].includes(normalizeStatus(i.status))).length} color="#22C55E" />
+              <StatCard icon={XCircle} label="Esgotados" value={producaoDoDia.filter(i => normalizeStatus(i.status) === 'esgotado').length} color="#EF4444" />
               <StatCard icon={Timer} label="Pedidos aguardando" value={pedidosAtivos.length} color="#0EA5E9" />
             </div>
 
-            <div style={{ ...s.contentGrid, gridTemplateColumns: '1fr' }}>
-              <form onSubmit={producaoEditando ? salvarPlanejamento : adicionarItemLote} style={s.sectionCard}>
+            {/* Formulário de edição (quando editando item existente) */}
+            {producaoEditando && (
+              <form onSubmit={salvarPlanejamento} style={s.sectionCard}>
                 <div style={s.sectionHeader}>
                   <div>
-                    <h3 style={s.sectionTitle}>{producaoEditando ? 'Editar producao' : 'Cadastro rapido da producao do dia'}</h3>
-                    <p style={s.meta}>{producaoEditando ? 'Atualize apenas este item.' : 'Adicione vários produtos na lista e salve tudo de uma vez.'}</p>
+                    <h3 style={s.sectionTitle}>Editando: {producaoEditando.produtoNome}</h3>
+                    <p style={s.meta}>Atualize as informações deste item de produção.</p>
                   </div>
-                  {producaoEditando && <button type="button" style={s.linkBtn} onClick={() => { setFormProducao(FORM_PRODUCAO); setProducaoEditando(null) }}>Novo lote</button>}
                 </div>
-                <div style={{ ...s.formGridRapido, gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px, 1.5fr) repeat(3, minmax(120px, 0.7fr)) minmax(150px, 1fr)' }}>
-                  <select value={formProducao.produtoId} onChange={e => setFormProducao({ ...formProducao, produtoId: e.target.value })} style={s.input} required>
-                    <option value="">Selecionar produto</option>
-                    {produtosDoDia.map(produto => <option key={produto.id} value={produto.id}>{produto.nome}</option>)}
-                  </select>
-                  <input type="number" min="0" value={formProducao.quantidadePlanejada} onChange={e => setFormProducao({ ...formProducao, quantidadePlanejada: e.target.value })} placeholder="Planejada" style={s.input} />
-                  <input type="number" min="0" value={formProducao.quantidadeEmProducao} onChange={e => setFormProducao({ ...formProducao, quantidadeEmProducao: e.target.value })} placeholder="Em producao" style={s.input} />
-                  <input type="number" min="0" value={formProducao.quantidadePronta} onChange={e => setFormProducao({ ...formProducao, quantidadePronta: e.target.value })} placeholder="Pronta" style={s.input} />
+                <div style={{ ...s.formGridRapido, gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)' }}>
+                  <input type="number" min="0" value={formProducao.quantidadePlanejada} onChange={e => setFormProducao({ ...formProducao, quantidadePlanejada: e.target.value })} placeholder="Qtd. planejada" style={s.input} />
+                  <input type="number" min="0" value={formProducao.quantidadeEmProducao} onChange={e => setFormProducao({ ...formProducao, quantidadeEmProducao: e.target.value })} placeholder="Em produção" style={s.input} />
+                  <input type="number" min="0" value={formProducao.quantidadePronta} onChange={e => setFormProducao({ ...formProducao, quantidadePronta: e.target.value })} placeholder="Qtd. pronta" style={s.input} />
                   <input type="time" value={formProducao.horarioPrevisto} onChange={e => setFormProducao({ ...formProducao, horarioPrevisto: e.target.value })} style={s.input} />
                 </div>
-                <div style={{ ...s.formGrid2, gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px, 0.45fr) 1fr' }}>
+                <div style={{ ...s.formGrid2, gridTemplateColumns: isMobile ? '1fr' : '1fr 2fr' }}>
                   <select value={formProducao.status} onChange={e => setFormProducao({ ...formProducao, status: e.target.value })} style={s.input}>
-                    {STATUS_PRODUCAO_FORM.map(status => <option key={status} value={status}>{status}</option>)}
+                    {STATUS_PRODUCAO_FORM.map(st => <option key={st} value={st}>{st}</option>)}
                   </select>
-                  <input value={formProducao.observacao} onChange={e => setFormProducao({ ...formProducao, observacao: e.target.value })} placeholder="Observacao rapida" style={s.input} />
-                </div>
-                <div style={s.checkRow}>
-                  <label style={s.checkLabel}><input type="checkbox" checked={formProducao.visivelParaVendedor} onChange={e => setFormProducao({ ...formProducao, visivelParaVendedor: e.target.checked })} /> Aparecer para vendedor</label>
-                  <label style={s.checkLabel}><input type="checkbox" checked={formProducao.visivelParaAdmin} onChange={e => setFormProducao({ ...formProducao, visivelParaAdmin: e.target.checked })} /> Aparecer para admin</label>
+                  <input value={formProducao.observacao} onChange={e => setFormProducao({ ...formProducao, observacao: e.target.value })} placeholder="Observação (opcional)" style={s.input} />
                 </div>
                 <div style={s.acoes}>
-                  <button type="submit" style={s.btnPrimario}><PlusCircle size={15} /> {producaoEditando ? 'Atualizar producao' : 'Adicionar na lista'}</button>
-                  {!producaoEditando && (
-                    <button type="button" style={{ ...s.btnSecundario, opacity: loteProducao.length === 0 ? 0.55 : 1 }} disabled={loteProducao.length === 0} onClick={salvarLoteProducao}>
-                      <Save size={15} /> Salvar {loteProducao.length || ''} item(ns)
-                    </button>
-                  )}
-                  {producaoEditando && (
-                    <>
-                      <button type="button" style={s.btnSecundario} onClick={() => mudarStatusProducao(producaoEditando, 'Pronto para venda')}><CheckCircle2 size={15} /> Marcar pronto</button>
-                    </>
-                  )}
+                  <button type="submit" style={s.btnPrimario}><Save size={15} /> Salvar alterações</button>
+                  <button type="button" style={s.btnSecundario} onClick={() => mudarStatusProducao(producaoEditando, 'Pronto para venda')}><CheckCircle2 size={15} /> Marcar pronto</button>
+                  <button type="button" style={s.btnSecundario} onClick={() => { setFormProducao(FORM_PRODUCAO); setProducaoEditando(null) }}>Cancelar edição</button>
                 </div>
-
-                {!producaoEditando && (
-                  <div style={s.loteBox}>
-                    <div style={s.loteHeader}>
-                      <strong>Lista para salvar</strong>
-                      <span style={s.meta}>{loteProducao.length} produto(s) no lote</span>
-                    </div>
-                    {loteProducao.length === 0 ? (
-                      <div style={s.vazioCompacto}>Adicione os produtos que vao ser produzidos hoje.</div>
-                    ) : (
-                      <div style={s.loteLista}>
-                        {loteProducao.map((item, index) => (
-                          <div key={`${item.produtoId}-${index}`} style={{ ...s.loteItem, gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px, 1.5fr) repeat(3, minmax(86px, 0.55fr)) minmax(130px, 0.8fr) 44px' }}>
-                            <div style={s.produtoMini}>
-                              {item.produtoFoto && <img src={item.produtoFoto} alt={item.produtoNome} style={s.produtoMiniImg} />}
-                              <div>
-                                <strong style={s.codigo}>{item.produtoNome}</strong>
-                                <p style={s.meta}>{item.produtoCategoria || 'Produto'}</p>
-                              </div>
-                            </div>
-                            <input type="number" min="0" value={item.quantidadePlanejada} onChange={e => atualizarItemLote(index, 'quantidadePlanejada', e.target.value)} placeholder="Plan." style={s.inputMini} />
-                            <input type="number" min="0" value={item.quantidadeEmProducao} onChange={e => atualizarItemLote(index, 'quantidadeEmProducao', e.target.value)} placeholder="Prod." style={s.inputMini} />
-                            <input type="number" min="0" value={item.quantidadePronta} onChange={e => atualizarItemLote(index, 'quantidadePronta', e.target.value)} placeholder="Pronta" style={s.inputMini} />
-                            <select value={item.status} onChange={e => atualizarItemLote(index, 'status', e.target.value)} style={s.inputMini}>
-                              {STATUS_PRODUCAO_FORM.map(status => <option key={status} value={status}>{status}</option>)}
-                            </select>
-                            <button type="button" title="Remover" style={s.iconBtnPerigo} onClick={() => removerItemLote(index)}><Trash2 size={17} /></button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
               </form>
+            )}
 
-              <section style={s.sectionCard}>
+            {/* Grid de produtos para planejar */}
+            {!producaoEditando && (
+              <div style={s.sectionCard}>
                 <div style={s.sectionHeader}>
-                  <h3 style={s.sectionTitle}>Lista de producao do dia</h3>
-                  <div style={s.searchBox}>
-                    <Search size={16} color="#64748B" />
-                    <input value={buscaProducao} onChange={e => setBuscaProducao(e.target.value)} placeholder="Pesquisar produto" style={s.searchInput} />
+                  <div>
+                    <h3 style={s.sectionTitle}>Planejar produção — {DIAS_FULL[diaSelecionado]}</h3>
+                    <p style={s.meta}>Clique em um produto para adicioná-lo ao planejamento. Produtos já planejados mostram em verde.</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <label style={{ ...s.meta, fontWeight: 700 }}>Horário:</label>
+                    <input type="time" value={horarioPrevistoForm} onChange={e => setHorarioPrevistoForm(e.target.value)} style={{ ...s.input, maxWidth: 130, minHeight: 36, padding: '0.4rem 0.6rem' }} />
                   </div>
                 </div>
-                <div style={s.filtros}>
-                  {['todos', ...STATUS_PRODUCAO].map(status => (
-                    <button key={status} style={{ ...s.filtroBtn, ...(filtroProducao === status ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroProducao(status)}>
-                      {status === 'todos' ? 'Todos' : status}
-                    </button>
-                  ))}
+                <div style={s.searchBox}>
+                  <Search size={16} color="#64748B" />
+                  <input value={buscaProduto} onChange={e => setBuscaProduto(e.target.value)} placeholder="Buscar produto..." style={s.searchInput} />
                 </div>
-                <div style={s.lista}>
-                  {producaoFiltrada.length === 0 ? <EmptyState>Nenhuma producao planejada hoje.</EmptyState> : producaoFiltrada.map(item => {
+                {produtosFiltrados.length === 0
+                  ? <EmptyState>Nenhum produto encontrado.</EmptyState>
+                  : (
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(155px, 1fr))', gap: 12 }}>
+                      {produtosFiltrados.map(produto => {
+                        const planejado = producaoDoDia.find(p => String(p.produtoId) === String(produto.id) && normalizeStatus(p.status) !== 'cancelado')
+                        const qtd = qtdPorProduto[produto.id] ?? 1
+                        return (
+                          <div key={produto.id} style={{ ...s.produtoCardGrid, border: planejado ? '2px solid #22C55E' : '2px solid #E5E7EB' }}>
+                            <div style={{ width: '100%', height: 76, borderRadius: 10, overflow: 'hidden', background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 7, flexShrink: 0 }}>
+                              {produto.foto
+                                ? <img src={produto.foto} alt={produto.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                : produto.emoji
+                                  ? <span style={{ fontSize: '2rem' }}>{produto.emoji}</span>
+                                  : <Utensils size={26} color="#94A3B8" strokeWidth={1.5} />
+                              }
+                            </div>
+                            <strong style={{ fontSize: '0.8rem', color: '#0F172A', display: 'block', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{produto.nome}</strong>
+                            {planejado
+                              ? <div style={{ fontSize: '0.7rem', color: '#16A34A', fontWeight: 800, marginBottom: 6 }}>✓ {planejado.quantidadePlanejada} un planejadas</div>
+                              : <div style={{ fontSize: '0.7rem', color: '#94A3B8', marginBottom: 6 }}>{produto.categoria || 'Produto'}</div>
+                            }
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 7 }}>
+                              <button type="button" style={s.qtyBtn} onClick={() => setQtdPorProduto(p => ({ ...p, [produto.id]: Math.max(1, (p[produto.id] ?? 1) - 1) }))}>−</button>
+                              <input type="number" min="1" max="999" value={qtd}
+                                onChange={e => setQtdPorProduto(p => ({ ...p, [produto.id]: Math.max(1, Number(e.target.value) || 1) }))}
+                                style={{ ...s.inputMini, width: 44, textAlign: 'center', padding: '0.3rem 0.2rem' }} />
+                              <button type="button" style={s.qtyBtn} onClick={() => setQtdPorProduto(p => ({ ...p, [produto.id]: Math.min(999, (p[produto.id] ?? 1) + 1) }))}>+</button>
+                            </div>
+                            <button type="button"
+                              style={{ ...s.btnPrimario, width: '100%', fontSize: '0.76rem', padding: '0.45rem 0.4rem', justifyContent: 'center', minHeight: 34, background: planejado ? '#16A34A' : '#003D7C' }}
+                              onClick={() => planejarProduto(produto)}>
+                              {planejado ? `+ Adicionar ${qtd} un` : `Planejar ${qtd} un`}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                }
+              </div>
+            )}
+
+            {/* Lista de produção do dia selecionado */}
+            <section style={s.sectionCard}>
+              <div style={s.sectionHeader}>
+                <div>
+                  <h3 style={s.sectionTitle}>Produção — {DIAS_FULL[diaSelecionado]}</h3>
+                  <span style={s.meta}>{producaoDoDia.filter(i => normalizeStatus(i.status) !== 'cancelado').length} item(ns) planejado(s)</span>
+                </div>
+                <div style={s.searchBox}>
+                  <Search size={16} color="#64748B" />
+                  <input value={buscaProducao} onChange={e => setBuscaProducao(e.target.value)} placeholder="Pesquisar" style={s.searchInput} />
+                </div>
+              </div>
+              <div style={s.filtros}>
+                {['todos', ...STATUS_PRODUCAO].map(status => (
+                  <button key={status} style={{ ...s.filtroBtn, ...(filtroProducao === status ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroProducao(status)}>
+                    {status === 'todos' ? 'Todos' : status}
+                  </button>
+                ))}
+              </div>
+              <div style={s.lista}>
+                {producaoDoDiaFiltrada.length === 0
+                  ? <EmptyState>Nenhuma produção planejada para {DIAS_FULL[diaSelecionado]}.</EmptyState>
+                  : producaoDoDiaFiltrada.map(item => {
                     const visual = producaoStatusVisual(item.status)
                     return (
                       <article key={item.id} style={{ ...s.producaoCard, borderLeftColor: visual.border }}>
@@ -624,86 +748,83 @@ export default function Cozinha() {
                             {item.produtoFoto && <img src={item.produtoFoto} alt={item.produtoNome} style={s.produtoMiniImg} />}
                             <div>
                               <strong style={s.codigo}>{item.produtoNome}</strong>
-                              <p style={s.meta}>{item.produtoCategoria || 'Produto'} - Atualizado {tempoDesde(item.atualizadoEm)}</p>
+                              <p style={s.meta}>{item.produtoCategoria || 'Produto'} — atualizado {tempoDesde(item.atualizadoEm)}</p>
                             </div>
                           </div>
                           <span style={{ ...s.badge, background: visual.bg, color: visual.color }}>{visual.label}</span>
                         </div>
                         <div style={s.producaoMetrics}>
                           <span>Planejado <strong>{item.quantidadePlanejada || 0}</strong></span>
-                          <span>Em producao <strong>{item.quantidadeEmProducao || 0}</strong></span>
+                          <span>Em produção <strong>{item.quantidadeEmProducao || 0}</strong></span>
                           <span>Pronto <strong>{item.quantidadePronta || 0}</strong></span>
                           <span>Restante <strong>{item.quantidadeRestante || 0}</strong></span>
-                          <span>Desperdicado <strong>{item.quantidadeDesperdicada || 0}</strong></span>
+                          <span>Desperdiçado <strong>{item.quantidadeDesperdicada || 0}</strong></span>
                           <span>Previsão <strong>{item.horarioPrevisto || '--:--'}</strong></span>
                         </div>
                         {item.observacao && <p style={s.obs}>{item.observacao}</p>}
-                        <p style={s.meta}>última atualização: {formatarHoraAtualizacao(item.atualizadoEm)} por {item.atualizadoPor?.nome || item.criadoPor?.nome || 'Cozinha'}</p>
+                        <p style={s.meta}>Última atualização: {formatarHoraAtualizacao(item.atualizadoEm)} por {item.atualizadoPor?.nome || item.criadoPor?.nome || 'Cozinha'}</p>
                         <div style={s.acoes}>
                           <button style={s.btnSecundario} onClick={() => editarPlanejamento(item)}><Edit3 size={15} /> Editar</button>
-                          <button style={s.btnSecundario} onClick={() => mudarStatusProducao(item, 'Em producao')}>Em producao</button>
+                          <button style={s.btnSecundario} onClick={() => mudarStatusProducao(item, 'Em producao')}>Em produção</button>
                           <button style={s.btnPrimario} onClick={() => mudarStatusProducao(item, 'Pronto para venda')}><CheckCircle2 size={15} /> Pronto</button>
                           <button style={s.btnSecundario} onClick={() => avisarVendedor(item)}><Send size={15} /> Avisar vendedor</button>
-                          <button style={s.btnPerigo} onClick={() => abrirDesperdicio(item)} disabled={Number(item.quantidadeRestante || 0) <= 0}><Trash2 size={15} /> Registrar desperdicio</button>
+                          <button style={s.btnPerigo} onClick={() => abrirDesperdicio(item)} disabled={Number(item.quantidadeRestante || 0) <= 0}><Trash2 size={15} /> Desperdício</button>
                           <button style={s.btnPerigo} onClick={() => cancelarProducao(item)}>Cancelar</button>
                         </div>
                         {Array.isArray(item.historicoDesperdicio) && item.historicoDesperdicio.length > 0 && (
                           <details style={s.historicoBox}>
-                            <summary>Historico de desperdicio</summary>
+                            <summary>Histórico de desperdício</summary>
                             {item.historicoDesperdicio.slice(-5).reverse().map(h => (
-                              <p key={h.id} style={s.meta}>{formatarDataHora(h.dataHora)} - {h.quantidade} un ({h.motivo}) por {h.responsavel?.nome || 'Usuario'}{h.observacao ? ` - ${h.observacao}` : ''}</p>
+                              <p key={h.id} style={s.meta}>{formatarDataHora(h.dataHora)} — {h.quantidade} un ({h.motivo}) por {h.responsavel?.nome || 'Usuário'}{h.observacao ? ` — ${h.observacao}` : ''}</p>
                             ))}
                           </details>
                         )}
                         {Array.isArray(item.historico) && item.historico.length > 0 && (
                           <details style={s.historicoBox}>
-                            <summary>Historico de alteracoes</summary>
+                            <summary>Histórico de alterações</summary>
                             {item.historico.slice(-5).reverse().map(h => (
-                              <p key={h.id} style={s.meta}>{formatarDataHora(h.data)} - {h.acao} por {h.usuario?.nome || 'Usuario'}</p>
+                              <p key={h.id} style={s.meta}>{formatarDataHora(h.data)} — {h.acao} por {h.usuario?.nome || 'Usuário'}</p>
                             ))}
                           </details>
                         )}
                       </article>
                     )
-                  })}
-                </div>
-              </section>
+                  })
+                }
+              </div>
+            </section>
 
+            {/* Desperdício em lote (mostra itens do dia selecionado) */}
+            {itensDisponiveis.length > 0 && (
               <section style={s.sectionCard}>
                 <div style={s.sectionHeader}>
-                  <h3 style={s.sectionTitle}>Registrar desperdicio em lote</h3>
+                  <h3 style={s.sectionTitle}>Registrar desperdício em lote</h3>
                   <p style={s.meta}>Informe a quantidade perdida de cada produto e registre tudo de uma vez.</p>
                 </div>
-                {itensDisponiveis.length === 0 ? (
-                  <EmptyState>Nenhum produto disponivel para registrar desperdicio.</EmptyState>
-                ) : (
-                  <>
-                    <div style={s.loteLista}>
-                      {itensDisponiveis.map(item => (
-                        <div key={item.id} style={{ ...s.loteItem, gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px, 1.5fr) minmax(110px, 0.6fr) minmax(86px, 0.55fr) minmax(160px, 1fr) minmax(160px, 1fr)' }}>
-                          <div style={s.produtoMini}>
-                            {item.produtoFoto && <img src={item.produtoFoto} alt={item.produtoNome} style={s.produtoMiniImg} />}
-                            <div>
-                              <strong style={s.codigo}>{item.produtoNome}</strong>
-                              <p style={s.meta}>Disponivel: {item.quantidadeRestante || 0} un</p>
-                            </div>
-                          </div>
-                          <p style={s.meta}>Disponivel <strong>{item.quantidadeRestante || 0}</strong></p>
-                          <input type="number" min="0" max={item.quantidadeRestante || 0} value={loteDesperdicioForm[item.id]?.quantidade || ''} onChange={e => atualizarLoteDesperdicio(item.id, 'quantidade', e.target.value)} placeholder="Qtd." style={s.inputMini} />
-                          <select value={loteDesperdicioForm[item.id]?.motivo || MOTIVOS_DESPERDICIO[0]} onChange={e => atualizarLoteDesperdicio(item.id, 'motivo', e.target.value)} style={s.inputMini}>
-                            {MOTIVOS_DESPERDICIO.map(motivo => <option key={motivo} value={motivo}>{motivo}</option>)}
-                          </select>
-                          <input value={loteDesperdicioForm[item.id]?.observacao || ''} onChange={e => atualizarLoteDesperdicio(item.id, 'observacao', e.target.value)} placeholder="Observacao (opcional)" style={s.inputMini} />
+                <div style={s.loteLista}>
+                  {itensDisponiveis.map(item => (
+                    <div key={item.id} style={{ ...s.loteItem, gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px, 1.5fr) minmax(110px, 0.6fr) minmax(86px, 0.55fr) minmax(160px, 1fr) minmax(160px, 1fr)' }}>
+                      <div style={s.produtoMini}>
+                        {item.produtoFoto && <img src={item.produtoFoto} alt={item.produtoNome} style={s.produtoMiniImg} />}
+                        <div>
+                          <strong style={s.codigo}>{item.produtoNome}</strong>
+                          <p style={s.meta}>Disponível: {item.quantidadeRestante || 0} un</p>
                         </div>
-                      ))}
+                      </div>
+                      <p style={s.meta}>Disponível <strong>{item.quantidadeRestante || 0}</strong></p>
+                      <input type="number" min="0" max={item.quantidadeRestante || 0} value={loteDesperdicioForm[item.id]?.quantidade || ''} onChange={e => atualizarLoteDesperdicio(item.id, 'quantidade', e.target.value)} placeholder="Qtd." style={s.inputMini} />
+                      <select value={loteDesperdicioForm[item.id]?.motivo || MOTIVOS_DESPERDICIO[0]} onChange={e => atualizarLoteDesperdicio(item.id, 'motivo', e.target.value)} style={s.inputMini}>
+                        {MOTIVOS_DESPERDICIO.map(motivo => <option key={motivo} value={motivo}>{motivo}</option>)}
+                      </select>
+                      <input value={loteDesperdicioForm[item.id]?.observacao || ''} onChange={e => atualizarLoteDesperdicio(item.id, 'observacao', e.target.value)} placeholder="Observação (opcional)" style={s.inputMini} />
                     </div>
-                    <div style={s.acoes}>
-                      <button type="button" style={s.btnPerigo} onClick={registrarLoteDesperdicio}><Trash2 size={15} /> Registrar desperdicios</button>
-                    </div>
-                  </>
-                )}
+                  ))}
+                </div>
+                <div style={s.acoes}>
+                  <button type="button" style={s.btnPerigo} onClick={registrarLoteDesperdicio}><Trash2 size={15} /> Registrar desperdícios</button>
+                </div>
               </section>
-            </div>
+            )}
           </div>
         )}
 
@@ -894,6 +1015,8 @@ const s = {
   fotoProduto: { width: '100%', height: 118, borderRadius: 12, objectFit: 'cover', background: '#E2E8F0' },
   alerta: { display: 'inline-flex', alignItems: 'center', gap: 5, background: '#FEF3C7', color: '#92400E', borderRadius: 20, padding: '0.28rem 0.68rem', fontSize: '0.75rem', fontWeight: 900 },
   vazio: { background: '#F8FAFC', borderRadius: 14, padding: '2rem', textAlign: 'center', color: '#94A3B8', border: '1px dashed #CBD5E1', fontWeight: 700 },
+  produtoCardGrid: { background: '#fff', borderRadius: 14, padding: '0.85rem', display: 'flex', flexDirection: 'column', boxShadow: '0 2px 8px rgba(15,23,42,0.05)' },
+  qtyBtn: { width: 30, height: 30, borderRadius: 8, border: '1px solid #CBD5E1', background: '#F8FAFC', color: '#334155', fontWeight: 900, fontSize: '1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontFamily: 'inherit' },
   modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 },
   modal: { width: '100%', maxWidth: 820, maxHeight: '90vh', overflowY: 'auto', background: '#fff', borderRadius: 18, boxShadow: '0 24px 80px rgba(15,23,42,0.25)' },
   modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, marginBottom: 16 },
