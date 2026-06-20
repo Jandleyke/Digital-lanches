@@ -74,7 +74,29 @@ function responderLocalmente(texto, contexto, lanchoneteConfig, perfil) {
   return null
 }
 
-function saudacaoInicial(usuario) {
+function statusCantina(cfg) {
+  if (!cfg) return null
+  const { horarioAbertura: ha, horarioFechamento: hf, diasFuncionamento: dias = [] } = cfg
+  const agora = new Date()
+  const hoje = DIA_SEMANA[agora.getDay()]
+  const funcionaHoje = dias.length === 0 || dias.includes(hoje)
+  if (dias.length > 0 && !funcionaHoje) {
+    const diasLabel = { segunda: 'segunda', terca: 'terça', quarta: 'quarta', quinta: 'quinta', sexta: 'sexta', sabado: 'sábado', domingo: 'domingo' }
+    const listaFuncionamento = dias.map(d => diasLabel[d] || d).join(', ')
+    return { aberta: false, msg: `⚠️ A cantina está fechada hoje (${diasLabel[hoje] || hoje}).\nFunciona: ${listaFuncionamento}${ha && hf ? `, das ${ha} às ${hf}` : ''}.` }
+  }
+  const abertura = toMin(ha)
+  const fechamento = toMin(hf)
+  const agoraMin = agora.getHours() * 60 + agora.getMinutes()
+  if (abertura !== null && fechamento !== null) {
+    if (agoraMin >= abertura && agoraMin < fechamento) return { aberta: true, msg: null }
+    if (agoraMin < abertura) return { aberta: false, msg: `⚠️ A cantina ainda está fechada. Abre às ${ha} hoje.` }
+    return { aberta: false, msg: `⚠️ A cantina já fechou por hoje. Volta amanhã às ${ha}!` }
+  }
+  return null
+}
+
+function saudacaoInicial(usuario, cfg) {
   const perfil = usuario?.perfil
   const primeiroNome = usuario?.nome?.split(' ')[0] || 'você'
   const hora = new Date().getHours()
@@ -96,13 +118,28 @@ function saudacaoInicial(usuario) {
     return frases[hora % frases.length]
   }
 
+  let cumprimento
   if (hora >= 5 && hora < 12)
-    return `Bom dia, ${primeiroNome}! ☀️ Tô aqui pra te ajudar a escolher o melhor lanche. O que você tá afim?`
+    cumprimento = `Bom dia, ${primeiroNome}! ☀️`
+  else if (hora >= 12 && hora < 18)
+    cumprimento = `Boa tarde, ${primeiroNome}! 😄`
+  else if (hora >= 18 && hora < 23)
+    cumprimento = `Boa noite, ${primeiroNome}! 🌙`
+  else
+    cumprimento = `Ei, ${primeiroNome}! 🦉`
+
+  const status = statusCantina(cfg)
+  if (status && !status.aberta) {
+    return `${cumprimento}\n\n${status.msg}\n\nMas pode perguntar o que quiser, tô aqui pra ajudar!`
+  }
+
+  if (hora >= 5 && hora < 12)
+    return `${cumprimento} Tô aqui pra te ajudar a escolher o melhor lanche. O que você tá afim?`
   if (hora >= 12 && hora < 18)
-    return `Boa tarde, ${primeiroNome}! 😄 Aquela fominha bateu, né? Me fala o que você quer e eu te ajudo!`
+    return `${cumprimento} Aquela fominha bateu, né? Me fala o que você quer e eu te ajudo!`
   if (hora >= 18 && hora < 23)
-    return `Boa noite, ${primeiroNome}! 🌙 Tô aqui pra ajudar. Quer ver o cardápio, checar seu pedido ou tirar uma dúvida?`
-  return `Ei, ${primeiroNome}! 🦉 De madrugada e com fome? Respeito. Me fala o que precisa!`
+    return `${cumprimento} Tô aqui pra ajudar. Quer ver o cardápio, checar seu pedido ou tirar uma dúvida?`
+  return `${cumprimento} De madrugada e com fome? Respeito. Me fala o que precisa!`
 }
 
 function nomeDaTela(pathname) {
@@ -150,7 +187,7 @@ export default function ChatAssistente() {
     abrirRef.current = () => {
       setAberto(v => {
         if (!v && mensagens === null && usuarioLogado) {
-          setMensagens([{ autor: 'bot', texto: saudacaoInicial(usuarioLogado) }])
+          setMensagens([{ autor: 'bot', texto: saudacaoInicial(usuarioLogado, lanchoneteConfig) }])
         }
         return !v
       })
@@ -319,7 +356,7 @@ export default function ChatAssistente() {
             <Bot size={17} color="#fff" />
             <span style={s.cabecalhoTitulo}>Assistente Senac Lanches</span>
             <button type="button"
-              onClick={() => setMensagens([{ autor: 'bot', texto: saudacaoInicial(usuarioLogado) }])}
+              onClick={() => setMensagens([{ autor: 'bot', texto: saudacaoInicial(usuarioLogado, lanchoneteConfig) }])}
               style={s.btnCab} title="Limpar conversa">
               <RefreshCcw size={14} color="#fff" />
             </button>
