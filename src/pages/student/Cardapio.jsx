@@ -3,9 +3,8 @@ import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
 import { categorias } from '../../data/mockData'
 import { useIsMobile } from '../../utils/useIsMobile'
-import { UtensilsCrossed, Flame, Search, RefreshCw, Trophy, Tags } from 'lucide-react'
+import { UtensilsCrossed, Flame, Search, RefreshCw, Trophy, Tags, Heart } from 'lucide-react'
 import AvisosBanner from '../../components/AvisosBanner'
-import LanchoneteInfoCard from '../../components/LanchoneteInfoCard'
 import { produtoDisponivelNoDia } from '../../utils/cardapioDias'
 
 const GRADIENTS = [
@@ -67,9 +66,9 @@ function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disab
           R$ {produto.preco.toFixed(2).replace('.', ',')}
         </div>
         <button
-          style={{ ...s.favBtn, background: isFav ?'rgba(239,68,68,0.9)' : 'rgba(255,255,255,0.85)', width: isMobile ?28 : 32, height: isMobile ?28 : 32, fontSize: isMobile ?'0.85rem' : '1rem' }}
+          style={{ ...s.favBtn, background: isFav ?'rgba(239,68,68,0.9)' : 'rgba(255,255,255,0.85)', width: isMobile ?28 : 32, height: isMobile ?28 : 32 }}
           onClick={e => { e.stopPropagation(); onFav(produto.id) }}
-        >{isFav ?'♥' : '♡'}</button>
+        ><Heart size={isMobile ? 14 : 16} fill={isFav ? '#fff' : 'none'} color={isFav ? '#fff' : '#111'} strokeWidth={2.2} /></button>
         {!temAlergia && !estoqueBaixo && !destaque && !isMobile && <div style={s.catPill}>{produto.categoria}</div>}
         {!produto.disponivel && <div style={s.tagIndispBadge}>Indisponível</div>}
       </div>
@@ -136,9 +135,20 @@ function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disab
   )
 }
 
+function saudacao(nome) {
+  const hora = new Date().getHours()
+  const primeiro = nome?.split(' ')[0] || 'você'
+  if (hora >= 5 && hora < 12)  return { cumprimento: `Bom dia, ${primeiro}! ☀️`, sub: 'Que tal um café da manhã especial hoje?' }
+  if (hora >= 12 && hora < 14) return { cumprimento: `Hora do almoço, ${primeiro}! 🍽️`, sub: 'Seu estômago agradece. Corre lá!' }
+  if (hora >= 14 && hora < 18) return { cumprimento: `Boa tarde, ${primeiro}! 😄`, sub: 'Aquela fominha da tarde bateu, né?' }
+  if (hora >= 18 && hora < 22) return { cumprimento: `Boa noite, ${primeiro}! 🌙`, sub: 'Ainda dá tempo de pedir algo gostoso!' }
+  return { cumprimento: `Ei, ${primeiro}! 🦉`, sub: 'De madrugada e com fome? Respeito.' }
+}
+
 export default function Cardapio() {
   const { produtos, pedidos, avisos, adicionarAoCarrinho, favoritos, toggleFavorito, usuarioLogado, carrinho, resumoAvaliacoesPorProduto } = useApp()
   const isMobile = useIsMobile()
+  const { cumprimento, sub } = saudacao(usuarioLogado?.nome)
   const [categoriaAtiva, setCategoriaAtiva] = useState('Todos')
   const [busca, setBusca] = useState('')
   const [adicionado, setAdicionado] = useState(null)
@@ -242,11 +252,10 @@ export default function Cardapio() {
   return (
     <Layout titulo="Cardápio de Hoje">
       <AvisosBanner perfil="alunos" />
-      {!busca && (
-        <div style={{ marginBottom: isMobile ?'0.65rem' : '1rem' }}>
-          <LanchoneteInfoCard compacto isMobile={isMobile} />
-        </div>
-      )}
+      <div style={{ marginBottom: isMobile ? '0.9rem' : '1.2rem', paddingTop: isMobile ? '0.1rem' : '0.2rem' }}>
+        <p style={{ margin: 0, fontWeight: 800, fontSize: isMobile ? '1.15rem' : '1.3rem', color: '#1E293B', lineHeight: 1.2 }}>{cumprimento}</p>
+        <p style={{ margin: '2px 0 0', fontSize: isMobile ? '0.82rem' : '0.88rem', color: '#64748B' }}>{sub}</p>
+      </div>
       <div style={{ marginBottom: isMobile ?'0.5rem' : '1rem' }}>
         <input
           style={{ ...s.inputBusca, width: '100%', maxWidth: '100%', boxSizing: 'border-box', padding: isMobile ?'0.6rem 0.9rem' : '0.75rem 1.1rem', fontSize: isMobile ?'0.88rem' : '0.95rem' }}
@@ -441,7 +450,7 @@ export default function Cardapio() {
                   <div style={s.detSecaoTitulo}>Avaliações dos alunos</div>
                   <div style={s.reviewResumo}>
                     ⭐ {resumoAvaliacoesPorProduto[String(detalhe.id)].media.toFixed(1).replace('.', ',')} de 5
-                    <span>{resumoAvaliacoesPorProduto[String(detalhe.id)].total} avaliação(ões)</span>
+                    <span>{resumoAvaliacoesPorProduto[String(detalhe.id)].total} avaliações</span>
                   </div>
                   <div style={s.reviewLista}>
                     {resumoAvaliacoesPorProduto[String(detalhe.id)].comentarios.length === 0 ?(

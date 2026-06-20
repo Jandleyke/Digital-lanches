@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../contexts/AppContext'
+import { useIsMobile } from '../utils/useIsMobile'
 import { caminhoInicialPorPerfil } from '../utils/perfis'
 
 export default function Cadastro() {
   const { cadastrar, usuarioLogado } = useApp()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     if (!usuarioLogado) return
@@ -42,8 +44,8 @@ export default function Cadastro() {
   }
 
   return (
-    <div style={s.page}>
-      <div style={s.card}>
+    <div style={{ ...s.page, alignItems: isMobile ? 'flex-start' : 'center', paddingTop: isMobile ? '1.5rem' : '1rem' }}>
+      <div style={{ ...s.card, padding: isMobile ? '1.25rem 1rem' : '2rem' }}>
         <button onClick={() => navigate('/login')} style={s.voltar}>← Voltar ao login</button>
         <div style={s.header}>
           <div style={s.logo}>📝</div>
@@ -110,7 +112,7 @@ const s = {
   form: { display: 'flex', flexDirection: 'column', gap: '0.85rem' },
   campo: { display: 'flex', flexDirection: 'column', gap: 5 },
   label: { fontWeight: 600, fontSize: '0.82rem', color: '#1A202C' },
-  input: { padding: '0.7rem 0.9rem', borderRadius: 10, border: '2px solid #E2E8F0', fontSize: '0.92rem', outline: 'none' },
+  input: { padding: '0.7rem 0.9rem', borderRadius: 10, border: '2px solid #E2E8F0', fontSize: '0.92rem', outline: 'none', width: '100%', boxSizing: 'border-box' },
   erro: { color: '#EF4444', fontSize: '0.82rem', textAlign: 'center' },
   btn: { padding: '0.85rem', borderRadius: 10, background: '#F47920', color: '#fff', fontWeight: 700, fontSize: '1rem', marginTop: 4 },
   sucesso: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '1.5rem 0', textAlign: 'center' },

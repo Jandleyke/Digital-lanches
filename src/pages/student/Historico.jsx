@@ -14,9 +14,13 @@ export default function Historico() {
             {historico.map(pedido => (
               <div key={pedido.id} style={s.card}>
                 <div style={s.top}>
-                  <div>
-                    <strong>Pedido #{pedido.id}</strong>
-                    <span style={s.data}>{pedido.horarioPedido}</span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>Pedido #{pedido.id.slice(-8)}</strong>
+                    <span style={s.data}>
+                      {pedido.criadoEm
+                        ? new Date(pedido.criadoEm).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' às ' + new Date(pedido.criadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                        : pedido.horarioPedido}
+                    </span>
                   </div>
                   <div style={s.topRight}>
                     <span style={{ ...s.status, ...(pedido.status === 'Entregue' ? s.statusEntregue : s.statusAtivo) }}>{pedido.status}</span>

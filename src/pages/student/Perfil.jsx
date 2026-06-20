@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
 import { useIsMobile } from '../../utils/useIsMobile'
@@ -18,6 +18,14 @@ export default function Perfil() {
   const [msgPerfil, setMsgPerfil] = useState(null)
   const [msgSenha, setMsgSenha] = useState(null)
   const [novaAlergia, setNovaAlergia] = useState('')
+  const [chatVisivel, setChatVisivel] = useState(() => localStorage.getItem('chat-btn-visible') !== 'false')
+
+  function toggleChat() {
+    const novo = !chatVisivel
+    setChatVisivel(novo)
+    localStorage.setItem('chat-btn-visible', String(novo))
+    window.dispatchEvent(new CustomEvent('chat-visivel-change', { detail: novo }))
+  }
   const [permissaoNotif, setPermissaoNotif] = useState(() => permissaoNotificacao())
 
   async function ativarNotificacoes() {
@@ -299,6 +307,33 @@ export default function Perfil() {
             <button type="submit" style={s.primaryBtn}>Salvar nova senha</button>
           </form>
         </div>
+
+        {/* Preferências do app */}
+        <div style={{ ...s.sectionCard, padding: isMobile ? '0.9rem' : '1.25rem' }}>
+          <h2 style={{ ...s.sectionTitle, fontSize: isMobile ? '0.97rem' : '1.1rem', marginBottom: 16 }}>Preferências do app</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+            <div>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: '0.92rem', color: '#0F172A' }}>Assistente virtual flutuante</p>
+              <p style={{ margin: '3px 0 0', fontSize: '0.8rem', color: '#64748B' }}>Botão laranja que aparece sobre o app</p>
+            </div>
+            <button
+              type="button"
+              onClick={toggleChat}
+              style={{
+                width: 48, height: 28, borderRadius: 999, border: 'none', cursor: 'pointer',
+                background: chatVisivel ? '#F47920' : '#CBD5E1',
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+              }}
+              aria-label={chatVisivel ? 'Desativar assistente' : 'Ativar assistente'}
+            >
+              <span style={{
+                position: 'absolute', top: 3, left: chatVisivel ? 23 : 3,
+                width: 22, height: 22, borderRadius: '50%', background: '#fff',
+                transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+              }} />
+            </button>
+          </div>
+        </div>
       </div>
     </Layout>
   )
@@ -320,7 +355,7 @@ const s = {
   form: { display: 'flex', flexDirection: 'column', gap: '1rem' },
   fieldRow: { display: 'flex', flexDirection: 'column', gap: 8 },
   label: { fontWeight: 700, fontSize: '0.85rem', color: '#334155' },
-  input: { padding: '0.95rem 1rem', borderRadius: 16, border: '1px solid #D1D5DB', background: '#F8FAFC', fontSize: '0.95rem', color: '#0F172A', outline: 'none' },
+  input: { padding: '0.95rem 1rem', borderRadius: 16, border: '1px solid #D1D5DB', background: '#F8FAFC', fontSize: '0.95rem', color: '#0F172A', outline: 'none', width: '100%', boxSizing: 'border-box' },
   inputFile: { padding: '0.95rem 1rem', borderRadius: 16, border: '1px solid #D1D5DB', background: '#F8FAFC', fontSize: '0.95rem', color: '#0F172A' },
   badgeGroup: { display: 'flex', flexWrap: 'wrap', gap: 8 },
   badgePill: { padding: '0.65rem 1rem', borderRadius: 999, background: '#F1F5F9', border: '1px solid #E2E8F0', color: '#334155', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' },

@@ -7,14 +7,14 @@ import {
   Utensils, ShoppingCart, Package, Heart,
   ClipboardList, LayoutDashboard, ChefHat,
   ArchiveRestore, TrendingUp, Megaphone, Users,
-  LogOut, ExternalLink, Download, PanelLeftClose, PanelLeftOpen, X, Bell,
+  LogOut, ExternalLink, Download, PanelLeftClose, PanelLeftOpen, X, Bell, ArrowRight, UserCircle,
 } from 'lucide-react'
 import { ehOperacional, normalizarPerfil } from '../utils/perfis'
 import { suportaNotificacao, permissaoNotificacao, solicitarPermissaoNotificacao } from '../utils/notifications'
 import { suportaPush, inscreverPush } from '../utils/push'
 
 export default function Layout({ children, titulo }) {
-  const { usuarioLogado, logout, qtdCarrinho, carregando } = useApp()
+  const { usuarioLogado, logout, qtdCarrinho, totalCarrinho, carregando } = useApp()
   const navigate = useNavigate()
   const location = useLocation()
   const isMobile = useIsMobile()
@@ -99,6 +99,7 @@ export default function Layout({ children, titulo }) {
     { icon: ShoppingCart, labelFull: 'Carrinho',  path: '/aluno/carrinho', badge: qtdCarrinho },
     { icon: Package,      labelFull: 'Pedidos',   path: '/aluno/pedidos' },
     { icon: Heart,        labelFull: 'Favoritos', path: '/aluno/favoritos' },
+    { icon: UserCircle,   labelFull: 'Perfil',    path: '/aluno/perfil' },
   ]
 
   const navProfessor = [
@@ -131,15 +132,14 @@ export default function Layout({ children, titulo }) {
     { icon: LayoutDashboard, labelFull: 'Dashboard',  path: '/admin' },
     { icon: ChefHat,         labelFull: 'Produtos',   path: '/admin/produtos' },
     { icon: ArchiveRestore,  labelFull: 'Estoque',    path: '/admin/estoque' },
-    { icon: Utensils,        labelFull: 'Lanchonete', path: '/admin/lanchonete' },
     { icon: TrendingUp,      labelFull: 'Relatórios', path: '/admin/relatorios' },
     { icon: Megaphone,       labelFull: 'Avisos',     path: '/admin/avisos' },
     { icon: Users,           labelFull: 'Usuários',   path: '/admin/usuarios' },
+    { icon: UserCircle,      labelFull: 'Perfil',     path: '/admin/perfil' },
   ]
 
   const navGerente = [
     { icon: LayoutDashboard, labelFull: 'Dashboard',  path: '/admin' },
-    { icon: Utensils,        labelFull: 'Lanchonete', path: '/admin/lanchonete' },
     { icon: TrendingUp,      labelFull: 'Relatórios', path: '/admin/relatorios' },
     { icon: Megaphone,       labelFull: 'Avisos',     path: '/admin/avisos' },
     { icon: Users,           labelFull: 'Usuários',   path: '/admin/usuarios' },
@@ -149,16 +149,18 @@ export default function Layout({ children, titulo }) {
   const navMap = { aluno: navAluno, professor: navProfessor, cozinha: navCozinha, vendedor: navVendedor, admin: navAdmin, gerente: navGerente }
   const navItems = navMap[perfilAtual] || []
 
-  const avatarSize = isMobile ?34 : 40
+  const mostrarCartBar = isMobile && qtdCarrinho > 0 && ['aluno', 'professor'].includes(perfilAtual)
+
+  const avatarSize = isMobile ? 34 : 40
   const primeiroNome = usuarioLogado?.nome?.split(' ')[0] || ''
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {podeMostrarNotifBanner && (
         <div style={{ background: '#0B1E45', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 1rem', gap: 12, zIndex: 999 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Bell size={18} color="#F47920" />
-            <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>Ativar notificacoes de promocoes e novidades?</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+            <Bell size={18} color="#F47920" style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: '0.88rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Ativar notificacoes de promocoes e novidades?</span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <button onClick={ativarNotificacoes} style={{ background: '#F47920', color: '#fff', border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>Ativar</button>
@@ -168,9 +170,9 @@ export default function Layout({ children, titulo }) {
       )}
       {showInstall && (
         <div style={{ background: '#003D7C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 1rem', gap: 12, zIndex: 999 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Download size={18} color="#F47920" />
-            <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{installInfo || 'Instale o app para acesso rapido!'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+            <Download size={18} color="#F47920" style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: '0.88rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{installInfo || 'Instale o app para acesso rapido!'}</span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <button onClick={handleInstall} style={{ background: '#F47920', color: '#fff', border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>Instalar</button>
@@ -254,7 +256,7 @@ export default function Layout({ children, titulo }) {
           </nav>
         )}
 
-        <main style={{ ...s.main, padding: isMobile ?'0.6rem 0.65rem' : '1rem', paddingBottom: isMobile ?'5.2rem' : '1.5rem' }}>
+        <main style={{ ...s.main, padding: isMobile ? '0.6rem 0.65rem' : '1rem', paddingBottom: isMobile ? (mostrarCartBar ? 'calc(9rem + env(safe-area-inset-bottom, 0px))' : 'calc(5.2rem + env(safe-area-inset-bottom, 0px))') : '1.5rem' }}>
           {titulo && <h2 style={{ ...s.paginaTitulo, fontSize: isMobile ?'1.15rem' : '1.4rem' }}>{titulo}</h2>}
 
           {carregando ?(
@@ -266,23 +268,38 @@ export default function Layout({ children, titulo }) {
         </main>
       </div>
 
+      {mostrarCartBar && (
+        <div style={s.cartBar}>
+          <div style={s.cartBarLeft}>
+            <ShoppingCart size={18} color="#fff" />
+            <span style={s.cartBarCount}>{qtdCarrinho} {qtdCarrinho === 1 ? 'item' : 'itens'}</span>
+            <span style={s.cartBarSep}>•</span>
+            <span style={s.cartBarTotal}>R$ {totalCarrinho.toFixed(2).replace('.', ',')}</span>
+          </div>
+          <button style={s.cartBarBtn} onClick={() => navigate('/aluno/carrinho')}>
+            Ver carrinho
+          </button>
+        </div>
+      )}
+
       {isMobile && (
         <nav style={s.bottomNav}>
           {navItems.map(item => {
             const ativo = location.pathname === item.path
             const Icon = item.icon
-            const semLabel = navItems.length > 4
+            const semLabel = navItems.length > 5
             return (
               <button key={item.path}
-                onClick={() => item.externo ?window.open(item.path, '_blank', 'noopener,noreferrer') : navigate(item.path)}
+                onClick={() => item.externo ? window.open(item.path, '_blank', 'noopener,noreferrer') : navigate(item.path)}
                 aria-label={item.labelFull}
                 style={s.bottomItem}>
-                <div style={{ ...s.bottomIconBox, ...(ativo ?s.bottomIconBoxAtivo : {}), height: semLabel ?38 : 32, width: semLabel ?38 : 46, borderRadius: semLabel ?'50%' : 10 }}>
-                  <Icon size={semLabel ?20 : 20} strokeWidth={ativo ?2.5 : 1.7} color={ativo ?'#003D7C' : '#94A3B8'} />
+                <div style={{ ...s.bottomIconBox, ...(ativo ? s.bottomIconBoxAtivo : {}), height: semLabel ? 38 : 32, width: semLabel ? 38 : 46, borderRadius: semLabel ? '50%' : 10, position: 'relative' }}>
+                  {ativo && <span style={s.bottomIndicator} />}
+                  <Icon size={20} strokeWidth={ativo ? 2.5 : 1.7} color={ativo ? '#003D7C' : '#94A3B8'} />
                   {item.badge > 0 && <span style={s.bottomBadge}>{item.badge}</span>}
                 </div>
                 {!semLabel && (
-                  <span style={{ ...s.bottomLabel, color: ativo ?'#003D7C' : '#94A3B8', fontWeight: ativo ?700 : 400 }}>
+                  <span style={{ ...s.bottomLabel, color: ativo ? '#003D7C' : '#94A3B8', fontWeight: ativo ? 700 : 400 }}>
                     {item.labelFull}
                   </span>
                 )}
@@ -380,7 +397,7 @@ const s = {
     background: '#fff', borderTop: '1px solid rgba(226,232,240,0.9)',
     display: 'flex', zIndex: 100,
     boxShadow: '0 -6px 30px rgba(15,23,42,0.09)',
-    paddingBottom: 6, paddingTop: 4,
+    paddingBottom: 'calc(6px + env(safe-area-inset-bottom, 0px))', paddingTop: 4,
   },
   bottomItem: {
     flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -394,7 +411,13 @@ const s = {
     position: 'relative', transition: 'background 0.2s',
   },
   bottomIconBoxAtivo: {
-    background: '#EEF2FF',
+    background: 'linear-gradient(135deg, #E8F0FB, #D6E6FF)',
+    boxShadow: '0 2px 8px rgba(0,61,124,0.12)',
+  },
+  bottomIndicator: {
+    position: 'absolute', top: -4, left: '50%', transform: 'translateX(-50%)',
+    width: 24, height: 3, borderRadius: 2,
+    background: 'linear-gradient(90deg, #F47920, #FF9A4D)',
   },
   bottomLabel: { fontSize: '0.63rem', letterSpacing: '0.01em' },
   bottomBadge: {
@@ -402,5 +425,28 @@ const s = {
     background: '#F47920', color: '#fff', borderRadius: 999,
     padding: '1px 5px', fontSize: '0.58rem', fontWeight: 700,
     border: '2px solid #fff', lineHeight: 1.4,
+  },
+
+  /* ── Cart bar (mobile, above bottom nav) ── */
+  cartBar: {
+    position: 'fixed',
+    bottom: 'calc(62px + env(safe-area-inset-bottom, 0px))',
+    left: 0, right: 0, zIndex: 99,
+    background: 'linear-gradient(135deg, #003D7C 0%, #0055AA 100%)',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '0.65rem 1rem',
+    boxShadow: '0 -4px 20px rgba(0,61,124,0.28)',
+    animation: 'slideInUp 0.25s ease',
+  },
+  cartBarLeft: { display: 'flex', alignItems: 'center', gap: 8 },
+  cartBarCount: { color: '#fff', fontWeight: 700, fontSize: '0.88rem' },
+  cartBarSep: { color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem' },
+  cartBarTotal: { color: '#F47920', fontWeight: 800, fontSize: '0.95rem' },
+  cartBarBtn: {
+    background: '#F47920', color: '#fff', border: 'none',
+    borderRadius: 10, padding: '0.5rem 1rem',
+    fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer',
+    fontFamily: 'inherit', whiteSpace: 'nowrap',
+    boxShadow: '0 4px 12px rgba(244,121,32,0.35)',
   },
 }

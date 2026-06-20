@@ -2,8 +2,8 @@
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../contexts/AppContext'
 import { useIsMobile } from '../utils/useIsMobile'
-import { ArrowRight, Clock3, Heart, Lock, Mail, ShoppingBag, UsersRound } from 'lucide-react'
-import { caminhoInicialPorPerfil } from '../utils/perfis'
+import { ArrowLeft, ArrowRight, Clock3, Eye, EyeOff, Heart, Lock, Mail, ShoppingBag, UsersRound } from 'lucide-react'
+import { caminhoInicialPorPerfil, normalizarPerfil } from '../utils/perfis'
 
 function ModalRedefinirSenha({ onFechar, redefinirSenhaVerificada }) {
   const [email, setEmail] = useState('')
@@ -117,6 +117,7 @@ export default function Login({ gerencial = false }) {
 
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
+  const [mostrarSenha, setMostrarSenha] = useState(false)
   const [erro, setErro] = useState('')
   const [entrando, setEntrando] = useState(false)
   const recursos = [
@@ -140,10 +141,20 @@ export default function Login({ gerencial = false }) {
 
     const { usuario } = res
 
-    if (gerencial && usuario.perfil === 'aluno') {
+    const perfilNorm = normalizarPerfil(usuario.perfil)
+    const perfilEquipe = !['aluno', 'professor'].includes(perfilNorm)
+
+    if (!gerencial && perfilEquipe) {
       await logout()
       setEntrando(false)
-      setErro('Acesso negado. Use uma conta de admin, vendedor ou cozinha.')
+      setErro('Este acesso é exclusivo para alunos e professores. Use o "Acesso da Equipe".')
+      return
+    }
+
+    if (gerencial && !perfilEquipe) {
+      await logout()
+      setEntrando(false)
+      setErro('Este acesso é exclusivo para a equipe. Use o login de aluno.')
       return
     }
 
@@ -226,13 +237,21 @@ export default function Login({ gerencial = false }) {
               <div style={s.inputWrap}>
                 <Lock size={18} style={s.inputIcon} />
                 <input
-                  style={s.input}
-                  type="password"
+                  style={{ ...s.input, paddingRight: '3rem' }}
+                  type={mostrarSenha ? 'text' : 'password'}
                   value={senha}
                   onChange={e => { setSenha(e.target.value); setErro('') }}
                   placeholder="••••••••"
                   autoComplete="current-password"
                 />
+                <button
+                  type="button"
+                  onClick={() => setMostrarSenha(v => !v)}
+                  style={s.olhoBtn}
+                  aria-label={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                >
+                  {mostrarSenha ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
               </div>
             </div>
 
@@ -254,10 +273,11 @@ export default function Login({ gerencial = false }) {
 
             <button
               type="button"
-              style={s.btnAlternarAcesso}
-              onClick={() => navigate(gerencial ? '/login' : '/login-gerencial')}
+              style={s.btnVoltar}
+              onClick={() => navigate('/')}
             >
-              {gerencial ? 'Acesso do aluno' : 'Acesso da equipe'}
+              <ArrowLeft size={16} />
+              Voltar à tela inicial
             </button>
 
             <button type="button" style={s.esqueceuBtn} onClick={() => setModalSenha(true)}>
@@ -314,6 +334,7 @@ const s = {
   label: { fontWeight: 700, fontSize: '0.82rem', color: '#334155' },
   inputWrap: { position: 'relative', display: 'flex', alignItems: 'center' },
   inputIcon: { position: 'absolute', left: 14, color: '#94A3B8', userSelect: 'none', pointerEvents: 'none' },
+  olhoBtn: { position: 'absolute', right: 12, background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', display: 'flex', alignItems: 'center', padding: 4 },
   input: {
     width: '100%', paddingLeft: '2.75rem', paddingRight: '1rem',
     paddingTop: '0.88rem', paddingBottom: '0.88rem',
@@ -345,4 +366,5 @@ const s = {
     cursor: 'pointer', fontFamily: 'inherit',
   },
   esqueceuBtn: { background: 'none', border: 'none', color: '#64748B', fontSize: '0.83rem', cursor: 'pointer', textAlign: 'center', fontFamily: 'inherit', textDecoration: 'underline', padding: '0.2rem 0' },
+  btnVoltar: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '0.82rem', borderRadius: 14, background: '#F1F5F9', color: '#475569', border: '1px solid #E2E8F0', fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', fontFamily: 'inherit' },
 }

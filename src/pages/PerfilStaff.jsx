@@ -1,20 +1,22 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
 import { useApp } from '../contexts/AppContext'
 import { useIsMobile } from '../utils/useIsMobile'
 import { normalizarPerfil } from '../utils/perfis'
 import { processarFotoPerfil } from '../utils/image.js'
 
+const DIAS = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo']
+
 export default function PerfilStaff() {
-  const { usuarioLogado, atualizarUsuario, alterarSenha, usuarios } = useApp()
+  const { usuarioLogado, atualizarUsuario, alterarSenha, usuarios, lanchoneteConfig, salvarLanchoneteConfig } = useApp()
   const usuarioAtualizado = usuarios.find(u => u.matricula === usuarioLogado?.matricula) || usuarioLogado
+  const isAdmin = normalizarPerfil(usuarioLogado?.perfil) === 'admin'
 
   const [form, setForm] = useState({ nome: '', email: '', telefone: '', fotoPerfil: '' })
   const [senhaForm, setSenhaForm] = useState({ atual: '', nova: '', confirmar: '' })
   const [msgPerfil, setMsgPerfil] = useState(null)
   const [msgSenha, setMsgSenha] = useState(null)
 
-  // Repopula o formulário quando o usuário logado muda (ex.: após login)
   const [formMatricula, setFormMatricula] = useState(null)
   if (usuarioAtualizado?.matricula !== formMatricula) {
     setFormMatricula(usuarioAtualizado?.matricula)
@@ -24,6 +26,32 @@ export default function PerfilStaff() {
       telefone: usuarioAtualizado?.telefone || '',
       fotoPerfil: usuarioAtualizado?.fotoPerfil || '',
     })
+  }
+
+  // Lanchonete config (admin only)
+  const [formLanch, setFormLanch] = useState(lanchoneteConfig)
+  const [msgLanch, setMsgLanch] = useState('')
+  const [salvandoLanch, setSalvandoLanch] = useState(false)
+  useEffect(() => { setFormLanch(lanchoneteConfig) }, [lanchoneteConfig])
+
+  function setCampoLanch(campo, valor) {
+    setFormLanch(prev => ({ ...prev, [campo]: valor }))
+    setMsgLanch('')
+  }
+  function toggleDiaLanch(dia) {
+    setFormLanch(prev => {
+      const dias = prev.diasFuncionamento || []
+      return { ...prev, diasFuncionamento: dias.includes(dia) ? dias.filter(d => d !== dia) : [...dias, dia] }
+    })
+  }
+  async function salvarLanch(e) {
+    e.preventDefault()
+    setSalvandoLanch(true); setMsgLanch('')
+    try {
+      await salvarLanchoneteConfig(formLanch)
+      setMsgLanch('ok')
+    } catch { setMsgLanch('erro') }
+    finally { setSalvandoLanch(false) }
   }
 
   function maskTel(val) {
@@ -79,24 +107,28 @@ export default function PerfilStaff() {
 
   const isMobile = useIsMobile()
   const avatarSrc = form.fotoPerfil
-  const label = {
-    aluno: 'Aluno',
-    cozinha: 'Cozinha',
-    vendedor: 'Vendedor',
-    admin: 'Administrador',
+  const labelPerfil = {
+    aluno: 'Aluno', cozinha: 'Cozinha', vendedor: 'Vendedor', admin: 'Administrador',
   }[normalizarPerfil(usuarioLogado?.perfil)] || ''
   const inputPad = isMobile ? '0.65rem 0.85rem' : '0.78rem 1rem'
   const cardPad = isMobile ? '0.9rem' : '1.25rem'
   const formGap = isMobile ? '0.6rem' : '0.85rem'
 
+  const camposLanch = [
+    ['nome', 'Nome da lanchonete'], ['endereco', 'Endereço'], ['bairro', 'Bairro'],
+    ['cidade', 'Cidade'], ['cep', 'CEP'], ['telefone', 'Telefone'],
+    ['email', 'E-mail'], ['responsavel', 'Responsável'],
+  ]
+
   return (
     <Layout titulo="">
       <div style={{ ...s.page, gap: isMobile ? '0.65rem' : '1rem' }}>
+        {/* Hero */}
         <div style={{ ...s.heroCard, padding: isMobile ? '0.9rem' : '1.4rem 1.25rem' }}>
           <div style={{ flex: 1 }}>
             <p style={s.heroLabel}>Meu perfil</p>
             <h1 style={{ ...s.heroTitle, fontSize: isMobile ? '1.1rem' : '1.3rem' }}>{usuarioAtualizado?.nome}</h1>
-            <p style={{ ...s.heroSub, fontSize: isMobile ? '0.78rem' : '0.82rem' }}>{label} · {usuarioLogado?.matricula}</p>
+            <p style={{ ...s.heroSub, fontSize: isMobile ? '0.78rem' : '0.82rem' }}>{labelPerfil} · {usuarioLogado?.matricula}</p>
           </div>
           <div style={{ ...s.heroAvatar, width: isMobile ? 50 : 60, height: isMobile ? 50 : 60 }}>
             {avatarSrc
@@ -105,6 +137,7 @@ export default function PerfilStaff() {
           </div>
         </div>
 
+        {/* Dados pessoais */}
         <div style={{ ...s.card, padding: cardPad }}>
           <h2 style={{ ...s.cardTitle, fontSize: isMobile ? '0.95rem' : '1rem' }}>Dados pessoais</h2>
           <form onSubmit={handleSalvar} style={{ ...s.form, gap: formGap }}>
@@ -137,6 +170,7 @@ export default function PerfilStaff() {
           </form>
         </div>
 
+        {/* Alterar senha */}
         <div style={{ ...s.card, padding: cardPad }}>
           <h2 style={{ ...s.cardTitle, fontSize: isMobile ? '0.95rem' : '1rem' }}>Alterar senha</h2>
           <form onSubmit={handleSenha} style={{ ...s.form, gap: formGap }}>
@@ -157,13 +191,57 @@ export default function PerfilStaff() {
             <button type="submit" style={{ ...s.btnPrimario, padding: isMobile ? '0.72rem' : '0.88rem' }}>Alterar senha</button>
           </form>
         </div>
+
+        {/* Dados da lanchonete — só admin */}
+        {isAdmin && (
+          <div style={{ ...s.card, padding: cardPad }}>
+            <h2 style={{ ...s.cardTitle, fontSize: isMobile ? '0.95rem' : '1rem' }}>Dados da lanchonete</h2>
+            <form onSubmit={salvarLanch} style={{ ...s.form, gap: formGap }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: formGap }}>
+                {camposLanch.map(([campo, label]) => (
+                  <div key={campo} style={s.fieldRow}>
+                    <label style={s.fieldLabel}>{label}</label>
+                    <input style={{ ...s.input, padding: inputPad }} value={formLanch[campo] || ''} onChange={e => setCampoLanch(campo, e.target.value)} />
+                  </div>
+                ))}
+                <div style={s.fieldRow}>
+                  <label style={s.fieldLabel}>Abertura</label>
+                  <input style={{ ...s.input, padding: inputPad }} type="time" value={formLanch.horarioAbertura || ''} onChange={e => setCampoLanch('horarioAbertura', e.target.value)} />
+                </div>
+                <div style={s.fieldRow}>
+                  <label style={s.fieldLabel}>Fechamento</label>
+                  <input style={{ ...s.input, padding: inputPad }} type="time" value={formLanch.horarioFechamento || ''} onChange={e => setCampoLanch('horarioFechamento', e.target.value)} />
+                </div>
+              </div>
+              <div style={s.fieldRow}>
+                <label style={s.fieldLabel}>Dias de funcionamento</label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                  {DIAS.map(dia => {
+                    const ativo = (formLanch.diasFuncionamento || []).includes(dia)
+                    return (
+                      <button key={dia} type="button" onClick={() => toggleDiaLanch(dia)}
+                        style={{ padding: '0.4rem 0.75rem', borderRadius: 20, border: `1.5px solid ${ativo ? '#003D7C' : '#CBD5E1'}`, background: ativo ? '#E8F0FB' : '#fff', color: ativo ? '#003D7C' : '#64748B', fontWeight: 700, cursor: 'pointer', textTransform: 'capitalize', fontSize: '0.82rem' }}>
+                        {dia}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              {msgLanch === 'ok' && <p style={s.ok}>Dados da lanchonete salvos.</p>}
+              {msgLanch === 'erro' && <p style={s.erro}>Não foi possível salvar. Verifique as permissões.</p>}
+              <button type="submit" disabled={salvandoLanch} style={{ ...s.btnPrimario, padding: isMobile ? '0.72rem' : '0.88rem', opacity: salvandoLanch ? 0.7 : 1 }}>
+                {salvandoLanch ? 'Salvando...' : 'Salvar dados da lanchonete'}
+              </button>
+            </form>
+          </div>
+        )}
       </div>
     </Layout>
   )
 }
 
 const s = {
-  page: { display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 520, margin: '0 auto', paddingBottom: '2rem' },
+  page: { display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 560, margin: '0 auto', paddingBottom: '2rem' },
   heroCard: { background: '#0F172A', color: '#fff', borderRadius: 22, padding: '1.4rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
   heroLabel: { margin: 0, fontSize: '0.78rem', color: '#93C5FD', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' },
   heroTitle: { margin: '0.3rem 0 0', fontSize: '1.3rem', fontWeight: 800, lineHeight: 1.1 },
@@ -176,7 +254,7 @@ const s = {
   form: { display: 'flex', flexDirection: 'column', gap: '0.85rem' },
   fieldRow: { display: 'flex', flexDirection: 'column', gap: 6 },
   fieldLabel: { fontWeight: 700, fontSize: '0.82rem', color: '#374151' },
-  input: { padding: '0.78rem 1rem', borderRadius: 12, border: '1px solid #D1D5DB', background: '#F8FAFC', fontSize: '0.95rem', color: '#0F172A', outline: 'none', fontFamily: 'inherit' },
+  input: { padding: '0.78rem 1rem', borderRadius: 12, border: '1px solid #D1D5DB', background: '#F8FAFC', fontSize: '0.95rem', color: '#0F172A', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' },
   btnFoto: { padding: '0.5rem 1rem', borderRadius: 10, background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1D4ED8', fontWeight: 700, fontSize: '0.82rem', display: 'inline-block' },
   btnPrimario: { padding: '0.88rem', borderRadius: 12, background: '#1D4ED8', color: '#fff', fontWeight: 700, fontSize: '0.95rem', border: 'none', cursor: 'pointer', fontFamily: 'inherit' },
   erro: { color: '#B91C1C', fontSize: '0.85rem', margin: 0 },

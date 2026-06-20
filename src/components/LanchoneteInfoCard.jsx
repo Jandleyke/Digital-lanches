@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Clock, Mail, MapPin, Phone, Store, UserRound } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
 
@@ -11,18 +12,43 @@ const DIAS_LABEL = {
   domingo: 'Domingo',
 }
 
-const DIA_ATUAL = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
+const DIA_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
+
+function toMinutos(str) {
+  if (!str) return null
+  const [h, m] = str.split(':').map(Number)
+  return h * 60 + m
+}
+
+function calcularStatus(config, agora) {
+  const dias = config.diasFuncionamento || []
+  const hoje = DIA_SEMANA[agora.getDay()]
+  const funcionaHoje = dias.includes(hoje)
+
+  if (dias.length > 0 && !funcionaHoje) return { texto: 'Fechada hoje', aberta: false }
+
+  const abertura = toMinutos(config.horarioAbertura)
+  const fechamento = toMinutos(config.horarioFechamento)
+  const agoraMin = agora.getHours() * 60 + agora.getMinutes()
+
+  if (abertura !== null && fechamento !== null) {
+    if (agoraMin >= abertura && agoraMin < fechamento) return { texto: 'Aberta agora', aberta: true }
+    if (agoraMin < abertura) return { texto: `Abre às ${config.horarioAbertura}`, aberta: false }
+    return { texto: 'Fechada agora', aberta: false }
+  }
+
+  if (dias.length > 0 && funcionaHoje) return { texto: 'Aberta hoje', aberta: true }
+  return null
+}
 
 function juntarEndereco(config) {
   return [config.endereco, config.bairro, config.cidade, config.cep].filter(Boolean).join(' - ')
 }
 
 function formatarHorario(config) {
-  if (config.horarioAbertura && config.horarioFechamento) {
-    return `${config.horarioAbertura} as ${config.horarioFechamento}`
-  }
-  if (config.horarioAbertura) return `Abre as ${config.horarioAbertura}`
-  if (config.horarioFechamento) return `Fecha as ${config.horarioFechamento}`
+  if (config.horarioAbertura && config.horarioFechamento) return `${config.horarioAbertura} às ${config.horarioFechamento}`
+  if (config.horarioAbertura) return `Abre às ${config.horarioAbertura}`
+  if (config.horarioFechamento) return `Fecha às ${config.horarioFechamento}`
   return 'Horário não informado'
 }
 
@@ -30,8 +56,15 @@ export default function LanchoneteInfoCard({ compacto = false, isMobile = false 
   const { lanchoneteConfig } = useApp()
   const config = lanchoneteConfig || {}
   const dias = config.diasFuncionamento || []
-  const hoje = DIA_ATUAL[new Date().getDay()]
-  const funcionaHoje = dias.includes(hoje)
+  const [agora, setAgora] = useState(() => new Date())
+
+  useEffect(() => {
+    const timer = setInterval(() => setAgora(new Date()), 60000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const hoje = DIA_SEMANA[agora.getDay()]
+  const status = calcularStatus(config, agora)
   const endereco = juntarEndereco(config)
   const contatos = [
     config.telefone && { icon: Phone, texto: config.telefone },
@@ -40,20 +73,20 @@ export default function LanchoneteInfoCard({ compacto = false, isMobile = false 
   ].filter(Boolean)
 
   return (
-    <section style={{ ...s.card, padding: compacto || isMobile ?'0.9rem' : '1.15rem' }}>
+    <section style={{ ...s.card, padding: compacto || isMobile ? '0.9rem' : '1.15rem' }}>
       <div style={s.header}>
         <div style={s.iconBox}>
           <Store size={18} />
         </div>
         <div style={{ minWidth: 0 }}>
           <p style={s.label}>Lanchonete</p>
-          <h2 style={{ ...s.title, fontSize: compacto || isMobile ?'1rem' : '1.12rem' }}>
+          <h2 style={{ ...s.title, fontSize: compacto || isMobile ? '1rem' : '1.12rem' }}>
             {config.nome || 'Senac Lanches'}
           </h2>
         </div>
-        {dias.length > 0 && (
-          <span style={{ ...s.status, ...(funcionaHoje ?s.statusOk : s.statusOff) }}>
-            {funcionaHoje ?'Aberta hoje' : 'Fechada hoje'}
+        {status && (
+          <span style={{ ...s.status, ...(status.aberta ? s.statusOk : s.statusOff) }}>
+            {status.texto}
           </span>
         )}
       </div>
@@ -72,7 +105,7 @@ export default function LanchoneteInfoCard({ compacto = false, isMobile = false 
       {dias.length > 0 && (
         <div style={s.dias}>
           {dias.map(dia => (
-            <span key={dia} style={{ ...s.diaPill, ...(dia === hoje ?s.diaHoje : {}) }}>
+            <span key={dia} style={{ ...s.diaPill, ...(dia === hoje ? s.diaHoje : {}) }}>
               {DIAS_LABEL[dia] || dia}
             </span>
           ))}

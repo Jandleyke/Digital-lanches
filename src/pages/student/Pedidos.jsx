@@ -265,10 +265,21 @@ export default function Pedidos() {
                 ))}
               </div>
 
-              <div style={s.itensList}>
-                {pedido.itens.map((item, i) => (
-                  <span key={i} style={s.itemTag}>{item.quantidade}x {item.nome}</span>
-                ))}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: '0.75rem' }}>
+                {pedido.itens.map((item, i) => {
+                  const prod = produtos.find(p => p.id === item.produtoId)
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, background: '#F8FAFC', borderRadius: 10, padding: '5px 10px 5px 5px', border: '1px solid #E2E8F0' }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 8, background: '#E8F0FB', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {prod?.foto
+                          ? <img src={prod.foto} alt={item.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          : <span style={{ fontSize: '1.2rem' }}>{prod?.emoji || '🍴'}</span>
+                        }
+                      </div>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>{item.quantidade}× {item.nome}</span>
+                    </div>
+                  )
+                })}
               </div>
 
               <div style={{ ...s.cardBottom, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 10 : 8 }}>
@@ -320,10 +331,21 @@ export default function Pedidos() {
                   <strong style={{ display: 'block', color: '#003D7C', marginTop: 4 }}>{formatPrice(pedido.total)}</strong>
                 </div>
               </div>
-              <div style={s.itensList}>
-                {pedido.itens.map((item, i) => (
-                  <span key={i} style={s.itemTag}>{item.quantidade}x {item.nome}</span>
-                ))}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: '0.5rem' }}>
+                {pedido.itens.map((item, i) => {
+                  const prod = produtos.find(p => p.id === item.produtoId)
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, background: '#F8FAFC', borderRadius: 10, padding: '4px 8px 4px 4px', border: '1px solid #E2E8F0' }}>
+                      <div style={{ width: 28, height: 28, borderRadius: 7, background: '#E8F0FB', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {prod?.foto
+                          ? <img src={prod.foto} alt={item.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          : <span style={{ fontSize: '1rem' }}>{prod?.emoji || '🍴'}</span>
+                        }
+                      </div>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155' }}>{item.quantidade}× {item.nome}</span>
+                    </div>
+                  )
+                })}
               </div>
 
               {pedido.status === 'Entregue' && (

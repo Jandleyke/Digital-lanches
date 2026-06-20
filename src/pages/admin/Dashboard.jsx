@@ -589,7 +589,7 @@ export default function Dashboard() {
                 {itensMelhorAvaliados.map(item => (
                   <div key={item.nome} style={s.estoqueItem}>
                     <span style={{ flex: 1, fontSize: '0.84rem', color: '#475569' }}>{item.nome}</span>
-                    <span style={{ fontSize: '0.78rem', color: '#94A3B8' }}>{item.qtd} avaliação(ões)</span>
+                    <span style={{ fontSize: '0.78rem', color: '#94A3B8' }}>{item.qtd} avaliações</span>
                     <span style={{
                       fontWeight: 800, fontSize: '0.84rem', color: '#F59E0B',
                       background: '#FEF3C7', padding: '0.15rem 0.55rem', borderRadius: 8,

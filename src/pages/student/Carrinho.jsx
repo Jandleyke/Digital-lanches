@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
@@ -6,6 +6,38 @@ import { useIsMobile } from '../../utils/useIsMobile'
 import { ShoppingCart, CheckCircle, Utensils } from 'lucide-react'
 
 const HORARIOS_SUGERIDOS = ['09:00','09:15','09:30','09:45','10:00','10:15','10:30','11:00','12:00','12:30','13:00','13:30']
+
+const CORES_CONFETTI = ['#F47920','#003D7C','#22C55E','#F59E0B','#EF4444','#8B5CF6','#EC4899','#06B6D4']
+
+function Confetti() {
+  const pieces = useMemo(() => Array.from({ length: 90 }, (_, i) => ({
+    id: i,
+    x: Math.random() * 100,
+    color: CORES_CONFETTI[i % CORES_CONFETTI.length],
+    delay: (Math.random() * 700).toFixed(0),
+    duration: (1300 + Math.random() * 1200).toFixed(0),
+    width: 6 + Math.floor(Math.random() * 8),
+    height: 4 + Math.floor(Math.random() * 6),
+    borderRadius: Math.random() > 0.4 ? 2 : '50%',
+  })), [])
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9999, overflow: 'hidden' }}>
+      {pieces.map(p => (
+        <div key={p.id} style={{
+          position: 'absolute',
+          top: -20,
+          left: `${p.x}%`,
+          width: p.width,
+          height: p.height,
+          background: p.color,
+          borderRadius: p.borderRadius,
+          animation: `confettiFall ${p.duration}ms ${p.delay}ms ease-in forwards`,
+        }} />
+      ))}
+    </div>
+  )
+}
 
 export default function Carrinho() {
   const { carrinho, adicionarAoCarrinho, removerDoCarrinho, limparCarrinho, totalCarrinho, fazerPedido } = useApp()
@@ -16,6 +48,14 @@ export default function Carrinho() {
   const [pagamento, setPagamento] = useState('PIX')
   const [pedidoFeito, setPedidoFeito] = useState(null)
   const [enviando, setEnviando] = useState(false)
+  const [mostrarConfetti, setMostrarConfetti] = useState(false)
+
+  useEffect(() => {
+    if (!pedidoFeito) return
+    setMostrarConfetti(true)
+    const t = setTimeout(() => setMostrarConfetti(false), 4000)
+    return () => clearTimeout(t)
+  }, [pedidoFeito])
 
   async function handleConfirmar() {
     if (carrinho.length === 0 || enviando) return
@@ -32,27 +72,30 @@ export default function Carrinho() {
 
   if (pedidoFeito) {
     return (
-      <Layout titulo="Pedido Confirmado!">
-        <div style={s.sucesso}>
-          <div style={s.sucessoIcon}><CheckCircle size={56} color="#22C55E" strokeWidth={1.5} /></div>
-          <h2 style={s.sucessoTitulo}>Pedido #{pedidoFeito.id} realizado!</h2>
-          <p style={s.sucessoSub}>
-            Retire seu pedido hoje às <strong>{pedidoFeito.horarioRetirada}</strong>
-          </p>
-          <div style={s.pagInfoBox}>
-            <p style={s.pagInfoTitulo}>Pagamento na retirada</p>
-            <p style={s.pagInfoMetodo}>{pedidoFeito.pagamento}</p>
-            <p style={s.pagInfoValor}>R$ {pedidoFeito.total.toFixed(2).replace('.', ',')}</p>
+      <>
+        {mostrarConfetti && <Confetti />}
+        <Layout titulo="Pedido Confirmado!">
+          <div style={s.sucesso}>
+            <div style={s.sucessoIcon}><CheckCircle size={48} color="#22C55E" strokeWidth={1.5} /></div>
+            <h2 style={s.sucessoTitulo}>Pedido #{pedidoFeito.id.slice(-8)} realizado!</h2>
+            <p style={s.sucessoSub}>
+              Retire seu pedido hoje às <strong>{pedidoFeito.horarioRetirada}</strong>
+            </p>
+            <div style={s.pagInfoBox}>
+              <p style={s.pagInfoTitulo}>Pagamento na retirada</p>
+              <p style={s.pagInfoMetodo}>{pedidoFeito.pagamento}</p>
+              <p style={s.pagInfoValor}>R$ {pedidoFeito.total.toFixed(2).replace('.', ',')}</p>
+            </div>
+            <div style={{ background: '#FEF3C7', borderRadius: 10, padding: '0.65rem 0.9rem', marginBottom: 16 }}>
+              <p style={{ color: '#B45309', fontSize: '0.82rem', fontWeight: 700, margin: 0 }}>⏱️ Após ficar pronto, você tem <strong>10 minutos</strong> para retirar ou o pedido será cancelado automaticamente.</p>
+            </div>
+            <div style={s.sucessoBtns}>
+              <button style={s.btnPrimario} onClick={() => navigate('/aluno/pedidos')}>Ver meu pedido</button>
+              <button style={s.btnSecundario} onClick={() => navigate('/aluno/cardapio')}>Voltar ao cardápio</button>
+            </div>
           </div>
-          <div style={{ background: '#FEF3C7', borderRadius: 10, padding: '0.65rem 0.9rem', marginBottom: 16 }}>
-            <p style={{ color: '#B45309', fontSize: '0.82rem', fontWeight: 700, margin: 0 }}>⏱️ Após ficar pronto, você tem <strong>10 minutos</strong> para retirar ou o pedido será cancelado automaticamente.</p>
-          </div>
-          <div style={s.sucessoBtns}>
-            <button style={s.btnPrimario} onClick={() => navigate('/aluno/pedidos')}>Ver meu pedido</button>
-            <button style={s.btnSecundario} onClick={() => navigate('/aluno/cardapio')}>Voltar ao cardápio</button>
-          </div>
-        </div>
-      </Layout>
+        </Layout>
+      </>
     )
   }
 
@@ -70,15 +113,21 @@ export default function Carrinho() {
 
   return (
     <Layout titulo="Meu Carrinho">
-      <div style={{ ...s.layout, gridTemplateColumns: isMobile ?'1fr' : '1fr 340px' }}>
+      <div style={{ ...s.layout, gridTemplateColumns: isMobile ? '1fr' : '1fr 340px' }}>
         <div style={s.itens}>
           {carrinho.map(item => (
-            <div key={item.id} style={{ ...s.item, flexWrap: isMobile ?'wrap' : 'nowrap', gap: isMobile ?8 : 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 9, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Utensils size={16} color="#94A3B8" strokeWidth={1.8} />
+            <div key={item.id} style={{ ...s.item, flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? 8 : 12 }}>
+              {/* Foto ou ícone */}
+              <div style={{ width: 48, height: 48, borderRadius: 10, background: '#F1F5F9', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {item.foto
+                  ? <img src={item.foto} alt={item.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : item.emoji
+                    ? <span style={{ fontSize: '1.6rem' }}>{item.emoji}</span>
+                    : <Utensils size={18} color="#94A3B8" strokeWidth={1.8} />
+                }
               </div>
               <div style={{ ...s.itemInfo, minWidth: 0 }}>
-                <strong style={{ fontSize: isMobile ?'0.88rem' : '1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.nome}</strong>
+                <strong style={{ fontSize: isMobile ? '0.88rem' : '1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.nome}</strong>
                 <span style={s.itemPreco}>R$ {item.preco.toFixed(2).replace('.', ',')}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
@@ -87,7 +136,7 @@ export default function Carrinho() {
                   <span style={s.qtd}>{item.quantidade}</span>
                   <button style={s.qtdBtn} onClick={() => adicionarAoCarrinho(item)}>+</button>
                 </div>
-                <span style={{ ...s.itemTotal, minWidth: isMobile ?60 : 70, fontSize: isMobile ?'0.88rem' : '1rem' }}>R$ {(item.preco * item.quantidade).toFixed(2).replace('.', ',')}</span>
+                <span style={{ ...s.itemTotal, minWidth: isMobile ? 60 : 70, fontSize: isMobile ? '0.88rem' : '1rem' }}>R$ {(item.preco * item.quantidade).toFixed(2).replace('.', ',')}</span>
               </div>
             </div>
           ))}
@@ -100,16 +149,16 @@ export default function Carrinho() {
           {/* Horário */}
           <div style={s.campo}>
             <label style={s.label}>Horário de retirada</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: horarioCustom ?8 : 0 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: horarioCustom ? 8 : 0 }}>
               {HORARIOS_SUGERIDOS.map(h => {
                 const ativo = !horarioCustom && horario === h
                 return (
                   <button key={h} type="button"
                     style={{
                       padding: '0.38rem 0.72rem', borderRadius: 20, cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', fontFamily: 'inherit',
-                      border: `2px solid ${ativo ?'#003D7C' : '#E2E8F0'}`,
-                      background: ativo ?'#003D7C' : '#fff',
-                      color: ativo ?'#fff' : '#64748B',
+                      border: `2px solid ${ativo ? '#003D7C' : '#E2E8F0'}`,
+                      background: ativo ? '#003D7C' : '#fff',
+                      color: ativo ? '#fff' : '#64748B',
                     }}
                     onClick={() => { setHorario(h); setHorarioCustom(false) }}>
                     {h}
@@ -119,9 +168,9 @@ export default function Carrinho() {
               <button type="button"
                 style={{
                   padding: '0.38rem 0.72rem', borderRadius: 20, cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem', fontFamily: 'inherit',
-                  border: `2px solid ${horarioCustom ?'#F47920' : '#E2E8F0'}`,
-                  background: horarioCustom ?'#FFF7ED' : '#fff',
-                  color: horarioCustom ?'#F47920' : '#64748B',
+                  border: `2px solid ${horarioCustom ? '#F47920' : '#E2E8F0'}`,
+                  background: horarioCustom ? '#FFF7ED' : '#fff',
+                  color: horarioCustom ? '#F47920' : '#64748B',
                 }}
                 onClick={() => { setHorarioCustom(true); setHorario('') }}>
                 ✏️ Outro
@@ -156,7 +205,7 @@ export default function Carrinho() {
                 { id: 'Dinheiro', label: '💵 Dinheiro' },
               ].map(op => (
                 <button key={op.id}
-                  style={{ ...s.pagBtn, ...(pagamento === op.id ?s.pagBtnAtivo : {}) }}
+                  style={{ ...s.pagBtn, ...(pagamento === op.id ? s.pagBtnAtivo : {}) }}
                   onClick={() => setPagamento(op.id)}>
                   {op.label}
                 </button>
@@ -178,10 +227,10 @@ export default function Carrinho() {
           </div>
 
           <button
-            style={{ ...s.btnConfirmar, opacity: enviando || !horario ?0.7 : 1 }}
+            style={{ ...s.btnConfirmar, opacity: enviando || !horario ? 0.7 : 1 }}
             onClick={handleConfirmar}
             disabled={enviando || !horario}>
-            {enviando ?'Enviando...' : 'Confirmar Pedido'}
+            {enviando ? 'Enviando...' : 'Confirmar Pedido'}
           </button>
         </div>
       </div>
@@ -193,7 +242,6 @@ const s = {
   layout: { display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.5rem', alignItems: 'start' },
   itens: { background: '#fff', borderRadius: 14, padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' },
   item: { display: 'flex', alignItems: 'center', gap: 12, padding: '0.9rem 0', borderBottom: '1px solid #F1F5F9' },
-  itemEmoji: { fontSize: '1.8rem' },
   itemInfo: { flex: 1, display: 'flex', flexDirection: 'column' },
   itemPreco: { color: '#64748B', fontSize: '0.85rem' },
   qtdControls: { display: 'flex', alignItems: 'center', gap: 8 },
@@ -205,7 +253,7 @@ const s = {
   resumoTitulo: { fontWeight: 800, color: '#1A202C', fontSize: '1rem', margin: 0 },
   campo: { display: 'flex', flexDirection: 'column', gap: 6 },
   label: { fontWeight: 600, fontSize: '0.85rem', color: '#64748B' },
-  select: { padding: '0.6rem 0.9rem', borderRadius: 8, border: '2px solid #E2E8F0', fontSize: '0.9rem' },
+  select: { padding: '0.6rem 0.9rem', borderRadius: 8, border: '2px solid #E2E8F0', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' },
   pagGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
   pagBtn: { padding: '0.65rem 0.5rem', borderRadius: 8, border: '2px solid #E2E8F0', background: '#fff', fontWeight: 600, fontSize: '0.85rem', color: '#64748B', cursor: 'pointer', fontFamily: 'inherit' },
   pagBtnAtivo: { border: '2px solid #003D7C', color: '#003D7C', background: '#E8F0FB' },

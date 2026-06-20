@@ -1,17 +1,24 @@
-import { useEffect, useMemo, useState } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { useEffect, useMemo, useState, useCallback } from 'react'
+import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore'
 import { db } from '../../firebase'
 
 export function useAvaliacoes(usuarioLogado) {
   const [avaliacoes, setAvaliacoes] = useState([])
 
-  useEffect(() => {
+  const buscarAvaliacoes = useCallback(async () => {
     if (!usuarioLogado) return
-    return onSnapshot(collection(db, 'avaliacoes'), snap => {
-      setAvaliacoes(snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0)))
-    }, err => console.error('[Firestore] avaliacoes:', err))
+    try {
+      const q = query(collection(db, 'avaliacoes'), orderBy('criadoEm', 'desc'), limit(300))
+      const snap = await getDocs(q)
+      setAvaliacoes(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    } catch (err) {
+      console.error('[Firestore] avaliacoes:', err)
+    }
   }, [usuarioLogado])
+
+  useEffect(() => {
+    buscarAvaliacoes()
+  }, [buscarAvaliacoes])
 
   const resumoPorProduto = useMemo(() => {
     const mapa = {}
@@ -30,5 +37,5 @@ export function useAvaliacoes(usuarioLogado) {
     return mapa
   }, [avaliacoes])
 
-  return { avaliacoes, resumoPorProduto }
+  return { avaliacoes, resumoPorProduto, refetchAvaliacoes: buscarAvaliacoes }
 }

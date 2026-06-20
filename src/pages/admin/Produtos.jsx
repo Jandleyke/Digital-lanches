@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
+import { ChevronDown, ChevronUp, Leaf, AlertTriangle, FileText, Camera, Image } from 'lucide-react'
 import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
 import { categorias } from '../../data/mockData'
@@ -11,7 +12,7 @@ const vazioNutri = { calorias: '', proteinas: '', carboidratos: '', gorduras: ''
 const DIAS_PRODUCAO = DIAS_CARDAPIO
 const vazio = { nome: '', categoria: 'Lanches', preco: '', descricao: '', composicao: '', emoji: '🍔', estoqueInicial: '', estoque: '', estoqueBaixo: '', disponivel: true, foto: '', nutricional: { ...vazioNutri }, alergenios: [], diasProducao: [] }
 
-const vazioLote = { nome: '', categoria: 'Lanches', preco: '', estoque: '', estoqueBaixo: '', diasProducao: [], disponivel: true }
+const vazioLote = { nome: '', categoria: 'Lanches', preco: '', estoque: '', estoqueBaixo: '', diasProducao: [], disponivel: true, descricao: '', composicao: '', emoji: '🍔', foto: '', nutricional: { ...vazioNutri }, alergenios: [], _expandido: false, _novoAlerg: '' }
 
 const ALERGENOS_PADRAO = ['gluten', 'lactose', 'amendoim', 'ovo', 'soja', 'frutos-do-mar']
 
@@ -28,16 +29,19 @@ function comprimirImagem(base64, maxPx = 400, qualidade = 0.72) {
   return new Promise((resolve) => {
     const img = new Image()
     img.onload = () => {
-      let { width, height } = img
-      if (width > maxPx || height > maxPx) {
-        if (width >= height) { height = Math.round(height * maxPx / width); width = maxPx }
-        else { width = Math.round(width * maxPx / height); height = maxPx }
-      }
-      const canvas = document.createElement('canvas')
-      canvas.width = width; canvas.height = height
-      canvas.getContext('2d').drawImage(img, 0, 0, width, height)
-      resolve(canvas.toDataURL('image/jpeg', qualidade))
+      try {
+        let { width, height } = img
+        if (width > maxPx || height > maxPx) {
+          if (width >= height) { height = Math.round(height * maxPx / width); width = maxPx }
+          else { width = Math.round(width * maxPx / height); height = maxPx }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width; canvas.height = height
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/jpeg', qualidade))
+      } catch { resolve(base64) }
     }
+    img.onerror = () => resolve(base64)
     img.src = base64
   })
 }
@@ -46,7 +50,6 @@ export default function Produtos() {
   const { produtos, atualizarProduto, adicionarProduto, adicionarProdutos, removerProduto, removerProdutos } = useApp()
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState(vazio)
-  const [modalLote, setModalLote] = useState(false)
   const [loteProdutos, setLoteProdutos] = useState([{ ...vazioLote }])
   const [confirmarExcluir, setConfirmarExcluir] = useState(null)
   const [erroExcluir, setErroExcluir] = useState('')
@@ -59,13 +62,10 @@ export default function Produtos() {
   const [salvando, setSalvando] = useState(false)
   const [erroSalvar, setErroSalvar] = useState('')
   const [novaAlergenico, setNovaAlergenico] = useState('')
-  const inputFotoRef = useRef()
-
   const isMobile = useIsMobile()
   const alertaEstoque = produtos.filter(p => p.estoqueBaixo > 0 && p.estoque <= p.estoqueBaixo)
 
-  function abrirNovo() { setForm(vazio); setAbaModal('geral'); setModal('novo'); setErroSalvar('') }
-  function abrirLote() { setLoteProdutos([{ ...vazioLote }]); setErroSalvar(''); setModalLote(true) }
+  function abrirNovo() { setForm(vazio); setLoteProdutos([{ ...vazioLote }]); setAbaModal('geral'); setModal('novo'); setErroSalvar('') }
   function abrirEditar(p) {
     setForm({ ...p, preco: String(p.preco), estoqueInicial: String(p.estoqueInicial || ''), estoque: String(p.estoque), estoqueBaixo: String(p.estoqueBaixo || ''), nutricional: p.nutricional || { ...vazioNutri }, alergenios: p.alergenios || [], diasProducao: p.diasCardapio || p.diasProducao || [] })
     setAbaModal('geral'); setModal('editar'); setErroSalvar('')
@@ -125,6 +125,41 @@ export default function Produtos() {
     setLoteProdutos(prev => prev.length === 1 ? prev : prev.filter((_, i) => i !== index))
   }
 
+  function atualizarLinhaLoteNutri(index, campo, valor) {
+    setLoteProdutos(prev => prev.map((item, i) => i === index ? { ...item, nutricional: { ...(item.nutricional || {}), [campo]: valor } } : item))
+  }
+
+  function toggleAlergenoLote(index, a) {
+    setLoteProdutos(prev => prev.map((item, i) => {
+      if (i !== index) return item
+      const arr = item.alergenios || []
+      return { ...item, alergenios: arr.includes(a) ? arr.filter(x => x !== a) : [...arr, a] }
+    }))
+  }
+
+  function adicionarAlergenoLote(index) {
+    setLoteProdutos(prev => prev.map((item, i) => {
+      if (i !== index) return item
+      const val = (item._novoAlerg || '').trim().toLowerCase()
+      if (!val || (item.alergenios || []).includes(val)) return { ...item, _novoAlerg: '' }
+      return { ...item, alergenios: [...(item.alergenios || []), val], _novoAlerg: '' }
+    }))
+  }
+
+  function handleFotoLote(e, index) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const tempUrl = URL.createObjectURL(file)
+    setLoteProdutos(prev => prev.map((item, i) => i === index ? { ...item, foto: tempUrl } : item))
+    const reader = new FileReader()
+    reader.onload = async (ev) => {
+      const comprimida = await comprimirImagem(ev.target.result)
+      URL.revokeObjectURL(tempUrl)
+      setLoteProdutos(prev => prev.map((item, i) => i === index ? { ...item, foto: comprimida } : item))
+    }
+    reader.readAsDataURL(file)
+  }
+
   async function salvarLote() {
     if (salvando) return
     const validos = loteProdutos.filter(item => item.nome.trim())
@@ -136,7 +171,6 @@ export default function Produtos() {
     try {
       await adicionarProdutos(validos.map(item => ({
         ...vazio,
-        ...item,
         nome: item.nome.trim(),
         categoria: item.categoria || 'Lanches',
         preco: parseFloat(item.preco) || 0,
@@ -144,8 +178,15 @@ export default function Produtos() {
         estoque: parseInt(item.estoque) || 0,
         estoqueBaixo: parseInt(item.estoqueBaixo) || 0,
         diasCardapio: item.diasProducao || [],
+        disponivel: item.disponivel ?? true,
+        descricao: item.descricao || '',
+        composicao: item.composicao || '',
+        emoji: item.emoji || '🍔',
+        foto: item.foto || '',
+        nutricional: item.nutricional || { ...vazioNutri },
+        alergenios: item.alergenios || [],
       })))
-      setModalLote(false)
+      setModal(null)
       setLoteProdutos([{ ...vazioLote }])
     } catch (e) {
       setErroSalvar('Erro ao salvar lote: ' + (e.message || e.code))
@@ -153,11 +194,14 @@ export default function Produtos() {
   }
 
   function handleFoto(e) {
-    const file = e.target.files[0]
+    const file = e.target.files?.[0]
     if (!file) return
+    const tempUrl = URL.createObjectURL(file)
+    setForm(f => ({ ...f, foto: tempUrl }))
     const reader = new FileReader()
     reader.onload = async (ev) => {
       const comprimida = await comprimirImagem(ev.target.result)
+      URL.revokeObjectURL(tempUrl)
       setForm(f => ({ ...f, foto: comprimida }))
     }
     reader.readAsDataURL(file)
@@ -190,6 +234,7 @@ export default function Produtos() {
   }
 
   return (
+    <>
     <Layout titulo="Gerenciar Produtos">
       {/* Alertas de estoque */}
       {alertaEstoque.length > 0 && (
@@ -213,7 +258,6 @@ export default function Produtos() {
           ) : (
             <div style={s.toolbar}>
               <button style={s.btnNovo} onClick={abrirNovo}>+ Novo Produto</button>
-              <button style={s.btnLote} onClick={abrirLote}>+ Cadastro em lote</button>
               <button style={{ padding: '0.5rem 1rem', borderRadius: 8, background: '#F1F5F9', border: '1.5px solid #E2E8F0', color: '#475569', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }} onClick={() => setModoSelecao(true)}>
                 ☑ Selecionar
               </button>
@@ -321,51 +365,6 @@ export default function Produtos() {
             </div>
           )}
 
-      {modalLote && (
-        <div style={s.overlay}>
-          <div style={{ ...s.modalBox, maxWidth: 920 }}>
-            <h3 style={s.modalTitulo}>Cadastro em lote</h3>
-            <p style={{ color: '#64748B', fontSize: '0.88rem', margin: '0 0 1rem' }}>
-              Cadastre vários produtos e programe os dias em que eles aparecem no cardapio. Sem marcar dias, o produto aparece todos os dias.
-            </p>
-            <div style={s.loteLista}>
-              {loteProdutos.map((item, index) => (
-                <div key={index} style={s.loteItem}>
-                  <div style={s.loteGrid}>
-                    <input style={s.input} value={item.nome} onChange={e => atualizarLinhaLote(index, 'nome', e.target.value)} placeholder="Nome do produto" />
-                    <select style={s.input} value={item.categoria} onChange={e => atualizarLinhaLote(index, 'categoria', e.target.value)}>
-                      {categorias.filter(c => c !== 'Todos').map(c => <option key={c}>{c}</option>)}
-                    </select>
-                    <input style={s.input} type="number" step="0.01" value={item.preco} onChange={e => atualizarLinhaLote(index, 'preco', e.target.value)} placeholder="Preço" />
-                    <input style={s.input} type="number" value={item.estoque} onChange={e => atualizarLinhaLote(index, 'estoque', e.target.value)} placeholder="Estoque" />
-                    <input style={s.input} type="number" value={item.estoqueBaixo} onChange={e => atualizarLinhaLote(index, 'estoqueBaixo', e.target.value)} placeholder="Minimo" />
-                  </div>
-                  <div style={s.diasLinha}>
-                    {DIAS_PRODUCAO.map(dia => {
-                      const ativo = (item.diasProducao || []).includes(dia)
-                      return (
-                        <button key={dia} type="button" onClick={() => toggleDiaLote(index, dia)} style={{ ...s.diaBtn, ...(ativo ? s.diaBtnAtivo : {}) }}>
-                          {DIAS_LABEL[dia] || dia}
-                        </button>
-                      )
-                    })}
-                    <button type="button" style={s.btnRemoverLinha} onClick={() => removerLinhaLote(index)}>Remover</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {erroSalvar && <p style={{ color: '#EF4444', fontSize: '0.82rem', marginTop: 8 }}>{erroSalvar}</p>}
-            <div style={s.modalBtns}>
-              <button style={s.btnCancelar} onClick={() => setModalLote(false)}>Cancelar</button>
-              <button style={s.btnLote} onClick={adicionarLinhaLote}>+ Adicionar linha</button>
-              <button style={{ ...s.btnSalvar, opacity: salvando ? 0.7 : 1 }} onClick={salvarLote} disabled={salvando}>
-                {salvando ? 'Salvando...' : `Salvar ${loteProdutos.filter(item => item.nome.trim()).length} produto(s)`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Modal detalhe */}
       {detalhe && (
         <div style={s.overlay} onClick={() => setDetalhe(null)}>
@@ -468,7 +467,7 @@ export default function Produtos() {
             <h3 style={s.modalTitulo}>{modal === 'novo' ? 'Novo Produto' : 'Editar Produto'}</h3>
 
             <div style={s.abasMod}>
-              {[['geral', '📋 Geral'], ['foto', '📷 Foto'], ['nutricional', '🥗 Nutricional'], ['alergenos', '⚠️ Alérgenos']].map(([id, label]) => (
+              {[['geral', '📋 Geral'], ['foto', '📷 Foto'], ['nutricional', '🥗 Nutricional'], ['alergenos', '⚠️ Alérgenos'], ...(modal === 'novo' ? [['lote', '📦 Em lote']] : [])].map(([id, label]) => (
                 <button key={id} style={{
                   ...s.abaMod,
                   ...(abaModal === id ? s.abaModAtiva : {}),
@@ -532,11 +531,17 @@ export default function Produtos() {
                 <div style={s.fotoPreview}>
                   {form.foto
                     ? <img src={form.foto} alt="preview" style={s.fotoImg} />
-                    : <span style={{ fontSize: 48 }}>{form.emoji || '🍔'}</span>
+                    : <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                        <Camera size={36} color="#CBD5E1" />
+                        <span style={{ fontSize: '0.75rem', color: '#CBD5E1', fontWeight: 600 }}>Sem foto</span>
+                      </div>
                   }
                 </div>
-                <input ref={inputFotoRef} type="file" accept="image/*" onChange={handleFoto} style={{ display: 'none' }} />
-                <button style={s.btnUpload} onClick={() => inputFotoRef.current.click()}>📷 Escolher foto</button>
+                <label style={{ ...s.btnUpload, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+                  <Camera size={15} color="#fff" />
+                  Escolher foto
+                  <input type="file" accept="image/*" onChange={handleFoto} style={{ display: 'none' }} />
+                </label>
                 {form.foto && (
                   <button style={s.btnRemoverFoto} onClick={() => setForm(f => ({ ...f, foto: '' }))}>Remover foto</button>
                 )}
@@ -619,12 +624,197 @@ export default function Produtos() {
               </div>
             )}
 
+            {abaModal === 'lote' && (
+              <div>
+                <p style={{ color: '#64748B', fontSize: '0.82rem', margin: '0 0 1rem' }}>
+                  Campos básicos sempre visíveis. Clique em <strong>+ Detalhes</strong> para adicionar foto, nutricional e alérgenos.
+                </p>
+                <div style={s.loteLista}>
+                  {loteProdutos.map((item, index) => (
+                    <div key={index} style={s.loteItem}>
+                      {/* Cabeçalho com número */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.8rem', color: '#003D7C', background: '#E8F0FB', borderRadius: 8, padding: '0.2rem 0.6rem' }}>
+                          #{index + 1}
+                        </span>
+                        <button type="button" style={{ ...s.btnRemoverLinha, marginLeft: 0 }} onClick={() => removerLinhaLote(index)}>Remover</button>
+                      </div>
+
+                      {/* Campos básicos */}
+                      <div style={s.loteGrid}>
+                        <input style={{ ...s.input, gridColumn: 'span 2' }} value={item.nome} onChange={e => atualizarLinhaLote(index, 'nome', e.target.value)} placeholder="Nome do produto *" />
+                        <select style={s.input} value={item.categoria} onChange={e => atualizarLinhaLote(index, 'categoria', e.target.value)}>
+                          {categorias.filter(c => c !== 'Todos').map(c => <option key={c}>{c}</option>)}
+                        </select>
+                        <input style={s.input} type="number" step="0.01" value={item.preco} onChange={e => atualizarLinhaLote(index, 'preco', e.target.value)} placeholder="Preço (R$)" />
+                        <input style={s.input} type="number" value={item.estoque} onChange={e => atualizarLinhaLote(index, 'estoque', e.target.value)} placeholder="Estoque" />
+                        <input style={s.input} type="number" value={item.estoqueBaixo} onChange={e => atualizarLinhaLote(index, 'estoqueBaixo', e.target.value)} placeholder="Mínimo" />
+                      </div>
+
+                      {/* Dias */}
+                      <div style={{ ...s.diasLinha, marginTop: 8 }}>
+                        {DIAS_PRODUCAO.map(dia => {
+                          const ativo = (item.diasProducao || []).includes(dia)
+                          return (
+                            <button key={dia} type="button" onClick={() => toggleDiaLote(index, dia)} style={{ ...s.diaBtn, ...(ativo ? s.diaBtnAtivo : {}) }}>
+                              {DIAS_LABEL[dia] || dia}
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      {/* Toggle detalhes */}
+                      {(() => {
+                        const temFoto = !!item.foto
+                        const temNutri = Object.values(item.nutricional || {}).some(v => v !== '')
+                        const temAlerg = (item.alergenios || []).length > 0
+                        const temDesc = !!(item.descricao || item.composicao)
+                        const qtdPreench = [temFoto, temNutri, temAlerg, temDesc].filter(Boolean).length
+                        return (
+                          <button type="button" onClick={() => atualizarLinhaLote(index, '_expandido', !item._expandido)}
+                            style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: item._expandido ? '#EEF3FB' : '#F8FAFC', border: `1.5px solid ${item._expandido ? '#C5D6F0' : '#E2E8F0'}`, borderRadius: 10, padding: '0.5rem 0.75rem', cursor: 'pointer' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B' }}>Detalhes opcionais</span>
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                {[
+                                  [Image, temFoto, '#7C3AED', '#EDE9FE', 'Foto'],
+                                  [FileText, temDesc, '#0369A1', '#E0F2FE', 'Descrição'],
+                                  [Leaf, temNutri, '#15803D', '#DCFCE7', 'Nutricional'],
+                                  [AlertTriangle, temAlerg, '#DC2626', '#FEE2E2', 'Alérgenos'],
+                                ].map(([Icon, ativo, cor, bg, title]) => (
+                                  <span key={title} title={title} style={{ width: 22, height: 22, borderRadius: 6, background: ativo ? bg : '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Icon size={12} color={ativo ? cor : '#CBD5E1'} />
+                                  </span>
+                                ))}
+                                {qtdPreench > 0 && (
+                                  <span style={{ background: '#003D7C', color: '#fff', borderRadius: 20, padding: '0.05rem 0.45rem', fontSize: '0.68rem', fontWeight: 800, display: 'flex', alignItems: 'center' }}>
+                                    {qtdPreench}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {item._expandido ? <ChevronUp size={16} color="#64748B" /> : <ChevronDown size={16} color="#64748B" />}
+                          </button>
+                        )
+                      })()}
+
+                      {/* Detalhes expandidos */}
+                      {item._expandido && (
+                        <div style={{ marginTop: 12, borderTop: '1px solid #E2E8F0', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+                          {/* Descrição e Composição */}
+                          <div>
+                            <label style={s.label}>Descrição</label>
+                            <textarea style={{ ...s.input, height: 58, resize: 'vertical' }} value={item.descricao || ''} onChange={e => atualizarLinhaLote(index, 'descricao', e.target.value)} placeholder="Descrição do produto" />
+                          </div>
+                          <div>
+                            <label style={s.label}>Composição</label>
+                            <textarea style={{ ...s.input, height: 58, resize: 'vertical' }} value={item.composicao || ''} onChange={e => atualizarLinhaLote(index, 'composicao', e.target.value)} placeholder="Ingredientes / composição" />
+                          </div>
+
+                          {/* Nutricional */}
+                          <div>
+                            <label style={{ ...s.label, marginBottom: 6 }}>Informações Nutricionais</label>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 6 }}>
+                              {[['calorias','Kcal'],['proteinas','Prot (g)'],['carboidratos','Carb (g)'],['gorduras','Gord (g)'],['sodio','Sódio (mg)']].map(([key, lbl]) => (
+                                <div key={key}>
+                                  <label style={{ ...s.label, fontSize: '0.72rem' }}>{lbl}</label>
+                                  <input style={{ ...s.input, padding: '0.45rem 0.6rem' }} type="number" value={(item.nutricional || {})[key] || ''} onChange={e => atualizarLinhaLoteNutri(index, key, e.target.value)} placeholder="0" />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Alérgenos */}
+                          <div>
+                            <label style={{ ...s.label, marginBottom: 6 }}>Alérgenos</label>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                              {ALERGENOS_PADRAO.map(a => {
+                                const ativo = (item.alergenios || []).includes(a)
+                                return (
+                                  <button type="button" key={a} onClick={() => toggleAlergenoLote(index, a)} style={{
+                                    padding: '0.35rem 0.7rem', borderRadius: 20, cursor: 'pointer', fontSize: '0.78rem', fontWeight: ativo ? 700 : 600,
+                                    border: `2px solid ${ativo ? '#DC2626' : '#E2E8F0'}`,
+                                    background: ativo ? '#FEE2E2' : '#F8FAFC',
+                                    color: ativo ? '#DC2626' : '#64748B',
+                                  }}>
+                                    {ativo ? '⚠️ ' : ''}{a.replace('-', ' ')}
+                                  </button>
+                                )
+                              })}
+                              {/* Outros adicionados */}
+                              {(item.alergenios || []).filter(a => !ALERGENOS_PADRAO.includes(a)).map(a => (
+                                <span key={a} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0.3rem 0.65rem', borderRadius: 20, background: '#FEE2E2', color: '#DC2626', fontWeight: 700, fontSize: '0.78rem', border: '2px solid #FCA5A5' }}>
+                                  ⚠️ {a}
+                                  <button type="button" onClick={() => toggleAlergenoLote(index, a)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', padding: 0, fontSize: '1rem', lineHeight: 1, fontWeight: 900 }}>×</button>
+                                </span>
+                              ))}
+                            </div>
+                            {/* Campo outros alérgenos */}
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <input
+                                style={{ ...s.input, flex: 1, padding: '0.5rem 0.75rem', fontSize: '0.83rem' }}
+                                value={item._novoAlerg || ''}
+                                onChange={e => atualizarLinhaLote(index, '_novoAlerg', e.target.value)}
+                                placeholder="Outro alérgeno (ex: sulfito, mostarda...)"
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); adicionarAlergenoLote(index) } }}
+                              />
+                              <button type="button" onClick={() => adicionarAlergenoLote(index)} style={{ padding: '0.5rem 0.85rem', borderRadius: 8, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: '0.82rem', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+                                + Adicionar
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Foto */}
+                          <div>
+                            <span style={s.label}>Foto</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
+                              {/* Preview clicável */}
+                              <label style={{ width: 80, height: 80, borderRadius: 14, overflow: 'hidden', flexShrink: 0, border: item.foto ? '2.5px solid #22C55E' : '2px dashed #94A3B8', background: item.foto ? '#000' : '#F8FAFC', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, cursor: 'pointer' }}>
+                                {item.foto
+                                  ? <img src={item.foto} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                  : <><Camera size={22} color="#94A3B8" /><span style={{ fontSize: '0.6rem', color: '#94A3B8', fontWeight: 600 }}>Foto</span></>}
+                                <input type="file" accept="image/*" onChange={e => handleFotoLote(e, index)} style={{ display: 'none' }} />
+                              </label>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#003D7C', color: '#fff', padding: '0.5rem 1rem', borderRadius: 8, fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
+                                  <Camera size={14} color="#fff" />
+                                  {item.foto ? 'Trocar foto' : 'Selecionar da galeria'}
+                                  <input type="file" accept="image/*" onChange={e => handleFotoLote(e, index)} style={{ display: 'none' }} />
+                                </label>
+                                {item.foto && (
+                                  <button type="button" onClick={() => atualizarLinhaLote(index, 'foto', '')}
+                                    style={{ color: '#EF4444', background: '#FEE2E2', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', padding: '0.35rem 0.7rem' }}>
+                                    Remover foto
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {erroSalvar && <p style={{ color: '#EF4444', fontSize: '0.82rem', marginBottom: 8 }}>{erroSalvar}</p>}
             <div style={s.modalBtns}>
               <button style={s.btnCancelar} onClick={() => setModal(null)}>Cancelar</button>
-              <button style={{ ...s.btnSalvar, opacity: salvando ? 0.7 : 1 }} onClick={salvar} disabled={salvando}>
-                {salvando ? 'Salvando...' : 'Salvar produto'}
-              </button>
+              {abaModal === 'lote' ? (
+                <>
+                  <button style={s.btnLote} onClick={adicionarLinhaLote}>+ Linha</button>
+                  <button style={{ ...s.btnSalvar, opacity: salvando ? 0.7 : 1 }} onClick={salvarLote} disabled={salvando}>
+                    {salvando ? 'Salvando...' : `Salvar ${loteProdutos.filter(i => i.nome.trim()).length} produto(s)`}
+                  </button>
+                </>
+              ) : (
+                <button style={{ ...s.btnSalvar, opacity: salvando ? 0.7 : 1 }} onClick={salvar} disabled={salvando}>
+                  {salvando ? 'Salvando...' : 'Salvar produto'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -686,6 +876,7 @@ export default function Produtos() {
         </div>
       )}
     </Layout>
+    </>
   )
 }
 
@@ -720,8 +911,8 @@ const s = {
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' },
   modalBox: { background: '#fff', borderRadius: 16, padding: '1.75rem', width: '100%', maxWidth: 540, maxHeight: '90vh', overflowY: 'auto' },
   modalTitulo: { fontWeight: 800, marginBottom: '1rem', color: '#1A202C' },
-  abasMod: { display: 'flex', gap: 6, marginBottom: '1.25rem', borderBottom: '2px solid #F1F5F9', paddingBottom: '0.75rem' },
-  abaMod: { padding: '0.45rem 1rem', borderRadius: 8, background: 'none', color: '#64748B', fontWeight: 600, fontSize: '0.85rem' },
+  abasMod: { display: 'flex', gap: 4, marginBottom: '1.25rem', borderBottom: '2px solid #F1F5F9', paddingBottom: '0.75rem', overflowX: 'auto', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' },
+  abaMod: { padding: '0.45rem 0.75rem', borderRadius: 8, background: 'none', color: '#64748B', fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap', flexShrink: 0 },
   abaModAtiva: { background: '#E8F0FB', color: '#003D7C' },
   formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.9rem', marginBottom: '1.25rem' },
   label: { fontWeight: 600, fontSize: '0.82rem', color: '#64748B', display: 'block', marginBottom: 4 },
@@ -740,7 +931,7 @@ const s = {
   modalBtns: { display: 'flex', gap: 10, justifyContent: 'flex-end' },
   loteLista: { display: 'flex', flexDirection: 'column', gap: 10, marginBottom: '1rem' },
   loteItem: { background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 14, padding: 12 },
-  loteGrid: { display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(130px, 0.9fr) repeat(3, minmax(90px, 0.65fr))', gap: 8 },
+  loteGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 },
   diasLinha: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' },
   diaBtn: { padding: '0.32rem 0.65rem', borderRadius: 999, border: '1.5px solid #CBD5E1', background: '#fff', color: '#64748B', fontSize: '0.76rem', fontWeight: 800, cursor: 'pointer' },
   diaBtnAtivo: { background: '#E8F0FB', color: '#003D7C', borderColor: '#003D7C' },

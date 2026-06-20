@@ -27,12 +27,18 @@ export function AppProvider({ children }) {
   const { produtos, atualizarProduto, adicionarProduto, adicionarProdutos, removerProduto, removerProdutos } = useProdutos(usuarioLogado)
   const logout = useCallback(() => { limparCarrinho(); sair() }, [limparCarrinho, sair])
   const { avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso } = useAvisos(usuarioLogado)
-  const { avaliacoes, resumoPorProduto: resumoAvaliacoesPorProduto } = useAvaliacoes(usuarioLogado)
+  const { avaliacoes, resumoPorProduto: resumoAvaliacoesPorProduto, refetchAvaliacoes } = useAvaliacoes(usuarioLogado)
   const { producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio, ajustarProducaoVendedor } = useProducaoDiaria(usuarioLogado)
   const { lanchoneteConfig, salvarLanchoneteConfig } = useLanchoneteConfig(usuarioLogado)
   const {
-    pedidos, fazerPedido, atualizarStatusPedido, cancelarPedido, editarPedido, limparEntregues, avaliarPedido, marcarPedidoPago, tempoEstimado,
+    pedidos, fazerPedido, atualizarStatusPedido, cancelarPedido, editarPedido, limparEntregues, avaliarPedido: _avaliarPedido, marcarPedidoPago, tempoEstimado,
   } = usePedidos({ usuarioLogado, produtos, carrinho, setCarrinho, onFbStatus })
+
+  const avaliarPedido = useCallback(async (...args) => {
+    const res = await _avaliarPedido(...args)
+    if (res?.ok) refetchAvaliacoes()
+    return res
+  }, [_avaliarPedido, refetchAvaliacoes])
 
   // ─── Debug ────────────────────────────────────────────────────────────────
   async function testarFirebase() {
