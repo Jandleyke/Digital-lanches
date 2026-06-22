@@ -7,26 +7,42 @@ import Cadastro from './pages/Cadastro'
 import Welcome from './pages/Welcome'
 import { caminhoInicialPorPerfil, normalizarPerfil } from './utils/perfis'
 
+// Se um chunk falhar ao carregar (ex: aba ficou aberta entre dois deploys e o
+// arquivo antigo não existe mais), recarrega a página uma vez em vez de travar.
+function lazyComRecarga(importFn) {
+  return lazy(() =>
+    importFn().catch((erro) => {
+      const chave = 'senac-chunk-reload'
+      if (!sessionStorage.getItem(chave)) {
+        sessionStorage.setItem(chave, '1')
+        window.location.reload()
+        return new Promise(() => {})
+      }
+      throw erro
+    })
+  )
+}
+
 // Carregadas sob demanda: cada perfil só baixa as telas que de fato usa
-const Cardapio = lazy(() => import('./pages/student/Cardapio'))
-const Carrinho = lazy(() => import('./pages/student/Carrinho'))
-const Pedidos = lazy(() => import('./pages/student/Pedidos'))
-const Favoritos = lazy(() => import('./pages/student/Favoritos'))
-const Historico = lazy(() => import('./pages/student/Historico'))
-const Perfil = lazy(() => import('./pages/student/Perfil'))
-const Cozinha = lazy(() => import('./pages/kitchen/Cozinha'))
-const Dashboard = lazy(() => import('./pages/admin/Dashboard'))
-const Produtos = lazy(() => import('./pages/admin/Produtos'))
-const Estoque = lazy(() => import('./pages/admin/Estoque'))
-const Relatorios = lazy(() => import('./pages/admin/Relatorios'))
-const Painel = lazy(() => import('./pages/Painel'))
-const Vendedor = lazy(() => import('./pages/vendor/Vendedor'))
-const Avisos = lazy(() => import('./pages/admin/Avisos'))
-const Usuarios = lazy(() => import('./pages/admin/Usuarios'))
-const PerfilStaff = lazy(() => import('./pages/PerfilStaff'))
-const ResetPassword = lazy(() => import('./pages/ResetPassword'))
-const NotFound = lazy(() => import('./pages/NotFound'))
-const AvisosProfessor = lazy(() => import('./pages/professor/AvisosProfessor'))
+const Cardapio = lazyComRecarga(() => import('./pages/student/Cardapio'))
+const Carrinho = lazyComRecarga(() => import('./pages/student/Carrinho'))
+const Pedidos = lazyComRecarga(() => import('./pages/student/Pedidos'))
+const Favoritos = lazyComRecarga(() => import('./pages/student/Favoritos'))
+const Historico = lazyComRecarga(() => import('./pages/student/Historico'))
+const Perfil = lazyComRecarga(() => import('./pages/student/Perfil'))
+const Cozinha = lazyComRecarga(() => import('./pages/kitchen/Cozinha'))
+const Dashboard = lazyComRecarga(() => import('./pages/admin/Dashboard'))
+const Produtos = lazyComRecarga(() => import('./pages/admin/Produtos'))
+const Estoque = lazyComRecarga(() => import('./pages/admin/Estoque'))
+const Relatorios = lazyComRecarga(() => import('./pages/admin/Relatorios'))
+const Painel = lazyComRecarga(() => import('./pages/Painel'))
+const Vendedor = lazyComRecarga(() => import('./pages/vendor/Vendedor'))
+const Avisos = lazyComRecarga(() => import('./pages/admin/Avisos'))
+const Usuarios = lazyComRecarga(() => import('./pages/admin/Usuarios'))
+const PerfilStaff = lazyComRecarga(() => import('./pages/PerfilStaff'))
+const ResetPassword = lazyComRecarga(() => import('./pages/ResetPassword'))
+const NotFound = lazyComRecarga(() => import('./pages/NotFound'))
+const AvisosProfessor = lazyComRecarga(() => import('./pages/professor/AvisosProfessor'))
 
 function CarregandoRota() {
   return (
@@ -80,6 +96,7 @@ function AppRoutes() {
         <Route path="/cozinha/pedidos"   element={<Navigate to="/cozinha" replace />} />
         <Route path="/cozinha/producao"  element={<Protegida perfil="cozinha"><Cozinha /></Protegida>} />
         <Route path="/cozinha/cardapio"  element={<Protegida perfil="cozinha"><Cozinha /></Protegida>} />
+        <Route path="/cozinha/estoque"   element={<Protegida perfil="cozinha"><Cozinha /></Protegida>} />
         <Route path="/cozinha/avisos"    element={<Protegida perfil="cozinha"><Cozinha /></Protegida>} />
         <Route path="/cozinha/perfil"    element={<Protegida perfil="cozinha"><PerfilStaff /></Protegida>} />
         <Route path="/vendedor"          element={<Protegida perfil="vendedor"><Vendedor /></Protegida>} />

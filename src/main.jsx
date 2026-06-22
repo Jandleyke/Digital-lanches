@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 
 // Bloqueia pinch-to-zoom no iOS Safari (ignora user-scalable=no no viewport)
 document.addEventListener('touchmove', (e) => {
@@ -11,6 +12,14 @@ document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: 
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )
+
+// Cada carregamento "do zero" desta página renova a chance de recarregar
+// automaticamente uma vez se algum chunk de rota falhar (ex.: nova versão
+// publicada enquanto a aba estava aberta). Sem isso, a recarga automática
+// só valeria uma vez por sessão inteira do navegador.
+sessionStorage.removeItem('senac-chunk-reload')

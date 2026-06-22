@@ -536,16 +536,21 @@ export default function Dashboard() {
             estoqueBaixo.length === 0 ? (
               <p style={{ color: '#22C55E', fontSize: '0.85rem', marginTop: 8 }}>✓ Todos os produtos com estoque adequado</p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
                 {[...estoqueBaixo].sort((a, b) => a.estoque - b.estoque).map(p => (
-                  <button key={p.id} type="button" style={{ ...s.estoqueItem, ...s.estoqueItemClicavel }} onClick={() => setDetalheExtra({ titulo: p.nome, tipo: 'produto', item: p })}>
-                    <span style={{ fontSize: '1.1rem' }}>{p.emoji}</span>
-                    <span style={{ flex: 1, fontSize: '0.84rem', color: '#475569', textAlign: 'left' }}>{p.nome}</span>
+                  <button key={p.id} type="button" style={s.estoqueItem} onClick={() => setDetalheExtra({ titulo: p.nome, tipo: 'produto', item: p })}>
+                    {p.foto
+                      ? <img src={p.foto} alt={p.nome} style={s.estoqueItemThumb} />
+                      : <div style={{ ...s.estoqueItemThumb, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {p.emoji ? <span style={{ fontSize: '1.1rem' }}>{p.emoji}</span> : <Package size={16} color="#94A3B8" />}
+                        </div>
+                    }
+                    <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 700, color: '#1A202C', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nome}</span>
                     <span style={{
-                      fontWeight: 800, fontSize: '0.84rem',
-                      color: p.estoque === 0 ? '#EF4444' : '#F59E0B',
+                      fontWeight: 800, fontSize: '0.78rem',
+                      color: p.estoque === 0 ? '#B91C1C' : '#92400E',
                       background: p.estoque === 0 ? '#FEE2E2' : '#FEF3C7',
-                      padding: '0.15rem 0.55rem', borderRadius: 8,
+                      padding: '0.18rem 0.6rem', borderRadius: 999, flexShrink: 0,
                     }}>
                       {p.estoque === 0 ? 'SEM ESTOQUE' : `${p.estoque} un`}
                     </span>
@@ -804,8 +809,8 @@ const s = {
   producaoMeta: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, color: '#475569', fontSize: '0.78rem' },
   producaoObs: { margin: 0, color: '#475569', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 10, padding: 8, fontSize: '0.78rem', lineHeight: 1.4 },
   producaoAutor: { margin: 0, color: '#94A3B8', fontWeight: 700, fontSize: '0.72rem' },
-  estoqueItem: { display: 'flex', alignItems: 'center', gap: 8, padding: '0.35rem 0', borderBottom: '1px solid #FEF2F2' },
-  estoqueItemClicavel: { width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit' },
+  estoqueItem: { display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #F1F5F9', background: '#F8FAFC', borderRadius: 12, padding: '0.5rem 0.7rem', cursor: 'pointer', fontFamily: 'inherit', width: '100%', textAlign: 'left' },
+  estoqueItemThumb: { width: 34, height: 34, borderRadius: 8, objectFit: 'cover', background: '#E2E8F0', flexShrink: 0 },
   statusLegend: { display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 2 },
   statusLegendItem: { display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #E2E8F0', background: '#fff', borderRadius: 999, padding: '0.3rem 0.65rem', color: '#475569', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
   statusDot: { width: 9, height: 9, borderRadius: '50%', flexShrink: 0 },

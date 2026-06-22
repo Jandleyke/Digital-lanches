@@ -16,6 +16,14 @@ export default function PerfilStaff() {
   const [senhaForm, setSenhaForm] = useState({ atual: '', nova: '', confirmar: '' })
   const [msgPerfil, setMsgPerfil] = useState(null)
   const [msgSenha, setMsgSenha] = useState(null)
+  const [chatVisivel, setChatVisivel] = useState(() => localStorage.getItem('chat-btn-visible') !== 'false')
+
+  function toggleChat() {
+    const novo = !chatVisivel
+    setChatVisivel(novo)
+    localStorage.setItem('chat-btn-visible', String(novo))
+    window.dispatchEvent(new CustomEvent('chat-visivel-change', { detail: novo }))
+  }
 
   const [formMatricula, setFormMatricula] = useState(null)
   if (usuarioAtualizado?.matricula !== formMatricula) {
@@ -190,6 +198,33 @@ export default function PerfilStaff() {
             {msgSenha?.ok && <p style={s.ok}>{msgSenha.ok}</p>}
             <button type="submit" style={{ ...s.btnPrimario, padding: isMobile ? '0.72rem' : '0.88rem' }}>Alterar senha</button>
           </form>
+        </div>
+
+        {/* Preferências do app */}
+        <div style={{ ...s.card, padding: cardPad }}>
+          <h2 style={{ ...s.cardTitle, fontSize: isMobile ? '0.95rem' : '1rem' }}>Preferências do app</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+            <div>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: '0.92rem', color: '#0F172A' }}>Assistente virtual flutuante</p>
+              <p style={{ margin: '3px 0 0', fontSize: '0.8rem', color: '#64748B' }}>Botão laranja que aparece sobre o app</p>
+            </div>
+            <button
+              type="button"
+              onClick={toggleChat}
+              style={{
+                width: 48, height: 28, borderRadius: 999, border: 'none', cursor: 'pointer',
+                background: chatVisivel ? '#F47920' : '#CBD5E1',
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+              }}
+              aria-label={chatVisivel ? 'Desativar assistente' : 'Ativar assistente'}
+            >
+              <span style={{
+                position: 'absolute', top: 3, left: chatVisivel ? 23 : 3,
+                width: 22, height: 22, borderRadius: '50%', background: '#fff',
+                transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+              }} />
+            </button>
+          </div>
         </div>
 
         {/* Dados da lanchonete — só admin */}

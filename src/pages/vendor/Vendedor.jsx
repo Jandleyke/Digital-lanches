@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import Layout from '../../components/Layout'
 import AvisosSetor from '../../components/AvisosSetor'
+import GerenciarEstoque from '../../components/GerenciarEstoque'
 import ProdutoFormModal from '../../components/ProdutoFormModal'
 import { useApp } from '../../contexts/AppContext'
 import { formatPrice } from '../../utils/formatters'
@@ -40,12 +41,6 @@ const FILTROS_PEDIDOS = [
   ['pendentes', 'Pendentes'],
   ['entregues', 'Entregues'],
   ['cancelados', 'Cancelados'],
-]
-
-const FILTROS_ESTOQUE = [
-  ['todos', 'Todos'],
-  ['critico', 'Critico'],
-  ['baixo', 'Baixo'],
 ]
 
 const STATUS_AJUSTE_PRODUCAO = [
@@ -99,6 +94,15 @@ function getPedidoDate(pedido) {
   } catch {
     return null
   }
+}
+
+function pedidoDataIso(pedido) {
+  const date = getPedidoDate(pedido)
+  return date ? date.toISOString().slice(0, 10) : null
+}
+
+function hojeIso() {
+  return new Date().toISOString().slice(0, 10)
 }
 
 function formatarDataHora(valor) {
@@ -164,12 +168,19 @@ function EmptyState({ children }) {
   return <div style={s.vazio}>{children}</div>
 }
 
-function StatCard({ icon: Icon, label, value, color }) {
+function StatCard({ icon: Icon, label, value, unidade, color, onClick }) {
   return (
-    <div style={{ ...s.statCard, borderTop: `4px solid ${color}` }}>
+    <div
+      style={{ ...s.statCard, borderTop: `4px solid ${color}`, cursor: onClick ? 'pointer' : 'default' }}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+    >
       <div style={s.statIcon}><Icon size={18} color={color} /></div>
       <span style={s.statLabel}>{label}</span>
-      <strong style={{ ...s.statValue, color }}>{value}</strong>
+      <strong style={{ ...s.statValue, color }}>
+        {value}{unidade && <span style={s.statUnidade}> {unidade}</span>}
+      </strong>
     </div>
   )
 }
@@ -210,9 +221,9 @@ export default function Vendedor() {
   const aba = abaPorRota(location.pathname)
   const [filtroPedidos, setFiltroPedidos] = useState('todos')
   const [filtroPagamento, setFiltroPagamento] = useState('todos')
+  const [filtroData, setFiltroData] = useState('')
   const [buscaPedido, setBuscaPedido] = useState('')
   const [buscaProduto, setBuscaProduto] = useState('')
-  const [filtroEstoque, setFiltroEstoque] = useState('todos')
   const [detalhePedido, setDetalhePedido] = useState(null)
   const [detalheProduto, setDetalheProduto] = useState(null)
   const [produtoForm, setProdutoForm] = useState(PRODUTO_FORM_VAZIO)
@@ -232,9 +243,12 @@ export default function Vendedor() {
 
   const hoje = inicioDoDia()
   const pedidosOrdenados = useMemo(() => [...pedidos].sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0)), [pedidos])
+  const pedidosPorData = useMemo(
+    () => filtroData ? pedidosOrdenados.filter(p => pedidoDataIso(p) === filtroData) : pedidosOrdenados,
+    [pedidosOrdenados, filtroData]
+  )
   const formasPagamento = useMemo(() => Array.from(new Set(pedidos.map(getFormaPagamento).filter(Boolean))), [pedidos])
-  const pedidosPorBusca = useMemo(() => filtrarPedidos(pedidosOrdenados, 'todos', 'todos', buscaPedido), [pedidosOrdenados, buscaPedido])
-  const pedidosVisiveis = useMemo(() => filtrarPedidos(pedidosOrdenados, filtroPedidos, filtroPagamento, buscaPedido), [pedidosOrdenados, filtroPedidos, filtroPagamento, buscaPedido])
+  const pedidosVisiveis = useMemo(() => filtrarPedidos(pedidosPorData, filtroPedidos, filtroPagamento, buscaPedido), [pedidosPorData, filtroPedidos, filtroPagamento, buscaPedido])
   const vendasHoje = useMemo(() => pedidos.filter(p => {
     const data = p.pagoEm || p.retiradoEm || p.criadoEm || 0
     return normalizeStatus(p.status) !== 'cancelado' && data >= hoje && (p.pago || normalizeStatus(p.status) === 'entregue')
@@ -245,15 +259,11 @@ export default function Vendedor() {
   const produtosOrdenados = useMemo(() => [...produtos].sort(ordenarPorNome), [produtos])
   const produtosFiltrados = useMemo(() => produtosOrdenados.filter(produto => {
     const termo = buscaProduto.trim().toLowerCase()
-    const nivel = estoqueNivel(Number(produto.estoque || 0), Number(produto.estoqueBaixo || 0))
     const buscaOk = !termo || String(produto.nome || '').toLowerCase().includes(termo) || String(produto.categoria || '').toLowerCase().includes(termo)
-    const estoqueOk = filtroEstoque === 'todos'
-      || (filtroEstoque === 'critico' && Number(produto.estoque || 0) === 0)
-      || (filtroEstoque === 'baixo' && ['Baixo', 'Critico', 'Crítico'].includes(nivel.label))
     const categoriaOk = filtroCategoria === 'todas' || String(produto.categoria || '') === filtroCategoria
     const disponivelOk = filtroDisponivel === 'todos' || (filtroDisponivel === 'ativos' ? produto.disponivel !== false : produto.disponivel === false)
-    return buscaOk && estoqueOk && categoriaOk && disponivelOk
-  }), [produtosOrdenados, buscaProduto, filtroEstoque, filtroCategoria, filtroDisponivel])
+    return buscaOk && categoriaOk && disponivelOk
+  }), [produtosOrdenados, buscaProduto, filtroCategoria, filtroDisponivel])
   const categoriasProduto = useMemo(() => Array.from(new Set(produtos.map(p => p.categoria || 'Sem categoria'))).sort(), [produtos])
 
   const estoqueBaixo = useMemo(() => produtos.filter(p => Number(p.estoqueBaixo || 0) > 0 && Number(p.estoque || 0) <= Number(p.estoqueBaixo || 0)), [produtos])
@@ -461,11 +471,11 @@ export default function Vendedor() {
       <div style={{ ...s.page, paddingBottom: isMobile ? 128 : 32 }}>
         {(aba === 'dashboard' || aba === 'pedidos') && (
           <div style={{ ...s.statsGrid, gridTemplateColumns: isMobile ? '1fr' : 'repeat(5, minmax(0, 1fr))' }}>
-            <StatCard icon={ClipboardList} label="Pendentes" value={pendentes} color="#F59E0B" />
-            <StatCard icon={PackageCheck} label="Entregues" value={entregues} color="#22C55E" />
-            <StatCard icon={ShoppingBag} label="Vendas hoje" value={formatPrice(totalVendas)} color="#003D7C" />
-            <StatCard icon={AlertTriangle} label="Estoque baixo" value={estoqueBaixo.length} color="#EF4444" />
-            <StatCard icon={XCircle} label="Cancelados" value={cancelados} color="#A855F7" />
+            <StatCard icon={ClipboardList} label="Pendentes" value={pendentes} color="#F59E0B" onClick={() => { setFiltroPedidos('pendentes'); setFiltroData(''); selecionarAba('pedidos') }} />
+            <StatCard icon={PackageCheck} label="Entregues" value={entregues} color="#22C55E" onClick={() => { setFiltroPedidos('entregues'); setFiltroData(''); selecionarAba('pedidos') }} />
+            <StatCard icon={ShoppingBag} label="Vendas hoje" value={formatPrice(totalVendas)} color="#003D7C" onClick={() => selecionarAba('vendas')} />
+            <StatCard icon={AlertTriangle} label="Estoque baixo" value={estoqueBaixo.length} color="#EF4444" onClick={() => navigate(ROTAS_ABA.estoque, { state: { filtroInicial: 'atencao' } })} />
+            <StatCard icon={XCircle} label="Cancelados" value={cancelados} color="#A855F7" onClick={() => { setFiltroPedidos('cancelados'); setFiltroData(''); selecionarAba('pedidos') }} />
           </div>
         )}
 
@@ -473,29 +483,36 @@ export default function Vendedor() {
           <>
             <section style={s.sectionCard}>
               <div style={s.sectionHeader}>
-                <h3 style={s.sectionTitle}>Producao da cozinha</h3>
+                <h3 style={s.sectionTitle}>Produção da cozinha</h3>
                 <span style={s.meta}>{producaoCozinha.length} item(ns) informado(s)</span>
               </div>
-              <div style={s.producaoGrid}>
-                {producaoCozinha.length === 0 ? <EmptyState>Nenhuma producao informada pela cozinha hoje.</EmptyState> : producaoCozinha.slice(0, 8).map(item => {
+              <div style={s.lista}>
+                {producaoCozinha.length === 0 ? <EmptyState>Nenhuma produção informada pela cozinha hoje.</EmptyState> : producaoCozinha.slice(0, 8).map(item => {
                   const visual = producaoVisual(item.status)
                   return (
-                    <article key={item.id} style={s.producaoCard}>
-                      <div style={s.produtoLinha}>
-                        {item.produtoFoto && <img src={item.produtoFoto} alt={item.produtoNome} style={s.produtoFotoMini} />}
-                        <div>
-                          <strong>{item.produtoNome}</strong>
-                          <p style={s.meta}>{item.produtoCategoria || 'Produto'}</p>
+                    <article key={item.id} style={s.prodRow}>
+                      <div style={s.prodRowTop}>
+                        <div style={s.produtoMini}>
+                          <div style={s.produtoMiniThumb}>
+                            {item.produtoFoto
+                              ? <img src={item.produtoFoto} alt={item.produtoNome} style={s.produtoMiniImg} />
+                              : <Package size={18} color="#94A3B8" />
+                            }
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <strong style={s.codigo}>{item.produtoNome}</strong>
+                            <p style={s.meta}>{item.produtoCategoria || 'Produto'}</p>
+                          </div>
                         </div>
+                        <strong style={s.prodRowQtd}>{item.quantidadeRestante || 0} un</strong>
+                        <span style={{ ...s.badge, background: visual.bg, color: visual.color }}>{visual.label}</span>
+                        <button style={s.iconBtnMenu} onClick={() => abrirAjusteProducao(item)} title="Ajustar produção recebida"><Edit3 size={16} /></button>
                       </div>
-                      <span style={{ ...s.badge, background: visual.bg, color: visual.color }}>{visual.label}</span>
                       <div style={s.producaoInfo}>
-                        <span>Disponível: <strong>{item.quantidadeRestante || 0} un</strong></span>
                         <span><Clock size={13} /> Previsão: <strong>{item.horarioPrevisto || '--:--'}</strong></span>
-                        <span>Atualizado as <strong>{horaAtualizacao(item.atualizadoEm)}</strong></span>
+                        <span>Atualizado às <strong>{horaAtualizacao(item.atualizadoEm)}</strong></span>
                       </div>
                       {item.observacao && <p style={s.obs}>{item.observacao}</p>}
-                      <button type="button" style={s.btnSecundario} onClick={() => abrirAjusteProducao(item)}><Edit3 size={15} /> Ajustar producao recebida</button>
                     </article>
                   )
                 })}
@@ -512,11 +529,39 @@ export default function Vendedor() {
                   <Search size={16} color="#64748B" />
                   <input value={buscaPedido} onChange={e => setBuscaPedido(e.target.value)} placeholder="Buscar por matricula ou numero do pedido" style={s.searchInput} />
                 </div>
-                {pedidosPorBusca.length === 0 ? <EmptyState>Nenhuma venda encontrada.</EmptyState> : pedidosPorBusca.slice(0, 4).map(pedido => <PedidoCard key={pedido.id} pedido={pedido} />)}
+                <div style={s.filtros}>
+                  <input type="date" value={filtroData} onChange={e => setFiltroData(e.target.value)} style={s.selectFiltro} />
+                  <button style={{ ...s.filtroBtn, ...(filtroData === hojeIso() ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroData(hojeIso())}>Hoje</button>
+                  {filtroData && <button style={s.filtroBtn} onClick={() => setFiltroData('')}>Todos os dias</button>}
+                  {FILTROS_PEDIDOS.map(([id, label]) => (
+                    <button key={id} style={{ ...s.filtroBtn, ...(filtroPedidos === id ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroPedidos(id)}>{label}</button>
+                  ))}
+                </div>
+                {pedidosVisiveis.length === 0 ? <EmptyState>Nenhum pedido encontrado {filtroData ? `em ${filtroData.split('-').reverse().join('/')}` : ''}.</EmptyState> : pedidosVisiveis.slice(0, 4).map(pedido => <PedidoCard key={pedido.id} pedido={pedido} />)}
               </section>
               <section style={s.sectionCard}>
-                <h3 style={s.sectionTitle}>Estoque em atencao</h3>
-                {estoqueBaixo.length === 0 ? <EmptyState>Nenhum produto com estoque crítico.</EmptyState> : estoqueBaixo.slice(0, 6).map(produto => <ProdutoCard key={produto.id} produto={produto} />)}
+                <div style={s.sectionHeader}>
+                  <h3 style={s.sectionTitle}>Estoque em atenção</h3>
+                  {estoqueBaixo.length > 0 && (
+                    <button style={s.linkBtn} onClick={() => navigate(ROTAS_ABA.estoque, { state: { filtroInicial: 'atencao' } })}>Ver tudo</button>
+                  )}
+                </div>
+                {estoqueBaixo.length === 0 ? <EmptyState>Nenhum produto com estoque crítico.</EmptyState> : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {estoqueBaixo.slice(0, 6).map(produto => (
+                      <button
+                        key={produto.id}
+                        type="button"
+                        style={s.estoqueMiniRow}
+                        onClick={() => navigate(ROTAS_ABA.estoque, { state: { filtroInicial: 'atencao' } })}
+                      >
+                        {produto.foto ? <img src={produto.foto} alt={produto.nome} style={s.estoqueMiniThumb} /> : <div style={{ ...s.estoqueMiniThumb, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Package size={16} color="#94A3B8" /></div>}
+                        <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700, fontSize: '0.85rem', color: '#1A202C' }}>{produto.nome}</span>
+                        <span style={s.estoqueMiniBadge}>{produto.estoque} un</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </section>
             </div>
           </>
@@ -531,6 +576,9 @@ export default function Vendedor() {
                   <Search size={16} color="#64748B" />
                   <input value={buscaPedido} onChange={e => setBuscaPedido(e.target.value)} placeholder="Buscar por matricula ou numero do pedido" style={s.searchInput} />
                 </div>
+                <input type="date" value={filtroData} onChange={e => setFiltroData(e.target.value)} style={s.selectFiltro} />
+                <button style={{ ...s.filtroBtn, ...(filtroData === hojeIso() ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroData(hojeIso())}>Hoje</button>
+                {filtroData && <button style={s.filtroBtn} onClick={() => setFiltroData('')}>Todos os dias</button>}
                 {FILTROS_PEDIDOS.map(([id, label]) => (
                   <button key={id} style={{ ...s.filtroBtn, ...(filtroPedidos === id ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroPedidos(id)}>{label}</button>
                 ))}
@@ -541,7 +589,7 @@ export default function Vendedor() {
               </div>
             </div>
             <div style={s.lista}>
-              {pedidosVisiveis.length === 0 ? <EmptyState>Nenhum registro encontrado.</EmptyState> : pedidosVisiveis.map(pedido => <PedidoCard key={pedido.id} pedido={pedido} />)}
+              {pedidosVisiveis.length === 0 ? <EmptyState>Nenhum registro encontrado{filtroData ? ` em ${filtroData.split('-').reverse().join('/')}` : ''}.</EmptyState> : pedidosVisiveis.map(pedido => <PedidoCard key={pedido.id} pedido={pedido} />)}
             </div>
           </section>
         )}
@@ -615,25 +663,7 @@ export default function Vendedor() {
           </div>
         )}
 
-        {aba === 'estoque' && (
-          <section style={s.sectionCard}>
-            <div style={s.sectionHeader}>
-              <h3 style={s.sectionTitle}>Produtos e estoque</h3>
-              <div style={s.searchBox}>
-                <Search size={16} color="#64748B" />
-                <input value={buscaProduto} onChange={e => setBuscaProduto(e.target.value)} placeholder="Pesquisar produto" style={s.searchInput} />
-              </div>
-            </div>
-            <div style={s.filtros}>
-              {FILTROS_ESTOQUE.map(([id, label]) => (
-                <button key={id} style={{ ...s.filtroBtn, ...(filtroEstoque === id ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroEstoque(id)}>{label}</button>
-              ))}
-            </div>
-            <div style={s.produtosGrid}>
-              {produtosFiltrados.length === 0 ? <EmptyState>Nenhum produto encontrado.</EmptyState> : produtosFiltrados.map(produto => <ProdutoCard key={produto.id} produto={produto} />)}
-            </div>
-          </section>
-        )}
+        {aba === 'estoque' && <GerenciarEstoque />}
 
         {aba === 'vendas' && (
           <div style={{ ...s.contentGrid, gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px, 360px) 1fr' }}>
@@ -666,8 +696,8 @@ export default function Vendedor() {
           <div style={{ ...s.modal, maxWidth: 480, padding: isMobile ? 18 : 24 }}>
             <div style={s.modalHeader}>
               <div>
-                <h3 style={s.modalTitle}>Ajustar producao recebida</h3>
-                <p style={s.meta}>{ajusteItem.produtoNome} - Disponivel atual: {ajusteItem.quantidadeRestante || 0} un</p>
+                <h3 style={s.modalTitle}>Ajustar produção recebida</h3>
+                <p style={s.meta}>{ajusteItem.produtoNome} - Disponível atual: {ajusteItem.quantidadeRestante || 0} un</p>
               </div>
               <button style={s.closeBtn} onClick={() => setAjusteItem(null)}>Fechar</button>
             </div>
@@ -763,13 +793,13 @@ export default function Vendedor() {
             <div style={s.detailGrid}>
               <p><strong>Preço:</strong> {formatPrice(detalheProduto.preco || 0)}</p>
               <p><strong>Estoque:</strong> {detalheProduto.estoque || 0} un</p>
-              <p><strong>Estoque minimo:</strong> {detalheProduto.estoqueBaixo || 0} un</p>
-              <p><strong>Status:</strong> {detalheProduto.disponivel === false ? 'Indisponivel' : 'Disponível'}</p>
-              <p><strong>Dias no cardapio:</strong> {resumoDiasProduto(detalheProduto)}</p>
+              <p><strong>Estoque mínimo:</strong> {detalheProduto.estoqueBaixo || 0} un</p>
+              <p><strong>Status:</strong> {detalheProduto.disponivel === false ? 'Indisponível' : 'Disponível'}</p>
+              <p><strong>Dias no cardápio:</strong> {resumoDiasProduto(detalheProduto)}</p>
             </div>
             <h4 style={s.detailTitle}>Descrição / composição</h4>
             <p style={s.obs}>{detalheProduto.descricao || detalheProduto.composicao || detalheProduto.ingredientes || 'Informação não cadastrada.'}</p>
-            <h4 style={s.detailTitle}>Alergenos e nutricional</h4>
+            <h4 style={s.detailTitle}>Alérgenos e nutricional</h4>
             <p style={s.obs}>{detalheProduto.alergenos || detalheProduto.nutricional || detalheProduto.infoNutricional || 'Informação não cadastrada.'}</p>
           </div>
         </div>
@@ -780,15 +810,12 @@ export default function Vendedor() {
 
 const s = {
   page: { display: 'flex', flexDirection: 'column', gap: 16 },
-  abas: { display: 'flex', gap: 6, flexWrap: 'wrap' },
-  abasMobile: { overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 8, marginLeft: -4, marginRight: -4 },
-  aba: { padding: '0.55rem 0.9rem', borderRadius: 20, border: '1.5px solid #CBD5E1', background: '#fff', color: '#64748B', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit' },
-  abaAtiva: { background: '#003D7C', borderColor: '#003D7C', color: '#fff' },
-  statsGrid: { display: 'grid', gap: 12 },
-  statCard: { background: '#fff', borderRadius: 14, padding: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.06)', display: 'flex', flexDirection: 'column', gap: 6 },
+  statsGrid: { display: 'grid', gap: 12, alignItems: 'stretch' },
+  statCard: { background: '#fff', borderRadius: 14, padding: 16, boxShadow: '0 8px 24px rgba(15,23,42,0.06)', display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 },
   statIcon: { width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  statLabel: { color: '#64748B', fontSize: '0.8rem', fontWeight: 700 },
-  statValue: { fontSize: '1.35rem', fontWeight: 900 },
+  statLabel: { color: '#64748B', fontSize: '0.78rem', fontWeight: 700, lineHeight: 1.25, minHeight: '2.1em', display: 'flex', alignItems: 'flex-end' },
+  statValue: { fontSize: '1.4rem', fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  statUnidade: { fontSize: '0.75rem', fontWeight: 700, opacity: 0.7 },
   contentGrid: { display: 'grid', gap: 16, alignItems: 'start' },
   sectionCard: { background: '#fff', borderRadius: 18, padding: 20, boxShadow: '0 8px 24px rgba(15,23,42,0.06)', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 },
   sectionHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
@@ -826,11 +853,17 @@ const s = {
   btnSecundario: { background: '#E8F0FB', color: '#003D7C', border: 'none', borderRadius: 12, padding: '0.68rem 0.95rem', fontWeight: 900, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, minHeight: 44, fontFamily: 'inherit' },
   btnPerigo: { background: '#FEE2E2', color: '#DC2626', border: 'none', borderRadius: 12, padding: '0.68rem 0.95rem', fontWeight: 900, cursor: 'pointer', minHeight: 44, fontFamily: 'inherit' },
   linkBtn: { border: 'none', background: '#EFF6FF', color: '#1D4ED8', borderRadius: 10, padding: '0.5rem 0.75rem', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' },
-  producaoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 },
-  producaoCard: { background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 14, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 },
-  produtoLinha: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 },
-  produtoFotoMini: { width: 46, height: 46, borderRadius: 10, objectFit: 'cover', background: '#E2E8F0', flexShrink: 0 },
-  producaoInfo: { display: 'flex', flexDirection: 'column', gap: 5, color: '#475569', fontSize: '0.82rem', fontWeight: 700 },
+  estoqueMiniRow: { display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #F1F5F9', background: '#F8FAFC', borderRadius: 12, padding: '0.5rem 0.7rem', cursor: 'pointer', fontFamily: 'inherit', width: '100%', textAlign: 'left' },
+  estoqueMiniThumb: { width: 34, height: 34, borderRadius: 8, objectFit: 'cover', background: '#E2E8F0', flexShrink: 0 },
+  estoqueMiniBadge: { background: '#FEE2E2', color: '#B91C1C', borderRadius: 999, padding: '0.18rem 0.6rem', fontSize: '0.75rem', fontWeight: 800, flexShrink: 0 },
+  prodRow: { border: '1px solid #E5E7EB', background: '#fff', borderRadius: 14, padding: '0.7rem 0.85rem', display: 'flex', flexDirection: 'column', gap: 8 },
+  prodRowTop: { display: 'flex', alignItems: 'center', gap: 10 },
+  prodRowQtd: { color: '#0F172A', fontSize: '0.88rem', whiteSpace: 'nowrap' },
+  produtoMini: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 },
+  produtoMiniThumb: { width: 40, height: 40, borderRadius: 10, overflow: 'hidden', background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  produtoMiniImg: { width: '100%', height: '100%', objectFit: 'cover' },
+  iconBtnMenu: { width: 34, height: 34, borderRadius: 10, border: 'none', background: '#F1F5F9', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
+  producaoInfo: { display: 'flex', gap: 14, flexWrap: 'wrap', color: '#475569', fontSize: '0.82rem', fontWeight: 700 },
   produtosGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 },
   produtoCard: { display: 'flex', flexDirection: 'column', gap: 10, background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 14, padding: 14, minWidth: 0 },
   produtoTop: { display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 },

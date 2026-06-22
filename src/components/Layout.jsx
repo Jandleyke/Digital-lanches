@@ -114,6 +114,7 @@ export default function Layout({ children, titulo }) {
     { icon: LayoutDashboard, labelFull: 'Dashboard', path: '/cozinha' },
     { icon: Utensils, labelFull: 'Produção', path: '/cozinha/producao' },
     { icon: ChefHat, labelFull: 'Cardápio', path: '/cozinha/cardapio' },
+    { icon: ArchiveRestore, labelFull: 'Estoque', path: '/cozinha/estoque' },
     { icon: Megaphone, labelFull: 'Avisos', path: '/cozinha/avisos' },
     { icon: Users, labelFull: 'Perfil', path: '/cozinha/perfil' },
   ]

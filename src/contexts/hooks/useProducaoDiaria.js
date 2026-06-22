@@ -49,7 +49,7 @@ function normalizarProducao(item) {
     quantidadeVendida,
     quantidadeDesperdicada,
     historicoDesperdicio: Array.isArray(item.historicoDesperdicio) ? item.historicoDesperdicio : [],
-    quantidadeRestante: Math.max(0, Number(item.quantidadeRestante ?? (quantidadePronta - quantidadeVendida - quantidadeDesperdicada))),
+    quantidadeRestante: Math.max(0, quantidadePronta - quantidadeVendida - quantidadeDesperdicada),
   }
 }
 
@@ -95,6 +95,7 @@ export function useProducaoDiaria(usuarioLogado) {
       horarioPrevisto: dados.horarioPrevisto || '',
       status: dados.status || 'Planejado',
       observacao: dados.observacao || '',
+      turno: dados.turno || 'manha',
       dataProducao: dados.dataProducao || hojeISO(),
       dataProducaoTs: dados.dataProducaoTs || inicioDoDia(),
       visivelParaVendedor: dados.visivelParaVendedor !== false,
