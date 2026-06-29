@@ -2,15 +2,16 @@ import { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
 import { useApp } from '../contexts/AppContext'
 import { useIsMobile } from '../utils/useIsMobile'
-import { normalizarPerfil } from '../utils/perfis'
+import { ehGestao, normalizarPerfil } from '../utils/perfis'
 import { processarFotoPerfil } from '../utils/image.js'
+import MeuAcesso from '../components/MeuAcesso'
 
 const DIAS = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo']
 
 export default function PerfilStaff() {
   const { usuarioLogado, atualizarUsuario, alterarSenha, usuarios, lanchoneteConfig, salvarLanchoneteConfig } = useApp()
   const usuarioAtualizado = usuarios.find(u => u.matricula === usuarioLogado?.matricula) || usuarioLogado
-  const isAdmin = normalizarPerfil(usuarioLogado?.perfil) === 'admin'
+  const isAdmin = ehGestao(usuarioLogado?.perfil)
 
   const [form, setForm] = useState({ nome: '', email: '', telefone: '', fotoPerfil: '' })
   const [senhaForm, setSenhaForm] = useState({ atual: '', nova: '', confirmar: '' })
@@ -40,7 +41,11 @@ export default function PerfilStaff() {
   const [formLanch, setFormLanch] = useState(lanchoneteConfig)
   const [msgLanch, setMsgLanch] = useState('')
   const [salvandoLanch, setSalvandoLanch] = useState(false)
-  useEffect(() => { setFormLanch(lanchoneteConfig) }, [lanchoneteConfig])
+  useEffect(() => {
+    // A configuração pode ser atualizada em tempo real pelo Firestore.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFormLanch(lanchoneteConfig)
+  }, [lanchoneteConfig])
 
   function setCampoLanch(campo, valor) {
     setFormLanch(prev => ({ ...prev, [campo]: valor }))
@@ -116,7 +121,7 @@ export default function PerfilStaff() {
   const isMobile = useIsMobile()
   const avatarSrc = form.fotoPerfil
   const labelPerfil = {
-    aluno: 'Aluno', cozinha: 'Cozinha', vendedor: 'Vendedor', admin: 'Administrador',
+    aluno: 'Aluno', professor: 'Professor', cozinha: 'Cozinha', vendedor: 'Vendedor', admin: 'Administrador', gerente: 'Gerente',
   }[normalizarPerfil(usuarioLogado?.perfil)] || ''
   const inputPad = isMobile ? '0.65rem 0.85rem' : '0.78rem 1rem'
   const cardPad = isMobile ? '0.9rem' : '1.25rem'
@@ -144,6 +149,8 @@ export default function PerfilStaff() {
               : <div style={{ ...s.heroAvatarLetra, width: isMobile ? 50 : 60, height: isMobile ? 50 : 60, fontSize: isMobile ? '1.2rem' : '1.4rem' }}>{usuarioAtualizado?.nome?.[0]?.toUpperCase() || '?'}</div>}
           </div>
         </div>
+
+        <MeuAcesso usuario={usuarioLogado} compacto={isMobile} />
 
         {/* Dados pessoais */}
         <div style={{ ...s.card, padding: cardPad }}>

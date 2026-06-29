@@ -47,7 +47,7 @@ export default function Welcome() {
 
       {/* ── Card branco ── */}
       <div style={s.body}>
-        <div style={{ ...s.card, animation: 'fadeInUp 0.4s ease both', width: '100%', maxWidth: isMobile ? 370 : 430 }}>
+        <div style={{ ...s.card, animation: 'fadeInUp 0.4s ease both', width: '100%', maxWidth: isMobile ? 'calc(100vw - 2rem)' : 430, padding: isMobile ? '1.65rem 1.2rem 1.4rem' : s.card.padding }}>
 
           <div style={s.cardHeader}>
             <h2 style={{ ...s.welcome, fontSize: isMobile ? '1.25rem' : '1.4rem' }}>
@@ -130,7 +130,7 @@ const s = {
   body: {
     flex: 1, display: 'flex', flexDirection: 'column',
     alignItems: 'center', padding: '0 1rem 2.5rem',
-    marginTop: -42,
+    marginTop: -42, width: '100%', minWidth: 0,
   },
   card: {
     background: '#fff',

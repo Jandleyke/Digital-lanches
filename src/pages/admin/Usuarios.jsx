@@ -3,9 +3,10 @@ import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
 import { useIsMobile } from '../../utils/useIsMobile'
 import { processarFotoPerfil } from '../../utils/image.js'
-import { normalizarPerfil } from '../../utils/perfis'
+import { PERFIL_INFO, ehAluno, ehGestao, ehStaff, perfisDoUsuario, perfisParaExibicao } from '../../utils/perfis'
+import { Ban, CheckCircle2, Pencil, Search, UserPlus } from 'lucide-react'
 
-const PERFIS = ['aluno', 'professor', 'vendedor', 'cozinha', 'admin']
+const PERFIS_SELECIONAVEIS = ['aluno', 'professor', 'admin', 'gerente', 'vendedor', 'cozinha']
 const perfilCor = {
   aluno:   { bg: '#DBEAFE', color: '#1D4ED8' },
   professor: { bg: '#EDE9FE', color: '#5B21B6' },
@@ -18,7 +19,33 @@ const perfilCor = {
 }
 
 function campoVazio() {
-  return { nome: '', matricula: '', senha: '', confirmar: '', perfil: 'aluno', curso: '', telefone: '', email: '' }
+  return { nome: '', matricula: '', senha: '', confirmar: '', roles: ['aluno'], curso: '', telefone: '', email: '' }
+}
+
+function SeletorPerfis({ selecionados = [], onChange }) {
+  function alternar(perfil) {
+    const novos = selecionados.includes(perfil) ? selecionados.filter(item => item !== perfil) : [...selecionados, perfil]
+    if (novos.length) onChange(novos)
+  }
+  return (
+    <div style={s.rolesGrid}>
+      {PERFIS_SELECIONAVEIS.map(perfil => (
+        <label key={perfil} style={{ ...s.roleOption, ...(selecionados.includes(perfil) ? s.roleOptionAtiva : {}) }}>
+          <input type="checkbox" checked={selecionados.includes(perfil)} onChange={() => alternar(perfil)} />
+          {PERFIL_INFO[perfil]?.nome || perfil}
+        </label>
+      ))}
+    </div>
+  )
+}
+
+function BadgesPerfis({ usuario, limite }) {
+  const perfis = perfisParaExibicao(usuario)
+  const visiveis = limite ? perfis.slice(0, limite) : perfis
+  return <div style={s.rolesBadges}>{visiveis.map(perfil => {
+    const cor = perfilCor[perfil] || perfilCor.aluno
+    return <span key={perfil} style={{ ...s.badge, background: cor.bg, color: cor.color }}>{PERFIL_INFO[perfil]?.nome || perfil}</span>
+  })}{limite && perfis.length > limite && <span style={s.badgeExtra}>+{perfis.length - limite}</span>}</div>
 }
 
 export default function Usuarios() {
@@ -39,13 +66,14 @@ export default function Usuarios() {
   const [cadErro, setCadErro]   = useState('')
   const [cadOk, setCadOk]       = useState(false)
 
-  const isAdmin = usuarioLogado?.perfil === 'admin'
+  const isAdmin = ehGestao(usuarioLogado?.perfil)
   const isMobile = useIsMobile()
+  const isCompact = useIsMobile(1180)
 
   const filtrados = usuarios
     .filter(u => {
-      if (filtro === 'alunos')    return u.perfil === 'aluno'
-      if (filtro === 'staff')     return u.perfil !== 'aluno'
+      if (filtro === 'alunos')    return perfisDoUsuario(u).some(ehAluno)
+      if (filtro === 'staff')     return perfisDoUsuario(u).some(ehStaff)
       if (filtro === 'bloqueados') return u.bloqueado
       return true
     })
@@ -60,7 +88,7 @@ export default function Usuarios() {
   function abrirDetalhe(u) {
     setDetalhe(u)
     setEditando(false)
-    setEditForm({ nome: u.nome || '', email: u.email || '', telefone: u.telefone || '', curso: u.curso || '', perfil: normalizarPerfil(u.role || u.perfil || 'aluno'), fotoPerfil: u.fotoPerfil || '' })
+    setEditForm({ nome: u.nome || '', email: u.email || '', telefone: u.telefone || '', curso: u.curso || '', roles: perfisDoUsuario(u), fotoPerfil: u.fotoPerfil || '' })
     setMsgEdit('')
   }
 
@@ -72,7 +100,7 @@ export default function Usuarios() {
       email: editForm.email.trim().toLowerCase(),
       telefone: editForm.telefone,
       curso: editForm.curso.trim(),
-      perfil: editForm.perfil,
+      roles: editForm.roles,
       fotoPerfil: editForm.fotoPerfil || '',
     })
     setSalvando(false)
@@ -144,54 +172,66 @@ export default function Usuarios() {
 
   return (
     <Layout titulo="Usuários">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: '0.75rem' }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input style={{ ...s.inputBusca, flex: 1 }} placeholder="🔍 Buscar nome ou matrícula..." value={busca} onChange={e => setBusca(e.target.value)} />
+      <div style={s.toolbar}>
+        <div style={{ ...s.toolbarTop, flexDirection: isMobile ? 'column' : 'row' }}>
+          <div style={s.searchBox}>
+            <Search size={17} color="#64748B" />
+            <input style={s.inputBusca} placeholder="Buscar por nome ou matrícula" value={busca} onChange={e => setBusca(e.target.value)} />
+          </div>
           {isAdmin && (
-            <button style={s.btnNovo} onClick={() => { setModalCad(true); setCadForm(campoVazio()); setCadErro(''); setCadOk(false) }}>
-              {isMobile ? '+' : '+ Cadastrar usuário'}
+            <button style={{ ...s.btnNovo, width: isMobile ? '100%' : 'auto' }} onClick={() => { setModalCad(true); setCadForm(campoVazio()); setCadErro(''); setCadOk(false) }}>
+              <UserPlus size={17} /> {isMobile ? 'Novo usuário' : 'Cadastrar usuário'}
             </button>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {[['todos','Todos'],['alunos','Alunos'],['staff','Staff'],['bloqueados','🚫 Bloq.']].map(([v,l]) => (
-            <button key={v} style={{ ...s.filtroBtn, ...(filtro === v ? s.filtroBtnOn : {}) }} onClick={() => setFiltro(v)}>{l}</button>
-          ))}
-          <span style={{ fontSize: '0.78rem', color: '#94A3B8', alignSelf: 'center', marginLeft: 'auto' }}>{filtrados.length} usuário(s)</span>
+        <div style={s.toolbarBottom}>
+          <div style={s.filtros} role="group" aria-label="Filtrar usuários">
+            {[['todos','Todos'],['alunos','Alunos/Prof.'],['staff','Equipe'],['bloqueados','Bloqueados']].map(([v,l]) => (
+              <button key={v} style={{ ...s.filtroBtn, ...(filtro === v ? s.filtroBtnOn : {}) }} onClick={() => setFiltro(v)}>{l}</button>
+            ))}
+          </div>
+          <span style={s.contador}>{filtrados.length} {filtrados.length === 1 ? 'usuário' : 'usuários'}</span>
         </div>
       </div>
 
-      {isMobile ? (
-        <div style={s.tabela}>
+      {isCompact ? (
+        <div style={s.compactList}>
           {filtrados.map(u => {
-            const pc = perfilCor[u.perfil] || perfilCor.aluno
             return (
               <div key={u.matricula} style={s.mCard}>
-                <div style={{ flexShrink: 0 }}>
+                <div style={s.mCardTop}>
                   {u.fotoPerfil
                     ? <img src={u.fotoPerfil} alt={u.nome} style={s.mAvatarPequeno} />
                     : <div style={s.mAvatarLetra}>{u.nome?.[0]?.toUpperCase()}</div>}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, color: '#1A202C', fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.nome}</div>
-                  <div style={{ fontSize: '0.72rem', color: '#94A3B8', fontFamily: 'monospace', marginTop: 1 }}>{u.matricula}</div>
-                  <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
-                    <span style={{ ...s.badge, background: pc.bg, color: pc.color }}>{u.perfil}</span>
+                  <div style={s.mIdentity}>
+                    <strong style={s.mNome}>{u.nome}</strong>
+                    <span style={s.mMatricula}>Matrícula {u.matricula}</span>
+                  </div>
+                  <div style={s.mStatus}>
                     <span style={{ ...s.badge, background: u.bloqueado ? '#FEE2E2' : '#D1FAE5', color: u.bloqueado ? '#991B1B' : '#065F46' }}>
-                      {u.bloqueado ? '🚫 Bloq.' : '✓ Ativo'}
+                      {u.bloqueado ? 'Bloqueado' : 'Ativo'}
                     </span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                  <button style={s.btnAcao} onClick={() => abrirDetalhe(u)}>✏️</button>
+
+                <div style={s.mDetails}>
+                  <div style={s.mPerfis}><span style={s.mLabel}>Perfis</span><BadgesPerfis usuario={u} /></div>
+                  <div style={s.mStats}>
+                    <span><strong>{pedidosDoUsuario(u.matricula).length}</strong> pedidos</span>
+                    <span><strong>R$ {totalGasto(u.matricula).toFixed(2).replace('.', ',')}</strong> total</span>
+                  </div>
+                </div>
+
+                <div style={s.mActions}>
+                  <button style={s.btnEditarLinha} onClick={() => abrirDetalhe(u)}><Pencil size={15} /> Editar</button>
                   {u.bloqueado
-                    ? <button style={{ ...s.btnAcao, background: '#D1FAE5' }} onClick={() => desbloquearUsuario(u.matricula)}>✓</button>
-                    : <button style={{ ...s.btnAcao, background: '#FEE2E2' }} onClick={() => bloquearUsuario(u.matricula)}>🚫</button>}
+                    ? <button style={s.btnDesbloquear} onClick={() => desbloquearUsuario(u.matricula)}><CheckCircle2 size={15} /> Desbloquear</button>
+                    : <button style={s.btnBloquear} onClick={() => bloquearUsuario(u.matricula)}><Ban size={15} /> Bloquear</button>}
                 </div>
               </div>
             )
           })}
-          {filtrados.length === 0 && <div style={{ textAlign: 'center', padding: '2rem', color: '#94A3B8' }}>Nenhum usuário encontrado.</div>}
+          {filtrados.length === 0 && <div style={s.vazio}>Nenhum usuário encontrado.</div>}
         </div>
       ) : (
         <div style={s.tabela}>
@@ -205,7 +245,6 @@ export default function Usuarios() {
             <span style={{ width: 80 }}>Ações</span>
           </div>
           {filtrados.map(u => {
-            const pc = perfilCor[u.perfil] || perfilCor.aluno
             return (
               <div key={u.matricula} style={s.trow}>
                 <div style={{ flex: 2, display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: '#1A202C' }}>
@@ -215,7 +254,7 @@ export default function Usuarios() {
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.nome}</span>
                 </div>
                 <span style={{ flex: 1, color: '#64748B', fontSize: '0.82rem', fontFamily: 'monospace' }}>{u.matricula}</span>
-                <span style={{ flex: 1 }}><span style={{ ...s.badge, background: pc.bg, color: pc.color }}>{u.perfil}</span></span>
+                <span style={{ flex: 1 }}><BadgesPerfis usuario={u} limite={2} /></span>
                 <span style={{ flex: 1, color: '#475569' }}>{pedidosDoUsuario(u.matricula).length}</span>
                 <span style={{ flex: 1, color: '#003D7C', fontWeight: 700 }}>R$ {totalGasto(u.matricula).toFixed(2).replace('.', ',')}</span>
                 <span style={{ flex: 1 }}>
@@ -224,10 +263,10 @@ export default function Usuarios() {
                   </span>
                 </span>
                 <div style={{ width: 80, display: 'flex', gap: 4 }}>
-                  <button style={s.btnAcao} onClick={() => abrirDetalhe(u)} title="Editar">✏️</button>
+                  <button style={s.btnAcao} onClick={() => abrirDetalhe(u)} title="Editar" aria-label={`Editar ${u.nome}`}><Pencil size={14} /></button>
                   {u.bloqueado
-                    ? <button style={{ ...s.btnAcao, background: '#D1FAE5' }} onClick={() => desbloquearUsuario(u.matricula)} title="Desbloquear">✓</button>
-                    : <button style={{ ...s.btnAcao, background: '#FEE2E2' }} onClick={() => bloquearUsuario(u.matricula)} title="Bloquear">🚫</button>}
+                    ? <button style={{ ...s.btnAcao, background: '#D1FAE5', color: '#047857' }} onClick={() => desbloquearUsuario(u.matricula)} title="Desbloquear" aria-label={`Desbloquear ${u.nome}`}><CheckCircle2 size={14} /></button>
+                    : <button style={{ ...s.btnAcao, background: '#FEE2E2', color: '#DC2626' }} onClick={() => bloquearUsuario(u.matricula)} title="Bloquear" aria-label={`Bloquear ${u.nome}`}><Ban size={14} /></button>}
                 </div>
               </div>
             )
@@ -247,7 +286,7 @@ export default function Usuarios() {
               <div style={{ flex: 1 }}>
                 <p style={{ margin: 0, fontSize: '0.75rem', color: '#94A3B8' }}>{detalhe.matricula}</p>
                 <h3 style={{ margin: '2px 0', fontWeight: 800, color: '#0F172A' }}>{detalhe.nome}</h3>
-                <span style={{ ...s.badge, background: perfilCor[detalhe.perfil]?.bg, color: perfilCor[detalhe.perfil]?.color }}>{detalhe.perfil}</span>
+                <BadgesPerfis usuario={detalhe} />
               </div>
               <button style={s.fecharBtn} onClick={() => setDetalhe(null)} aria-label="Fechar detalhes do usuário">✕</button>
             </div>
@@ -266,7 +305,7 @@ export default function Usuarios() {
               </div>
             )}
 
-            {detalhe.perfil === 'aluno' && (
+            {perfisDoUsuario(detalhe).includes('aluno') && (
               <div style={s.statsRow}>
                 <div style={s.statBox}><strong>{pedidosDoUsuario(detalhe.matricula).length}</strong><span>Pedidos</span></div>
                 <div style={s.statBox}><strong>R$ {totalGasto(detalhe.matricula).toFixed(2).replace('.', ',')}</strong><span>Total gasto</span></div>
@@ -295,10 +334,8 @@ export default function Usuarios() {
                   ))}
                   {isAdmin && (
                     <div>
-                      <label style={s.label}>Perfil</label>
-                      <select style={s.input} value={editForm.perfil} onChange={e => setEditForm(p => ({ ...p, perfil: e.target.value }))}>
-                        {PERFIS.map(p => <option key={p} value={p}>{p}</option>)}
-                      </select>
+                      <label style={s.label}>Perfis de acesso</label>
+                      <SeletorPerfis selecionados={editForm.roles} onChange={roles => setEditForm(p => ({ ...p, roles }))} />
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
@@ -357,10 +394,8 @@ export default function Usuarios() {
             ) : (
               <form onSubmit={handleCadastrar} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div>
-                  <label style={s.label}>Perfil</label>
-                  <select style={s.input} value={cadForm.perfil} onChange={e => setCadForm(p => ({ ...p, perfil: e.target.value }))}>
-                    {PERFIS.map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
+                  <label style={s.label}>Perfis de acesso</label>
+                  <SeletorPerfis selecionados={cadForm.roles} onChange={roles => setCadForm(p => ({ ...p, roles }))} />
                 </div>
                 {[
                   { label: 'Nome completo', key: 'nome', type: 'text', ph: 'Ex: João Silva' },
@@ -392,21 +427,46 @@ export default function Usuarios() {
 }
 
 const s = {
-  topBar: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' },
-  inputBusca: { padding: '0.6rem 1rem', borderRadius: 10, border: '2px solid #E2E8F0', fontSize: '0.9rem', outline: 'none', flex: 1, minWidth: 180 },
-  filtroBtn: { padding: '0.4rem 0.9rem', borderRadius: 20, border: '2px solid #E2E8F0', background: '#fff', color: '#64748B', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' },
+  toolbar: { display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12, minWidth: 0 },
+  toolbarTop: { display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 0 },
+  searchBox: { flex: 1, minWidth: 0, minHeight: 40, display: 'flex', alignItems: 'center', gap: 8, padding: '0 0.72rem', borderRadius: 8, border: '1px solid #CBD5E1', background: '#fff' },
+  inputBusca: { width: '100%', minWidth: 0, border: 'none', background: 'transparent', fontSize: '0.88rem', outline: 'none', color: '#0F172A', fontFamily: 'inherit' },
+  toolbarBottom: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, minWidth: 0 },
+  filtros: { minWidth: 0, display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 },
+  filtroBtn: { flexShrink: 0, minHeight: 36, padding: '0 0.8rem', borderRadius: 8, border: '1px solid #CBD5E1', background: '#fff', color: '#64748B', fontWeight: 700, fontSize: '0.76rem', cursor: 'pointer' },
   filtroBtnOn: { background: '#003D7C', color: '#fff', borderColor: '#003D7C' },
-  btnNovo: { padding: '0.5rem 1.1rem', borderRadius: 10, background: '#F47920', color: '#fff', fontWeight: 700, fontSize: '0.85rem', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' },
+  contador: { flexShrink: 0, color: '#64748B', background: '#E8F0FB', borderRadius: 8, padding: '0.36rem 0.65rem', fontSize: '0.74rem', fontWeight: 800 },
+  btnNovo: { minHeight: 44, padding: '0 1rem', borderRadius: 8, background: '#F47920', color: '#fff', fontWeight: 800, fontSize: '0.82rem', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 },
   tabela: { background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', overflowX: 'auto' },
-  mCard: { display: 'flex', alignItems: 'center', padding: '0.75rem', borderBottom: '1px solid #F1F5F9', gap: 10 },
-  mAvatarPequeno: { width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 },
-  mAvatarLetra: { width: 44, height: 44, borderRadius: '50%', background: '#003D7C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '1rem', flexShrink: 0 },
+  compactList: { display: 'flex', flexDirection: 'column', gap: 8 },
+  mCard: { display: 'flex', flexDirection: 'column', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, padding: '0.8rem', boxShadow: '0 3px 12px rgba(15,23,42,0.05)', minWidth: 0 },
+  mCardTop: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 },
+  mAvatarPequeno: { width: 40, height: 40, borderRadius: 8, objectFit: 'cover', flexShrink: 0 },
+  mAvatarLetra: { width: 40, height: 40, borderRadius: 8, background: '#003D7C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.88rem', flexShrink: 0 },
+  mIdentity: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 },
+  mNome: { color: '#0F172A', fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  mMatricula: { color: '#64748B', fontFamily: 'monospace', fontSize: '0.68rem' },
+  mStatus: { flexShrink: 0 },
+  mDetails: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '0.7rem 0 0.65rem 50px' },
+  mPerfis: { display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 },
+  mLabel: { color: '#94A3B8', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase' },
+  mStats: { display: 'flex', alignItems: 'center', gap: 12, color: '#64748B', fontSize: '0.72rem', whiteSpace: 'nowrap' },
+  mActions: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 7, paddingTop: 8, borderTop: '1px solid #F1F5F9' },
+  btnEditarLinha: { minHeight: 38, borderRadius: 8, background: '#E8F0FB', color: '#003D7C', fontWeight: 800, fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  btnBloquear: { minHeight: 38, borderRadius: 8, background: '#FEE2E2', color: '#DC2626', fontWeight: 800, fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  btnDesbloquear: { minHeight: 38, borderRadius: 8, background: '#D1FAE5', color: '#047857', fontWeight: 800, fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  vazio: { background: '#fff', border: '1px dashed #CBD5E1', borderRadius: 8, textAlign: 'center', padding: '2rem', color: '#94A3B8' },
   thead: { display: 'flex', padding: '0.7rem 1rem', background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', fontWeight: 700, fontSize: '0.75rem', color: '#64748B', gap: 8, alignItems: 'center', minWidth: 620 },
   trow: { display: 'flex', padding: '0.65rem 1rem', borderBottom: '1px solid #F1F5F9', alignItems: 'center', gap: 8, fontSize: '0.83rem', minWidth: 620 },
   avatar: { width: 28, height: 28, borderRadius: '50%', background: '#003D7C', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.75rem', flexShrink: 0 },
   avatarImg: { width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 },
-  badge: { padding: '0.2rem 0.6rem', borderRadius: 20, fontWeight: 700, fontSize: '0.72rem' },
-  btnAcao: { padding: '0.3rem 0.5rem', borderRadius: 6, background: '#F1F5F9', border: 'none', cursor: 'pointer', fontSize: '0.85rem' },
+  badge: { display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.55rem', borderRadius: 8, fontWeight: 800, fontSize: '0.68rem', lineHeight: 1.25 },
+  badgeExtra: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 28, padding: '0.2rem 0.45rem', borderRadius: 8, background: '#F1F5F9', color: '#475569', fontWeight: 900, fontSize: '0.68rem' },
+  rolesBadges: { display: 'flex', gap: 4, flexWrap: 'wrap' },
+  rolesGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 7, marginTop: 6 },
+  roleOption: { border: '1px solid #CBD5E1', borderRadius: 8, padding: '0.55rem 0.6rem', display: 'flex', alignItems: 'center', gap: 7, color: '#475569', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' },
+  roleOptionAtiva: { borderColor: '#003D7C', background: '#EFF6FF', color: '#003D7C' },
+  btnAcao: { width: 34, height: 34, padding: 0, borderRadius: 8, background: '#E8F0FB', color: '#003D7C', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' },
   modalBox: { background: '#fff', borderRadius: 16, padding: '1.5rem', width: '100%', maxWidth: 480, maxHeight: '90vh', overflowY: 'auto' },
   mHeader: { display: 'flex', gap: 12, alignItems: 'center', marginBottom: '1rem' },

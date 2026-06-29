@@ -31,7 +31,7 @@ const PRIORIDADES = [
 const vazio = { titulo: '', mensagem: '', destino: 'todos', tipo: 'info', prioridade: 'media', status: 'ativo', produtoId: '' }
 
 function destinosPermitidos(role) {
-  if (role === 'admin' || role === 'professor') return ['todos', 'aluno', 'vendedor', 'cozinha', 'admin']
+  if (role === 'admin' || role === 'gerente' || role === 'professor') return ['todos', 'aluno', 'vendedor', 'cozinha', 'admin']
   if (role === 'vendedor') return ['aluno', 'cozinha', 'admin']
   if (role === 'cozinha') return ['aluno', 'vendedor', 'admin']
   return []
@@ -46,7 +46,7 @@ function destinoAviso(aviso) {
 
 function avisoVisivel(aviso, role) {
   const destino = destinoAviso(aviso)
-  if (role === 'admin' || role === 'professor') return true
+  if (role === 'admin' || role === 'gerente' || role === 'professor') return true
   if (role === 'aluno') return ['todos', 'aluno'].includes(destino)
   return destino === 'todos' || destino === role
 }
@@ -206,7 +206,7 @@ export default function AvisosSetor({ setor }) {
       </div>
 
       <div style={s.filtros}>
-        {DESTINOS.filter(destino => destino.valor === 'todos' || destinos.includes(destino.valor) || role === 'admin' || role === 'professor').map(destino => (
+        {DESTINOS.filter(destino => destino.valor === 'todos' || destinos.includes(destino.valor) || role === 'admin' || role === 'gerente' || role === 'professor').map(destino => (
           <button key={destino.valor} style={{ ...s.filtroBtn, ...(filtro === destino.valor ? s.filtroBtnOn : {}) }} onClick={() => setFiltro(destino.valor)}>
             {destino.label}
           </button>
@@ -223,7 +223,7 @@ export default function AvisosSetor({ setor }) {
             const prioridade = meta(PRIORIDADES, aviso.prioridade || 'media')
             const lido = Array.isArray(aviso.lidoPor) && aviso.lidoPor.includes(leitorId)
             const ehAutor = aviso.autorId === leitorId
-            const podeExcluir = role === 'admin' || role === 'professor' || aviso.autorId === leitorId || normalizarPerfil(aviso.autorRole) === role
+            const podeExcluir = role === 'admin' || role === 'gerente' || role === 'professor' || aviso.autorId === leitorId || normalizarPerfil(aviso.autorRole) === role
             const podeGerenciar = destinos.length > 0
             const podeEditar = ehAutor
             const respostasAviso = Array.isArray(aviso.respostas) ? aviso.respostas : []

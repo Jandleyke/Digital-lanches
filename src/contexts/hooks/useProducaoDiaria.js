@@ -2,15 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { collection, deleteDoc, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { notificarPush } from '../../utils/notificarPush'
+import { calcularAjusteProducao, calcularDesperdicio, normalizarProducao } from '../../utils/producao'
+import { useTempoAtual } from '../../utils/useTempoAtual'
 
-function inicioDoDia() {
-  const data = new Date()
+function inicioDoDia(referencia = Date.now()) {
+  const data = new Date(referencia)
   data.setHours(0, 0, 0, 0)
   return data.getTime()
 }
 
-function fimDoDia() {
-  const data = new Date()
+function fimDoDia(referencia = Date.now()) {
+  const data = new Date(referencia)
   data.setHours(23, 59, 59, 999)
   return data.getTime()
 }
@@ -37,26 +39,11 @@ function historicoItem(acao, usuarioLogado, extra = {}) {
   }
 }
 
-function normalizarProducao(item) {
-  const quantidadePronta = Number(item.quantidadePronta || 0)
-  const quantidadeVendida = Number(item.quantidadeVendida || 0)
-  const quantidadeDesperdicada = Number(item.quantidadeDesperdicada || 0)
-  return {
-    ...item,
-    quantidadePlanejada: Number(item.quantidadePlanejada || 0),
-    quantidadeEmProducao: Number(item.quantidadeEmProducao || 0),
-    quantidadePronta,
-    quantidadeVendida,
-    quantidadeDesperdicada,
-    historicoDesperdicio: Array.isArray(item.historicoDesperdicio) ? item.historicoDesperdicio : [],
-    quantidadeRestante: Math.max(0, quantidadePronta - quantidadeVendida - quantidadeDesperdicada),
-  }
-}
-
 export const MOTIVOS_DESPERDICIO = ['Queimou', 'Venceu', 'Caiu no chao', 'Sobrou', 'Erro de producao', 'Danificado', 'Outro']
 
 export function useProducaoDiaria(usuarioLogado) {
   const [producaoDiaria, setProducaoDiaria] = useState([])
+  const tempoAtual = useTempoAtual(60000)
 
   useEffect(() => {
     if (!usuarioLogado) return
@@ -68,13 +55,13 @@ export function useProducaoDiaria(usuarioLogado) {
   }, [usuarioLogado])
 
   const producaoHoje = useMemo(() => {
-    const ini = inicioDoDia()
-    const fim = fimDoDia()
+    const ini = inicioDoDia(tempoAtual)
+    const fim = fimDoDia(tempoAtual)
     return producaoDiaria.filter(item => {
       const data = Number(item.dataProducaoTs || item.criadoEm || 0)
       return data >= ini && data <= fim
     })
-  }, [producaoDiaria])
+  }, [producaoDiaria, tempoAtual])
 
   async function salvarProducao(dados) {
     const id = dados.id || `PD${Date.now()}`
@@ -152,9 +139,8 @@ export function useProducaoDiaria(usuarioLogado) {
 
   async function registrarDesperdicio(id, atual, { quantidade, motivo, observacao }) {
     const agora = Date.now()
-    const qtd = Math.max(0, Number(quantidade || 0))
-    const quantidadeDesperdicada = Number(atual.quantidadeDesperdicada || 0) + qtd
-    const quantidadeRestante = Math.max(0, Number(atual.quantidadeRestante || 0) - qtd)
+    const calculo = calcularDesperdicio(atual, quantidade)
+    const { quantidade: qtd, quantidadeDesperdicada, quantidadeRestante } = calculo
     const usuario = usuarioResumo(usuarioLogado)
     const entradaDesperdicio = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -189,12 +175,9 @@ export function useProducaoDiaria(usuarioLogado) {
 
   async function ajustarProducaoVendedor(id, atual, { novaQuantidade, novoStatus, motivo, observacao }) {
     const agora = Date.now()
-    const quantidadeAnterior = Number(atual.quantidadeRestante || 0)
-    const quantidadeNova = Math.max(0, Number(novaQuantidade ?? quantidadeAnterior))
-    const statusAnterior = atual.status || 'Planejado'
-    const statusNovo = novoStatus || statusAnterior
+    const ajuste = calcularAjusteProducao(atual, novaQuantidade, novoStatus)
+    const { quantidadeAnterior, quantidadeNova, quantidadePronta, statusAnterior, statusNovo } = ajuste
     const usuario = usuarioResumo(usuarioLogado)
-    const quantidadePronta = quantidadeNova + Number(atual.quantidadeVendida || 0) + Number(atual.quantidadeDesperdicada || 0)
     const entrada = {
       ...historicoItem('Ajuste de producao recebida', usuarioLogado, {
         produtoId: atual.produtoId || '',

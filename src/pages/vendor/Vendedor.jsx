@@ -1,24 +1,45 @@
 import { useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { arrayUnion, doc, updateDoc } from 'firebase/firestore'
 import {
-  AlertTriangle, CheckCircle2, ClipboardList, Clock, CreditCard, Edit3, Eye,
-  Megaphone, Package, PackageCheck, PlusCircle, Save, Search, ShoppingBag, XCircle,
+  AlertTriangle, CheckCircle2, ClipboardList, Clock, CreditCard, Edit3, Eye, EyeOff,
+  Megaphone, MessageCircle, Minus, Package, PackageCheck, Plus, PlusCircle, Save, Search, Send,
+  ScanLine, ShoppingBag, Trash2, XCircle,
 } from 'lucide-react'
 import Layout from '../../components/Layout'
 import AvisosSetor from '../../components/AvisosSetor'
 import GerenciarEstoque from '../../components/GerenciarEstoque'
 import ProdutoFormModal from '../../components/ProdutoFormModal'
+import PedidoBalcao from '../../components/PedidoBalcao'
+import LeitorQrPedido from '../../components/vendor/LeitorQrPedido'
 import { useApp } from '../../contexts/AppContext'
+import { useToast } from '../../contexts/hooks/useToast'
+import { db } from '../../firebase'
 import { formatPrice } from '../../utils/formatters'
 import { estoqueNivel } from '../../utils/statusColors'
 import { useIsMobile } from '../../utils/useIsMobile'
 import { DIAS_CARDAPIO, DIAS_LABEL, resumoDiasProduto } from '../../utils/cardapioDias'
-import { ehGestao } from '../../utils/perfis'
+import { ehGestao, normalizarPerfil } from '../../utils/perfis'
 import { PRODUTO_FORM_VAZIO, produtoParaForm, formParaProduto } from '../../utils/produtoForm'
+import { useTempoAtual } from '../../utils/useTempoAtual'
+import { maxDesperdicio } from '../../utils/producao'
+import { MOTIVOS_DESPERDICIO } from '../../contexts/hooks/useProducaoDiaria'
+import {
+  JANELA_PEDIDO_MS,
+  compararPedidosFila,
+  codigoPedido as codigoPedidoBase,
+  dataIsoLocal,
+  encontrarPedidoPorQr,
+  horarioRetiradaParaTimestamp,
+  pedidoAntesDaRetirada,
+  pedidoNoFiltroStatus,
+} from '../../utils/pedidos'
 
 const ROTAS_ABA = {
   dashboard: '/vendedor',
+  balcao: '/vendedor/balcao',
   pedidos: '/vendedor/pedidos',
+  atendimento: '/vendedor/atendimento',
   produtos: '/vendedor/produtos',
   estoque: '/vendedor/estoque',
   vendas: '/vendedor/vendas',
@@ -26,7 +47,9 @@ const ROTAS_ABA = {
 }
 
 function abaPorRota(pathname) {
+  if (pathname.includes('/balcao')) return 'balcao'
   if (pathname.includes('/pedidos')) return 'pedidos'
+  if (pathname.includes('/atendimento')) return 'atendimento'
   if (pathname.includes('/produtos')) return 'produtos'
   if (pathname.includes('/estoque')) return 'estoque'
   if (pathname.includes('/vendas')) return 'vendas'
@@ -43,16 +66,29 @@ const FILTROS_PEDIDOS = [
   ['cancelados', 'Cancelados'],
 ]
 
+const PAGAMENTOS_BALCAO = ['Dinheiro', 'PIX', 'Débito', 'Crédito']
+
+const MOTIVOS_CANCELAMENTO = [
+  'Aluno desistiu',
+  'Produto indisponível',
+  'Erro no pedido',
+  'Pagamento não realizado',
+  'Outro motivo',
+]
+
 const STATUS_AJUSTE_PRODUCAO = [
   'Pronto para venda',
   'Parcialmente pronto',
   'Esgotado',
 ]
 
-const FORM_AJUSTE_VAZIO = { quantidade: '', status: '', motivo: '', observacao: '' }
+const CATEGORIAS_RAPIDAS_PRODUTOS = ['Bebidas', 'Lanches', 'Salgados', 'Doces']
 
-function inicioDoDia() {
-  const data = new Date()
+const FORM_AJUSTE_VAZIO = { quantidade: '', status: '', motivo: '', observacao: '' }
+const FORM_DESCARTE_VAZIO = { quantidade: '', motivo: MOTIVOS_DESPERDICIO[0], observacao: '' }
+
+function inicioDoDia(referencia = Date.now()) {
+  const data = new Date(referencia)
   data.setHours(0, 0, 0, 0)
   return data.getTime()
 }
@@ -69,16 +105,51 @@ function ordenarPorNome(a, b) {
   return String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')
 }
 
+function produtoEhBebida(produto) {
+  return String(produto?.categoria || '').trim().toLowerCase() === 'bebidas'
+}
+
 function pedidoCodigo(pedido) {
-  return String(pedido?.numero || pedido?.id || 'pedido').slice(-6).toUpperCase()
+  return codigoPedidoBase(pedido)
 }
 
 function alunoNome(pedido) {
   return pedido?.alunoNome || pedido?.nomeAluno || pedido?.aluno || pedido?.nome || 'Aluno não informado'
 }
 
+function perfilClientePedido(pedido, usuarios = []) {
+  const perfilSalvo = normalizarPerfil(pedido?.alunoPerfil || pedido?.perfilAluno || pedido?.solicitantePerfil)
+  if (perfilSalvo === 'professor') return 'professor'
+
+  const matricula = String(pedido?.matricula || pedido?.alunoMatricula || pedido?.solicitanteMatricula || '').trim()
+  const nome = String(alunoNome(pedido)).trim().toLowerCase()
+  const usuario = usuarios.find(u => {
+    const mesmaMatricula = matricula && String(u.matricula || '').trim() === matricula
+    const mesmoNome = nome && String(u.nome || '').trim().toLowerCase() === nome
+    return mesmaMatricula || mesmoNome
+  })
+
+  return normalizarPerfil(usuario?.role || usuario?.perfil || perfilSalvo)
+}
+
+function clienteLabel(pedido, usuarios = []) {
+  return perfilClientePedido(pedido, usuarios) === 'professor'
+    ? 'Professor'
+    : 'Aluno'
+}
+
+function origemLabel(pedido) {
+  return pedido?.origem === 'balcao' ? 'Balcão' : 'App'
+}
+
 function getFormaPagamento(pedido) {
   return pedido?.formaPagamento || pedido?.pagamento || pedido?.metodoPagamento || 'Não informado'
+}
+
+function contaProfessorPendente(pedido) {
+  return normalizeStatus(getFormaPagamento(pedido)) === 'conta do professor'
+    && !pedido?.pago
+    && normalizeStatus(pedido?.status) !== 'cancelado'
 }
 
 function getTotalPedido(pedido) {
@@ -98,11 +169,11 @@ function getPedidoDate(pedido) {
 
 function pedidoDataIso(pedido) {
   const date = getPedidoDate(pedido)
-  return date ? date.toISOString().slice(0, 10) : null
+  return date ? dataIsoLocal(date) : null
 }
 
 function hojeIso() {
-  return new Date().toISOString().slice(0, 10)
+  return dataIsoLocal()
 }
 
 function formatarDataHora(valor) {
@@ -126,8 +197,8 @@ function statusVisual(status) {
   const normal = normalizeStatus(status)
   if (normal === 'recebido' || normal === 'pendente') return { label: 'Pendente', bg: '#FEF3C7', color: '#92400E' }
   if (normal === 'em preparo' || normal === 'preparando') return { label: 'Preparando', bg: '#DBEAFE', color: '#1D4ED8' }
-  if (normal === 'pronto') return { label: 'Pronto', bg: '#DCFCE7', color: '#166534' }
-  if (normal === 'entregue') return { label: 'Entregue', bg: '#E2E8F0', color: '#475569' }
+  if (normal === 'pronto') return { label: 'Aguardando retirada', bg: '#DCFCE7', color: '#166534' }
+  if (normal === 'entregue') return { label: 'Entregue', bg: '#DCFCE7', color: '#166534' }
   if (normal === 'cancelado') return { label: 'Cancelado', bg: '#FEE2E2', color: '#B91C1C' }
   return { label: status || 'Não informado', bg: '#F1F5F9', color: '#475569' }
 }
@@ -135,11 +206,7 @@ function statusVisual(status) {
 function filtrarPedidos(pedidos, filtro, pagamento, busca = '') {
   const termo = busca.trim().toLowerCase()
   return pedidos.filter(pedido => {
-    const status = normalizeStatus(pedido.status)
-    const statusOk = filtro === 'todos'
-      || (filtro === 'pendentes' && !['entregue', 'cancelado'].includes(status))
-      || (filtro === 'entregues' && status === 'entregue')
-      || (filtro === 'cancelados' && status === 'cancelado')
+    const statusOk = pedidoNoFiltroStatus(pedido, filtro)
 
     const pagamentoOk = pagamento === 'todos' || normalizeStatus(getFormaPagamento(pedido)) === normalizeStatus(pagamento)
     const buscaOk = !termo
@@ -148,6 +215,8 @@ function filtrarPedidos(pedidos, filtro, pagamento, busca = '') {
       || String(pedido.id || '').toLowerCase().includes(termo)
       || String(pedido.matricula || pedido.alunoMatricula || '').toLowerCase().includes(termo)
       || alunoNome(pedido).toLowerCase().includes(termo)
+      || String(pedido.status || '').toLowerCase().includes(termo)
+      || statusVisual(pedido.status).label.toLowerCase().includes(termo)
 
     return statusOk && pagamentoOk && buscaOk
   })
@@ -209,22 +278,45 @@ function horaAtualizacao(valor) {
 
 export default function Vendedor() {
   const {
-    usuarioLogado, pedidos, produtos, producaoHoje,
-    atualizarStatusPedido, cancelarPedido, marcarPedidoPago,
-    atualizarProduto, adicionarProduto, adicionarProdutos,
-    ajustarProducaoVendedor,
+    usuarioLogado, usuarios, pedidos, produtos, producaoHoje,
+    atualizarStatusPedido, darBaixaContaProfessor, cancelarPedido, editarPedido,
+    atualizarProduto, adicionarProduto, adicionarProdutos, atualizarDisponibilidadeProdutos,
+    ajustarProducaoVendedor, registrarDesperdicio,
+    atendimentos, responderAtendimento, encerrarAtendimento, arquivarAtendimentosEncerrados, marcarLidoVendedor,
   } = useApp()
   const podeEditarPreco = ehGestao(usuarioLogado?.role || usuarioLogado?.perfil)
   const location = useLocation()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
+  const toast = useToast()
+  const tempoAtual = useTempoAtual(60000)
   const aba = abaPorRota(location.pathname)
   const [filtroPedidos, setFiltroPedidos] = useState('todos')
   const [filtroPagamento, setFiltroPagamento] = useState('todos')
   const [filtroData, setFiltroData] = useState('')
   const [buscaPedido, setBuscaPedido] = useState('')
+  const [leitorQrAberto, setLeitorQrAberto] = useState(false)
   const [buscaProduto, setBuscaProduto] = useState('')
   const [detalhePedido, setDetalhePedido] = useState(null)
+  const [pagamentoEditando, setPagamentoEditando] = useState('')
+  const [salvandoPagamento, setSalvandoPagamento] = useState(false)
+  const [erroPagamento, setErroPagamento] = useState('')
+  const [pedidoCancelando, setPedidoCancelando] = useState(null)
+  const [motivoCancelamento, setMotivoCancelamento] = useState(MOTIVOS_CANCELAMENTO[0])
+  const [motivoOutro, setMotivoOutro] = useState('')
+  const [cancelandoPedido, setCancelandoPedido] = useState(false)
+  const [erroCancelamento, setErroCancelamento] = useState('')
+  const [pedidoEditando, setPedidoEditando] = useState(null)
+  const [itensEdicao, setItensEdicao] = useState([])
+  const [observacaoEdicao, setObservacaoEdicao] = useState('')
+  const [horarioEdicao, setHorarioEdicao] = useState('')
+  const [pagamentoEdicao, setPagamentoEdicao] = useState('')
+  const [buscaProdutoEdicao, setBuscaProdutoEdicao] = useState('')
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false)
+  const [erroEdicao, setErroEdicao] = useState('')
+  const [retiradaPedido, setRetiradaPedido] = useState(null)
+  const [confirmacaoRetirada, setConfirmacaoRetirada] = useState('')
+  const [erroRetirada, setErroRetirada] = useState('')
   const [detalheProduto, setDetalheProduto] = useState(null)
   const [produtoForm, setProdutoForm] = useState(PRODUTO_FORM_VAZIO)
   const [loteProdutos, setLoteProdutos] = useState([{ ...PRODUTO_LOTE_VAZIO }])
@@ -234,24 +326,210 @@ export default function Vendedor() {
   const [erroSalvarProduto, setErroSalvarProduto] = useState('')
   const [filtroCategoria, setFiltroCategoria] = useState('todas')
   const [filtroDisponivel, setFiltroDisponivel] = useState('todos')
+  const [modoDisponibilidadeLote, setModoDisponibilidadeLote] = useState(false)
+  const [produtosSelecionados, setProdutosSelecionados] = useState([])
+  const [alterandoDisponibilidade, setAlterandoDisponibilidade] = useState(false)
   const [ajusteItem, setAjusteItem] = useState(null)
   const [formAjuste, setFormAjuste] = useState(FORM_AJUSTE_VAZIO)
+  const [descarteItem, setDescarteItem] = useState(null)
+  const [formDescarte, setFormDescarte] = useState(FORM_DESCARTE_VAZIO)
+  const [erroDescarte, setErroDescarte] = useState('')
+  const [atendimentoAbertoId, setAtendimentoAbertoId] = useState('')
+  const [respostaAtendimento, setRespostaAtendimento] = useState('')
+  const [enviandoAtendimento, setEnviandoAtendimento] = useState(false)
+  const [filtroAtendimentoStatus, setFiltroAtendimentoStatus] = useState('ativos')
+  const [filtroAtendimentoPeriodo, setFiltroAtendimentoPeriodo] = useState('hoje')
+  const [limpandoAtendimento, setLimpandoAtendimento] = useState(false)
 
   function selecionarAba(id) {
     navigate(ROTAS_ABA[id] || '/vendedor')
   }
 
-  const hoje = inicioDoDia()
-  const pedidosOrdenados = useMemo(() => [...pedidos].sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0)), [pedidos])
+  function abrirAtendimento(atendimento) {
+    setAtendimentoAbertoId(atendimento?.id || '')
+    setRespostaAtendimento('')
+    if (atendimento?.novaParaVendedor) marcarLidoVendedor(atendimento).catch(() => {})
+  }
+
+  function pedidoDoAtendimento(atendimento) {
+    return atendimento?.pedido
+      || pedidos.find(pedido => String(pedido.id) === String(atendimento?.pedidoId))
+      || null
+  }
+
+  function codigoAtendimento(atendimento) {
+    const pedido = pedidoDoAtendimento(atendimento)
+    if (pedido) return pedidoCodigo(pedido)
+
+    const codigoSalvo = String(atendimento?.pedidoCodigo || '').replace(/\D/g, '')
+    if (codigoSalvo) return codigoSalvo.padStart(4, '0').slice(-4)
+
+    return pedidoCodigo(atendimento)
+  }
+
+  async function enviarRespostaAtendimento(atendimento) {
+    const texto = respostaAtendimento.trim()
+    if (!atendimento?.id || !texto || enviandoAtendimento) return
+    setEnviandoAtendimento(true)
+    try {
+      await responderAtendimento(atendimento, texto)
+      setRespostaAtendimento('')
+      toast('O vendedor respondeu sua solicitação.', 'success')
+    } catch (error) {
+      toast(error.message || 'Não foi possível responder.', 'error')
+    } finally {
+      setEnviandoAtendimento(false)
+    }
+  }
+
+  async function finalizarAtendimento(atendimento) {
+    try {
+      await encerrarAtendimento(atendimento)
+      toast('Atendimento encerrado.', 'success')
+    } catch (error) {
+      toast(error.message || 'Não foi possível encerrar o atendimento.', 'error')
+    }
+  }
+
+  async function limparHistoricoAtendimento(lista = []) {
+    const encerrados = lista.filter(item => item.status === 'encerrada' && !item.arquivadoVendedor)
+    if (encerrados.length === 0 || limpandoAtendimento) return
+    if (!confirm(`Limpar ${encerrados.length} conversa(s) encerrada(s) do histórico?`)) return
+    setLimpandoAtendimento(true)
+    try {
+      const total = await arquivarAtendimentosEncerrados(encerrados.map(item => item.id))
+      toast(`${total} conversa(s) removida(s) do histórico.`, 'success')
+      if (encerrados.some(item => item.id === atendimentoAbertoId)) setAtendimentoAbertoId('')
+    } catch (error) {
+      toast(error.message || 'Não foi possível limpar o histórico.', 'error')
+    } finally {
+      setLimpandoAtendimento(false)
+    }
+  }
+
+  function limparFiltrosPedidos() {
+    setBuscaPedido('')
+    setFiltroData('')
+    setFiltroPedidos('todos')
+    setFiltroPagamento('todos')
+  }
+
+  function abrirDetalhePedido(pedido) {
+    setDetalhePedido(pedido)
+    setPagamentoEditando(getFormaPagamento(pedido))
+    setErroPagamento('')
+  }
+
+  function lerPedidoPorQr(conteudo) {
+    const pedido = encontrarPedidoPorQr(conteudo, pedidos)
+    if (!pedido) {
+      toast('QR Code inválido ou pedido não encontrado.', 'error')
+      return false
+    }
+
+    setLeitorQrAberto(false)
+    setFiltroPedidos('todos')
+    setFiltroPagamento('todos')
+    setFiltroData('')
+    setBuscaPedido(pedidoCodigo(pedido))
+    abrirDetalhePedido(pedido)
+    toast(`Pedido ${pedidoCodigo(pedido)} encontrado.`, 'success')
+    return true
+  }
+
+  async function salvarPagamentoPedido() {
+    if (!detalhePedido?.id) return
+    setSalvandoPagamento(true)
+    setErroPagamento('')
+    try {
+      const encerrado = ['entregue', 'cancelado'].includes(normalizeStatus(detalhePedido.status))
+      if (encerrado && !podeEditarPreco) {
+        throw new Error('Somente Admin/Gerente pode alterar o pagamento de um pedido encerrado.')
+      }
+      if (pagamentoEditando === 'Conta do Professor' && perfilClientePedido(detalhePedido, usuarios) !== 'professor') {
+        throw new Error('Conta do Professor está disponível somente para professor cadastrado.')
+      }
+      const formaAnterior = getFormaPagamento(detalhePedido)
+      const pagamentoPendente = pagamentoEditando === 'Conta do Professor'
+      const pagoEm = pagamentoPendente ? null : Date.now()
+      await updateDoc(doc(db, 'pedidos', detalhePedido.id), {
+        formaPagamento: pagamentoEditando,
+        pagamento: pagamentoEditando,
+        pago: !pagamentoPendente,
+        pagamentoStatus: pagamentoPendente ? 'pendente' : 'pago',
+        pagoEm,
+        pagamentoAtualizadoEm: Date.now(),
+        pagamentoAtualizadoPor: usuarioLogado.uid,
+        pagamentoAtualizadoPorNome: usuarioLogado.nome || 'Vendedor',
+        historicoPagamentos: arrayUnion({
+          formaAntiga: formaAnterior,
+          formaNova: pagamentoEditando,
+          alteradoPor: usuarioLogado.uid,
+          alteradoPorNome: usuarioLogado.nome || 'Vendedor',
+          dataHora: Date.now(),
+        }),
+      })
+      setDetalhePedido(prev => ({
+        ...prev,
+        formaPagamento: pagamentoEditando,
+        pagamento: pagamentoEditando,
+        pago: !pagamentoPendente,
+        pagamentoStatus: pagamentoPendente ? 'pendente' : 'pago',
+        pagoEm,
+      }))
+      toast('Forma de pagamento atualizada.', 'success')
+    } catch (e) {
+      setErroPagamento(e.message || 'Não foi possível atualizar o pagamento.')
+    } finally {
+      setSalvandoPagamento(false)
+    }
+  }
+
+  const hoje = useMemo(() => inicioDoDia(tempoAtual), [tempoAtual])
+  const pedidosOrdenados = useMemo(() => [...pedidos].sort(compararPedidosFila), [pedidos])
   const pedidosPorData = useMemo(
     () => filtroData ? pedidosOrdenados.filter(p => pedidoDataIso(p) === filtroData) : pedidosOrdenados,
     [pedidosOrdenados, filtroData]
   )
   const formasPagamento = useMemo(() => Array.from(new Set(pedidos.map(getFormaPagamento).filter(Boolean))), [pedidos])
   const pedidosVisiveis = useMemo(() => filtrarPedidos(pedidosPorData, filtroPedidos, filtroPagamento, buscaPedido), [pedidosPorData, filtroPedidos, filtroPagamento, buscaPedido])
+  const haFiltrosPedidos = Boolean(buscaPedido.trim() || filtroData || filtroPedidos !== 'todos' || filtroPagamento !== 'todos')
+  const pedidoEncontrado = useMemo(() => {
+    const termo = buscaPedido.trim().toLowerCase().replace(/^pedido\s*/, '')
+    if (!termo || pedidosVisiveis.length === 0) return null
+    const exato = pedidosVisiveis.find(pedido => {
+      const codigo = pedidoCodigo(pedido).toLowerCase()
+      return codigo === termo
+        || codigo.replace(/^0+/, '') === termo.replace(/^0+/, '')
+        || String(pedido.numero || '').toLowerCase() === termo
+        || String(pedido.matricula || pedido.alunoMatricula || '').toLowerCase() === termo
+        || alunoNome(pedido).toLowerCase() === termo
+    })
+    return exato || (pedidosVisiveis.length === 1 ? pedidosVisiveis[0] : null)
+  }, [buscaPedido, pedidosVisiveis])
+  const atendimentosNaoArquivados = useMemo(() => atendimentos.filter(item => !item.arquivadoVendedor), [atendimentos])
+  const atendimentosAbertos = useMemo(() => atendimentosNaoArquivados.filter(item => item.status !== 'encerrada'), [atendimentosNaoArquivados])
+  const atendimentosEncerrados = useMemo(() => atendimentosNaoArquivados.filter(item => item.status === 'encerrada'), [atendimentosNaoArquivados])
+  const atendimentosHoje = useMemo(() => atendimentosNaoArquivados.filter(item => dataIsoLocal(item.atualizadoEm || item.criadoEm) === hojeIso()), [atendimentosNaoArquivados])
+  const atendimentosVisiveis = useMemo(() => {
+    const base = filtroAtendimentoPeriodo === 'hoje'
+      ? atendimentosNaoArquivados.filter(item => dataIsoLocal(item.atualizadoEm || item.criadoEm) === hojeIso())
+      : atendimentosNaoArquivados
+    return base.filter(item => {
+      if (filtroAtendimentoStatus === 'ativos') return item.status !== 'encerrada'
+      if (filtroAtendimentoStatus === 'encerradas') return item.status === 'encerrada'
+      return true
+    })
+  }, [atendimentosNaoArquivados, filtroAtendimentoPeriodo, filtroAtendimentoStatus])
+  const atendimentoSelecionado = atendimentosVisiveis.find(item => item.id === atendimentoAbertoId) || null
   const vendasHoje = useMemo(() => pedidos.filter(p => {
     const data = p.pagoEm || p.retiradoEm || p.criadoEm || 0
     return normalizeStatus(p.status) !== 'cancelado' && data >= hoje && (p.pago || normalizeStatus(p.status) === 'entregue')
+  }), [pedidos, hoje])
+  const pedidosHojeDashboard = useMemo(() => pedidos.filter(p => {
+    const date = getPedidoDate(p)
+    const criadoEm = date ? date.getTime() : Number(p.criadoEm || 0)
+    return criadoEm >= hoje
   }), [pedidos, hoje])
   const totalVendas = vendasHoje.reduce((acc, p) => acc + getTotalPedido(p), 0)
   const itensVendidos = useMemo(() => contarItens(vendasHoje), [vendasHoje])
@@ -265,6 +543,14 @@ export default function Vendedor() {
     return buscaOk && categoriaOk && disponivelOk
   }), [produtosOrdenados, buscaProduto, filtroCategoria, filtroDisponivel])
   const categoriasProduto = useMemo(() => Array.from(new Set(produtos.map(p => p.categoria || 'Sem categoria'))).sort(), [produtos])
+  const produtosParaEdicao = useMemo(() => {
+    const termo = buscaProdutoEdicao.trim().toLowerCase()
+    return produtosOrdenados.filter(produto => (
+      produto.disponivel !== false
+      && Number(produto.estoque || 0) > 0
+      && (!termo || String(produto.nome || '').toLowerCase().includes(termo))
+    )).slice(0, 8)
+  }, [produtosOrdenados, buscaProdutoEdicao])
 
   const estoqueBaixo = useMemo(() => produtos.filter(p => Number(p.estoqueBaixo || 0) > 0 && Number(p.estoque || 0) <= Number(p.estoqueBaixo || 0)), [produtos])
   const producaoCozinha = useMemo(() => (producaoHoje || [])
@@ -273,21 +559,204 @@ export default function Vendedor() {
       const peso = { 'pronto para venda': 1, 'parcialmente pronto': 2, 'em producao': 3, planejado: 4, esgotado: 5 }
       return (peso[normalizeStatus(a.status)] || 9) - (peso[normalizeStatus(b.status)] || 9)
     }), [producaoHoje])
-  const pendentes = pedidos.filter(p => !['entregue', 'cancelado'].includes(normalizeStatus(p.status))).length
-  const entregues = pedidos.filter(p => normalizeStatus(p.status) === 'entregue').length
-  const cancelados = pedidos.filter(p => normalizeStatus(p.status) === 'cancelado').length
+  const pendentes = pedidosHojeDashboard.filter(p => !['entregue', 'cancelado'].includes(normalizeStatus(p.status)) || contaProfessorPendente(p)).length
+  const entregues = pedidosHojeDashboard.filter(p => normalizeStatus(p.status) === 'entregue').length
+  const cancelados = pedidosHojeDashboard.filter(p => normalizeStatus(p.status) === 'cancelado').length
 
   async function confirmarRetirada(pedido) {
-    await atualizarStatusPedido(pedido.id, 'Entregue')
+    if (pedidoAntesDaRetirada(pedido)) {
+      alert('O tempo do pedido começará a contar a partir do horário selecionado para retirada.')
+      return
+    }
+    if (normalizeStatus(getFormaPagamento(pedido)) !== 'conta do professor') {
+      const resultado = await atualizarStatusPedido(pedido.id, 'Entregue', pedido)
+      if (resultado?.erro) {
+        toast(resultado.erro, 'error')
+        return
+      }
+      if (detalhePedido?.id === pedido.id) setDetalhePedido(null)
+      toast('Pedido entregue e pago com sucesso.', 'success')
+      return
+    }
+    setRetiradaPedido(pedido)
+    setConfirmacaoRetirada('')
+    setErroRetirada('')
   }
 
-  async function cancelar(pedido) {
-    if (!confirm(`Cancelar pedido #${pedidoCodigo(pedido)}?`)) return
-    await cancelarPedido(pedido.id, 'Cancelado pelo vendedor')
+  async function concluirRetirada(e) {
+    e.preventDefault()
+    if (!retiradaPedido) return
+    const matriculaEsperada = String(retiradaPedido.matricula || retiradaPedido.alunoMatricula || '').trim()
+    const valorInformado = confirmacaoRetirada.trim()
+    if (!valorInformado) {
+      setErroRetirada('Informe a matrícula do professor para entregar o pedido.')
+      return
+    }
+    if (valorInformado !== matriculaEsperada) {
+      setErroRetirada('A matrícula informada não corresponde ao professor deste pedido.')
+      return
+    }
+    const resultado = await atualizarStatusPedido(retiradaPedido.id, 'Entregue')
+    if (resultado?.erro) {
+      setErroRetirada(resultado.erro)
+      return
+    }
+    setRetiradaPedido(null)
+    if (detalhePedido?.id === retiradaPedido.id) setDetalhePedido(null)
+    setConfirmacaoRetirada('')
+    setErroRetirada('')
+  }
+
+  function cancelar(pedido) {
+    setPedidoCancelando(pedido)
+    setMotivoCancelamento(MOTIVOS_CANCELAMENTO[0])
+    setMotivoOutro('')
+    setErroCancelamento('')
+  }
+
+  async function confirmarCancelamento(e) {
+    e.preventDefault()
+    if (!pedidoCancelando) return
+    const motivo = motivoCancelamento === 'Outro motivo' ? motivoOutro.trim() : motivoCancelamento
+    if (!motivo) {
+      setErroCancelamento('Informe o motivo do cancelamento.')
+      return
+    }
+    setCancelandoPedido(true)
+    setErroCancelamento('')
+    const resultado = await cancelarPedido(pedidoCancelando.id, motivo)
+    setCancelandoPedido(false)
+    if (resultado?.erro) {
+      setErroCancelamento(resultado.erro)
+      return
+    }
+    if (detalhePedido?.id === pedidoCancelando.id) setDetalhePedido(null)
+    setPedidoCancelando(null)
+    toast('Pedido cancelado e estoque devolvido.', 'success')
+  }
+
+  function abrirEdicaoPedido(pedido) {
+    if (['entregue', 'cancelado'].includes(normalizeStatus(pedido.status))) {
+      toast('Pedidos encerrados não podem ser editados.', 'error')
+      return
+    }
+    setPedidoEditando(pedido)
+    setItensEdicao((pedido.itens || []).map(item => ({
+      produtoId: item.produtoId || item.id,
+      nome: item.nome || item.produtoNome || 'Produto',
+      quantidade: Math.max(1, Number(item.quantidade || 1)),
+      preco: Number(item.preco || item.valor || 0),
+    })))
+    setObservacaoEdicao(pedido.observacao || pedido.observacoes || '')
+    setHorarioEdicao(pedido.horarioRetirada || '')
+    setPagamentoEdicao(getFormaPagamento(pedido))
+    setBuscaProdutoEdicao('')
+    setErroEdicao('')
+  }
+
+  function alterarQuantidadeEdicao(index, delta) {
+    setItensEdicao(prev => prev.map((item, i) => i === index
+      ? { ...item, quantidade: Math.max(1, Number(item.quantidade || 1) + delta) }
+      : item))
+  }
+
+  function removerItemEdicao(index) {
+    setItensEdicao(prev => prev.filter((_, i) => i !== index))
+  }
+
+  function adicionarProdutoEdicao(produto) {
+    if (produto.disponivel === false || Number(produto.estoque || 0) <= 0) {
+      setErroEdicao('Produto fora de estoque.')
+      return
+    }
+    setItensEdicao(prev => {
+      const index = prev.findIndex(item => String(item.produtoId) === String(produto.id))
+      if (index >= 0) {
+        return prev.map((item, i) => i === index ? { ...item, quantidade: item.quantidade + 1 } : item)
+      }
+      return [...prev, {
+        produtoId: produto.id,
+        nome: produto.nome,
+        quantidade: 1,
+        preco: Number(produto.preco || 0),
+      }]
+    })
+    setErroEdicao('')
+  }
+
+  async function salvarEdicaoPedido(e) {
+    e.preventDefault()
+    if (!pedidoEditando || itensEdicao.length === 0) {
+      setErroEdicao('O pedido precisa ter pelo menos um item.')
+      return
+    }
+    if (pagamentoEdicao === 'Conta do Professor' && perfilClientePedido(pedidoEditando, usuarios) !== 'professor') {
+      setErroEdicao('Conta do Professor está disponível somente para professor cadastrado.')
+      return
+    }
+    setSalvandoEdicao(true)
+    setErroEdicao('')
+    const criadoEm = getPedidoDate(pedidoEditando)?.getTime() || Number(pedidoEditando.criadoEm || Date.now())
+    const horarioRetiradaEm = horarioEdicao ? horarioRetiradaParaTimestamp(horarioEdicao, criadoEm) : null
+    const pagamentoMudou = pagamentoEdicao !== getFormaPagamento(pedidoEditando)
+    const pagamentoPendente = pagamentoEdicao === 'Conta do Professor'
+    const agora = Date.now()
+    const updates = {
+      itens: itensEdicao,
+      total: itensEdicao.reduce((acc, item) => acc + Number(item.preco || 0) * Number(item.quantidade || 0), 0),
+      observacao: observacaoEdicao.trim(),
+      horarioRetirada: horarioEdicao,
+      formaPagamento: pagamentoEdicao,
+      pagamento: pagamentoEdicao,
+      ...(horarioRetiradaEm ? {
+        horarioRetiradaEm,
+        inicioContagemEm: Math.max(criadoEm, horarioRetiradaEm),
+        cancelavelAte: Math.max(criadoEm, horarioRetiradaEm) + JANELA_PEDIDO_MS,
+      } : {}),
+      ...(pagamentoMudou ? {
+        pago: !pagamentoPendente,
+        pagamentoStatus: pagamentoPendente ? 'pendente' : 'pago',
+        pagoEm: pagamentoPendente ? null : agora,
+        historicoPagamentos: arrayUnion({
+          formaAntiga: getFormaPagamento(pedidoEditando),
+          formaNova: pagamentoEdicao,
+          alteradoPor: usuarioLogado.uid,
+          alteradoPorNome: usuarioLogado.nome || 'Vendedor',
+          dataHora: agora,
+        }),
+      } : {}),
+    }
+    const resultado = await editarPedido(pedidoEditando.id, updates, pedidoEditando.itens || [])
+    setSalvandoEdicao(false)
+    if (resultado?.erro) {
+      setErroEdicao(resultado.erro)
+      return
+    }
+    setPedidoEditando(null)
+    if (detalhePedido?.id === pedidoEditando.id) setDetalhePedido(null)
+    toast('Pedido atualizado com sucesso.', 'success')
+  }
+
+  async function baixarPagamentoProfessor(pedido) {
+    if (!confirm(`Dar baixa no pagamento do pedido ${pedidoCodigo(pedido)}?`)) return
+    const resultado = await darBaixaContaProfessor(pedido.id)
+    if (resultado?.erro) {
+      toast(resultado.erro, 'error')
+      return
+    }
+    toast('Pagamento da Conta do Professor baixado.', 'success')
   }
 
   async function salvarEstoque(produto, estoque) {
-    await atualizarProduto({ ...produto, estoque: Math.max(0, Number(estoque || 0)) })
+    if (!produtoEhBebida(produto)) {
+      alert('O vendedor pode editar somente o estoque de bebidas.')
+      return
+    }
+    try {
+      await atualizarProduto({ ...produto, estoque: Math.max(0, Number(estoque || 0)) })
+    } catch (error) {
+      alert(error.message || 'Não foi possível atualizar o estoque.')
+    }
   }
 
   function abrirAjusteProducao(item) {
@@ -298,6 +767,42 @@ export default function Vendedor() {
       motivo: '',
       observacao: item.observacao || '',
     })
+  }
+
+  function abrirDescarte(item) {
+    setDescarteItem(item)
+    setFormDescarte(FORM_DESCARTE_VAZIO)
+    setErroDescarte('')
+  }
+
+  async function confirmarDescarte(e) {
+    e.preventDefault()
+    if (!descarteItem) return
+    const quantidade = Number(formDescarte.quantidade || 0)
+    const maximo = maxDesperdicio(descarteItem)
+    if (!quantidade || quantidade <= 0) {
+      setErroDescarte('Informe uma quantidade válida para registrar o descarte.')
+      return
+    }
+    if (quantidade > maximo) {
+      setErroDescarte(`A quantidade máxima para descarte é ${maximo} un.`)
+      return
+    }
+    try {
+      const resultado = await registrarDesperdicio(descarteItem.id, descarteItem, {
+        quantidade,
+        motivo: formDescarte.motivo,
+        observacao: formDescarte.observacao,
+      })
+      const produto = produtos.find(p => String(p.id) === String(descarteItem.produtoId))
+      if (produto) await atualizarProduto({ ...produto, estoque: resultado.quantidadeRestante })
+      setDescarteItem(null)
+      setFormDescarte(FORM_DESCARTE_VAZIO)
+      setErroDescarte('')
+      toast('Descarte registrado e estoque atualizado.', 'success')
+    } catch (error) {
+      setErroDescarte(error.message || 'Não foi possível registrar o descarte.')
+    }
   }
 
   async function confirmarAjusteProducao(e) {
@@ -314,9 +819,8 @@ export default function Vendedor() {
       observacao: formAjuste.observacao.trim(),
     })
     const produto = produtos.find(p => String(p.id) === String(ajusteItem.produtoId))
-    if (produto) {
-      const esgotado = normalizeStatus(resultado.status) === 'esgotado' || resultado.quantidadeRestante <= 0
-      await atualizarProduto({ ...produto, estoque: resultado.quantidadeRestante, disponivel: !esgotado })
+    if (produto && produtoEhBebida(produto)) {
+      await atualizarProduto({ ...produto, estoque: resultado.quantidadeRestante })
     }
     setAjusteItem(null)
     setFormAjuste(FORM_AJUSTE_VAZIO)
@@ -349,6 +853,8 @@ export default function Vendedor() {
       if (produtoEditando) {
         const original = produtos.find(p => p.id === produtoEditando)
         if (!podeEditarPreco) payload.preco = Number(original?.preco || 0)
+        payload.categoria = original?.categoria || payload.categoria
+        payload.estoque = Number(original?.estoque || 0)
         await atualizarProduto({ ...original, ...payload })
       } else {
         await adicionarProduto(payload)
@@ -400,20 +906,72 @@ export default function Vendedor() {
     setLoteProdutos([{ ...PRODUTO_LOTE_VAZIO }])
   }
 
-  function PedidoCard({ pedido }) {
+  function alternarProdutoSelecionado(produtoId) {
+    setProdutosSelecionados(atuais => atuais.includes(produtoId) ? atuais.filter(id => id !== produtoId) : [...atuais, produtoId])
+  }
+
+  function cancelarDisponibilidadeLote() {
+    setModoDisponibilidadeLote(false)
+    setProdutosSelecionados([])
+  }
+
+  async function salvarDisponibilidadeLote(disponivel) {
+    if (alterandoDisponibilidade) return
+    if (!produtosSelecionados.length) {
+      toast(disponivel ? 'Selecione ao menos um produto para disponibilizar.' : 'Selecione ao menos um produto.', 'error')
+      return
+    }
+    setAlterandoDisponibilidade(true)
+    try {
+      await atualizarDisponibilidadeProdutos(produtosSelecionados, disponivel)
+      cancelarDisponibilidadeLote()
+      toast(disponivel ? 'Produtos selecionados foram disponibilizados no cardápio do dia.' : 'Produtos pausados para venda.')
+    } catch (error) {
+      toast(error.message || 'Não foi possível alterar os produtos.')
+    } finally {
+      setAlterandoDisponibilidade(false)
+    }
+  }
+
+  function renderPedidoCard(pedido, destaque = false) {
     const itens = Array.isArray(pedido.itens) ? pedido.itens : []
     const encerrado = ['entregue', 'cancelado'].includes(normalizeStatus(pedido.status))
+    const podeEntregar = !encerrado
+    const pagamentoProfessorPendente = contaProfessorPendente(pedido)
+    const atendimentoPedido = atendimentos.find(item => String(item.pedidoId) === String(pedido.id) && !item.arquivadoVendedor)
 
     return (
-      <article style={s.pedidoCard}>
+      <article
+        key={pedido.id}
+        style={s.pedidoCard}
+        onClick={() => abrirDetalhePedido(pedido)}
+      >
         <div style={s.pedidoTop}>
           <div>
-            <strong style={s.codigo}>Pedido #{pedidoCodigo(pedido)}</strong>
+            <strong style={s.codigo}>Pedido {pedidoCodigo(pedido)}</strong>
             <p style={s.meta}>{alunoNome(pedido)} {pedido.matricula ? `- ${pedido.matricula}` : ''}</p>
           </div>
-          <StatusBadge status={pedido.status} />
+          <div style={s.pedidoBadges}>
+            {atendimentoPedido && (
+              <button
+                type="button"
+                style={{ ...s.mensagemPedidoBadge, ...(atendimentoPedido.novaParaVendedor ? s.mensagemPedidoBadgeNova : {}) }}
+                onClick={e => {
+                  e.stopPropagation()
+                  setFiltroAtendimentoPeriodo('todos')
+                  setFiltroAtendimentoStatus('todos')
+                  abrirAtendimento(atendimentoPedido)
+                  selecionarAba('atendimento')
+                }}
+              >
+                <MessageCircle size={13} /> {atendimentoPedido.novaParaVendedor ? 'Nova mensagem' : 'Mensagem'}
+              </button>
+            )}
+            <StatusBadge status={pedido.status} />
+          </div>
         </div>
         <div style={s.pedidoInfoGrid}>
+          <span><ShoppingBag size={14} /> {origemLabel(pedido)}</span>
           <span><CreditCard size={14} /> {getFormaPagamento(pedido)} - {pedido.pago ? 'Pago' : 'Pendente'}</span>
           <span><ShoppingBag size={14} /> {formatPrice(getTotalPedido(pedido))}</span>
           <span>{pedidoHora(pedido)} - Retirada {pedido.horarioRetirada || '--:--'}</span>
@@ -423,22 +981,53 @@ export default function Vendedor() {
             <span key={`${pedido.id}-${i}`} style={s.item}>{item.quantidade || 1}x {item.nome || item.produtoNome || 'Produto'}</span>
           ))}
         </div>
+        {destaque && (
+          <div style={s.resultadoDetalhes}>
+            <div style={s.detailGrid}>
+              <p><strong>Data e hora:</strong> {formatarDataHora(getPedidoDate(pedido) || pedido.criadoEm)}</p>
+              <p><strong>Retirada:</strong> {pedido.horarioRetirada || 'Não informada'}</p>
+              <p><strong>Matrícula:</strong> {pedido.matricula || pedido.alunoMatricula || 'Não informada'}</p>
+              <p><strong>Origem:</strong> {origemLabel(pedido)}</p>
+            </div>
+            {(pedido.itens || []).map((item, index) => {
+              const quantidade = Number(item.quantidade || 1)
+              const preco = Number(item.preco || item.valor || 0)
+              return (
+                <div key={`${pedido.id}-detalhe-${index}`} style={s.linhaResumo}>
+                  <span>{quantidade}x {item.nome || item.produtoNome || 'Produto'} · {formatPrice(preco)} cada</span>
+                  <strong>{formatPrice(preco * quantidade)}</strong>
+                </div>
+              )
+            })}
+            {(pedido.observacao || pedido.observacoes) && <p style={s.obs}><strong>Observações:</strong> {pedido.observacao || pedido.observacoes}</p>}
+          </div>
+        )}
         <div style={{ ...s.acoes, flexDirection: isMobile ? 'column' : 'row' }}>
-          {!pedido.pago && !encerrado && (
-            <button style={{ ...s.btnSecundario, width: isMobile ? '100%' : 'auto' }} onClick={() => marcarPedidoPago(pedido.id)}>
-              <CreditCard size={15} /> Confirmar pagamento
+          {pagamentoProfessorPendente && (
+            <button style={{ ...s.btnPagamento, width: isMobile ? '100%' : 'auto' }} onClick={e => { e.stopPropagation(); baixarPagamentoProfessor(pedido) }}>
+              <CreditCard size={15} /> Dar baixa no pagamento
+            </button>
+          )}
+          {podeEntregar && (
+            <button style={{ ...s.btnEntregue, width: isMobile ? '100%' : 'auto' }} onClick={e => { e.stopPropagation(); confirmarRetirada(pedido) }}>
+              <CheckCircle2 size={15} /> Entregue
+            </button>
+          )}
+          {(!encerrado || podeEditarPreco) && (
+            <button style={{ ...s.btnSecundario, width: isMobile ? '100%' : 'auto' }} onClick={e => { e.stopPropagation(); abrirDetalhePedido(pedido) }}>
+              <CreditCard size={15} /> Alterar pagamento
             </button>
           )}
           {!encerrado && (
-            <button style={{ ...s.btnPrimario, width: isMobile ? '100%' : 'auto' }} onClick={() => confirmarRetirada(pedido)}>
-              <CheckCircle2 size={15} /> Marcar entregue
+            <button style={{ ...s.btnEditar, width: isMobile ? '100%' : 'auto' }} onClick={e => { e.stopPropagation(); abrirEdicaoPedido(pedido) }}>
+              <Edit3 size={15} /> Editar pedido
             </button>
           )}
-          <button style={{ ...s.btnSecundario, width: isMobile ? '100%' : 'auto' }} onClick={() => setDetalhePedido(pedido)}>
+          <button style={{ ...s.btnSecundario, width: isMobile ? '100%' : 'auto' }} onClick={e => { e.stopPropagation(); abrirDetalhePedido(pedido) }}>
             <Eye size={15} /> Ver detalhes
           </button>
           {!encerrado && (
-            <button style={{ ...s.btnPerigo, width: isMobile ? '100%' : 'auto' }} onClick={() => cancelar(pedido)}>Cancelar</button>
+            <button style={{ ...s.btnPerigo, width: isMobile ? '100%' : 'auto' }} onClick={e => { e.stopPropagation(); cancelar(pedido) }}>Cancelar</button>
           )}
         </div>
       </article>
@@ -447,9 +1036,19 @@ export default function Vendedor() {
 
   function ProdutoCard({ produto }) {
     const nivel = estoqueNivel(Number(produto.estoque || 0), Number(produto.estoqueBaixo || 0))
+    const podeEditarEstoque = produtoEhBebida(produto)
+    const selecionado = produtosSelecionados.includes(produto.id)
     return (
-      <article style={s.produtoCard}>
+      <article
+        style={{ ...s.produtoCard, ...(selecionado ? { borderColor: '#3B82F6', background: '#EFF6FF' } : {}) }}
+        onClick={modoDisponibilidadeLote ? () => alternarProdutoSelecionado(produto.id) : undefined}
+      >
         <div style={s.produtoTop}>
+          {modoDisponibilidadeLote && (
+            <span style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 8, border: `2px solid ${selecionado ? '#2563EB' : '#CBD5E1'}`, background: selecionado ? '#2563EB' : '#fff', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {selecionado && <CheckCircle2 size={17} />}
+            </span>
+          )}
           {produto.foto ? <img src={produto.foto} alt={produto.nome} style={s.thumb} /> : <div style={s.produtoIcon}><Package size={24} /></div>}
           <div style={{ flex: 1, minWidth: 0 }}>
             <strong style={s.codigo}>{produto.nome || 'Produto'}</strong>
@@ -458,24 +1057,34 @@ export default function Vendedor() {
           </div>
         </div>
         <span style={{ ...s.badge, background: nivel.bg, color: nivel.color }}>{produto.estoque || 0} un - {nivel.label}</span>
-        <label style={s.label}>Atualizar estoque</label>
-        <input type="number" min="0" defaultValue={produto.estoque || 0} onBlur={e => salvarEstoque(produto, e.target.value)} style={s.input} />
-        <button type="button" style={s.btnSecundario} onClick={() => setDetalheProduto(produto)}><Eye size={15} /> Ver detalhes</button>
-        <button type="button" style={s.btnPrimario} onClick={() => editarProduto(produto)}><Save size={15} /> Editar</button>
+        {modoDisponibilidadeLote ? (
+          <span style={{ ...s.badge, alignSelf: 'flex-start', background: produto.disponivel === false ? '#FEE2E2' : '#D1FAE5', color: produto.disponivel === false ? '#B91C1C' : '#166534' }}>
+            {produto.disponivel === false ? 'Venda pausada' : 'Disponível para venda'}
+          </span>
+        ) : (
+          <>
+            <label style={s.label}>{podeEditarEstoque ? 'Atualizar estoque' : 'Estoque somente leitura'}</label>
+            {podeEditarEstoque
+              ? <input type="number" min="0" defaultValue={produto.estoque || 0} onBlur={e => salvarEstoque(produto, e.target.value)} style={s.input} />
+              : <div style={s.estoqueSomenteLeitura}>Apenas bebidas podem ser ajustadas pelo vendedor.</div>}
+            <button type="button" style={s.btnSecundario} onClick={() => setDetalheProduto(produto)}><Eye size={15} /> Ver detalhes</button>
+            <button type="button" style={s.btnPrimario} onClick={() => editarProduto(produto)}><Save size={15} /> Editar</button>
+          </>
+        )}
       </article>
     )
   }
 
   return (
-    <Layout titulo="Painel do Vendedor">
+    <Layout titulo={aba === 'balcao' ? null : (podeEditarPreco ? 'Gestão de pedidos' : 'Painel do Vendedor')}>
       <div style={{ ...s.page, paddingBottom: isMobile ? 128 : 32 }}>
-        {(aba === 'dashboard' || aba === 'pedidos') && (
-          <div style={{ ...s.statsGrid, gridTemplateColumns: isMobile ? '1fr' : 'repeat(5, minmax(0, 1fr))' }}>
-            <StatCard icon={ClipboardList} label="Pendentes" value={pendentes} color="#F59E0B" onClick={() => { setFiltroPedidos('pendentes'); setFiltroData(''); selecionarAba('pedidos') }} />
-            <StatCard icon={PackageCheck} label="Entregues" value={entregues} color="#22C55E" onClick={() => { setFiltroPedidos('entregues'); setFiltroData(''); selecionarAba('pedidos') }} />
+        {(aba === 'dashboard' || (aba === 'pedidos' && !podeEditarPreco)) && (
+          <div style={{ ...s.statsGrid, gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, minmax(0, 1fr))' }}>
+            <StatCard icon={ClipboardList} label="Pendentes" value={pendentes} color="#F59E0B" onClick={() => { setFiltroPedidos('pendentes'); setFiltroData(hojeIso()); selecionarAba('pedidos') }} />
+            <StatCard icon={PackageCheck} label="Entregues" value={entregues} color="#22C55E" onClick={() => { setFiltroPedidos('entregues'); setFiltroData(hojeIso()); selecionarAba('pedidos') }} />
             <StatCard icon={ShoppingBag} label="Vendas hoje" value={formatPrice(totalVendas)} color="#003D7C" onClick={() => selecionarAba('vendas')} />
             <StatCard icon={AlertTriangle} label="Estoque baixo" value={estoqueBaixo.length} color="#EF4444" onClick={() => navigate(ROTAS_ABA.estoque, { state: { filtroInicial: 'atencao' } })} />
-            <StatCard icon={XCircle} label="Cancelados" value={cancelados} color="#A855F7" onClick={() => { setFiltroPedidos('cancelados'); setFiltroData(''); selecionarAba('pedidos') }} />
+            <StatCard icon={XCircle} label="Cancelados" value={cancelados} color="#A855F7" onClick={() => { setFiltroPedidos('cancelados'); setFiltroData(hojeIso()); selecionarAba('pedidos') }} />
           </div>
         )}
 
@@ -506,7 +1115,15 @@ export default function Vendedor() {
                         </div>
                         <strong style={s.prodRowQtd}>{item.quantidadeRestante || 0} un</strong>
                         <span style={{ ...s.badge, background: visual.bg, color: visual.color }}>{visual.label}</span>
-                        <button style={s.iconBtnMenu} onClick={() => abrirAjusteProducao(item)} title="Ajustar produção recebida"><Edit3 size={16} /></button>
+                        <button style={s.iconBtnMenu} onClick={() => abrirAjusteProducao(item)} title="Ajustar producao recebida"><Edit3 size={16} /></button>
+                        <button
+                          style={{ ...s.iconBtnMenu, color: '#DC2626', background: '#FEE2E2', opacity: maxDesperdicio(item) <= 0 ? 0.55 : 1 }}
+                          onClick={() => abrirDescarte(item)}
+                          title="Registrar descarte"
+                          disabled={maxDesperdicio(item) <= 0}
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
                       <div style={s.producaoInfo}>
                         <span><Clock size={13} /> Previsão: <strong>{item.horarioPrevisto || '--:--'}</strong></span>
@@ -525,9 +1142,9 @@ export default function Vendedor() {
                   <h3 style={s.sectionTitle}>Pedidos recentes</h3>
                   <button style={s.linkBtn} onClick={() => selecionarAba('pedidos')}>Ver todos</button>
                 </div>
-                <div style={s.searchBox}>
+                <div style={{ ...s.searchBox, ...(isMobile ? s.searchBoxMobilePedido : {}) }}>
                   <Search size={16} color="#64748B" />
-                  <input value={buscaPedido} onChange={e => setBuscaPedido(e.target.value)} placeholder="Buscar por matricula ou numero do pedido" style={s.searchInput} />
+                  <input value={buscaPedido} onChange={e => setBuscaPedido(e.target.value)} placeholder={isMobile ? 'Pedido, nome ou matricula' : 'Buscar por matricula ou numero do pedido'} style={{ ...s.searchInput, ...(isMobile ? s.searchInputMobile : {}) }} />
                 </div>
                 <div style={s.filtros}>
                   <input type="date" value={filtroData} onChange={e => setFiltroData(e.target.value)} style={s.selectFiltro} />
@@ -537,7 +1154,7 @@ export default function Vendedor() {
                     <button key={id} style={{ ...s.filtroBtn, ...(filtroPedidos === id ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroPedidos(id)}>{label}</button>
                   ))}
                 </div>
-                {pedidosVisiveis.length === 0 ? <EmptyState>Nenhum pedido encontrado {filtroData ? `em ${filtroData.split('-').reverse().join('/')}` : ''}.</EmptyState> : pedidosVisiveis.slice(0, 4).map(pedido => <PedidoCard key={pedido.id} pedido={pedido} />)}
+                {pedidosVisiveis.length === 0 ? <EmptyState>Nenhum pedido encontrado {filtroData ? `em ${filtroData.split('-').reverse().join('/')}` : ''}.</EmptyState> : pedidosVisiveis.slice(0, 4).map(pedido => renderPedidoCard(pedido))}
               </section>
               <section style={s.sectionCard}>
                 <div style={s.sectionHeader}>
@@ -569,30 +1186,213 @@ export default function Vendedor() {
 
         {aba === 'pedidos' && (
           <section style={s.sectionCard}>
+            <div style={s.orientacaoRetirada}>A confirmação de matrícula é exigida somente para pedidos na Conta do Professor.</div>
             <div style={s.sectionHeader}>
-              <h3 style={s.sectionTitle}>Pedidos e vendas</h3>
-              <div style={s.filtros}>
-                <div style={s.searchBox}>
-                  <Search size={16} color="#64748B" />
-                  <input value={buscaPedido} onChange={e => setBuscaPedido(e.target.value)} placeholder="Buscar por matricula ou numero do pedido" style={s.searchInput} />
+              <h3 style={s.sectionTitle}>Buscar Pedido</h3>
+              <button type="button" style={s.btnLeitorQr} onClick={() => setLeitorQrAberto(true)}>
+                <ScanLine size={17} /> Ler QR Code
+              </button>
+            </div>
+            <div style={s.filtrosPedidos}>
+              <div style={{ ...s.searchBoxPedidos, ...(isMobile ? s.searchBoxPedidosMobile : {}) }}>
+                <Search size={17} color="#64748B" />
+                <input value={buscaPedido} onChange={e => setBuscaPedido(e.target.value)} placeholder={isMobile ? 'Pedido, nome ou matricula' : 'Número, matrícula, nome ou status'} style={{ ...s.searchInput, ...(isMobile ? s.searchInputMobile : {}) }} />
+              </div>
+
+              <div style={s.filtroGrupos}>
+                <div style={s.filtroGrupo}>
+                  <span style={s.filtroRotulo}>Período</span>
+                  <div style={s.filtroOpcoes}>
+                    <input aria-label="Data dos pedidos" type="date" value={filtroData} onChange={e => setFiltroData(e.target.value)} style={s.selectFiltro} />
+                    <button type="button" style={{ ...s.filtroBtn, ...(filtroData === hojeIso() ? s.filtroBtnPeriodoAtivo : {}) }} onClick={() => setFiltroData(hojeIso())}>Hoje</button>
+                    <button type="button" style={{ ...s.filtroBtn, ...(!filtroData ? s.filtroBtnPeriodoAtivo : {}) }} onClick={() => setFiltroData('')}>Todos os dias</button>
+                  </div>
                 </div>
-                <input type="date" value={filtroData} onChange={e => setFiltroData(e.target.value)} style={s.selectFiltro} />
-                <button style={{ ...s.filtroBtn, ...(filtroData === hojeIso() ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroData(hojeIso())}>Hoje</button>
-                {filtroData && <button style={s.filtroBtn} onClick={() => setFiltroData('')}>Todos os dias</button>}
-                {FILTROS_PEDIDOS.map(([id, label]) => (
-                  <button key={id} style={{ ...s.filtroBtn, ...(filtroPedidos === id ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroPedidos(id)}>{label}</button>
-                ))}
-                <select value={filtroPagamento} onChange={e => setFiltroPagamento(e.target.value)} style={s.selectFiltro}>
-                  <option value="todos">Todos pagamentos</option>
-                  {formasPagamento.map(forma => <option key={forma} value={forma}>{forma}</option>)}
-                </select>
+
+                <div style={s.filtroGrupo}>
+                  <span style={s.filtroRotulo}>Status</span>
+                  <div style={s.filtroOpcoes}>
+                    {FILTROS_PEDIDOS.map(([id, label]) => (
+                      <button type="button" key={id} style={{ ...s.filtroBtn, ...(filtroPedidos === id ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroPedidos(id)}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <label style={s.filtroGrupo}>
+                  <span style={s.filtroRotulo}>Forma de pagamento</span>
+                  <select value={filtroPagamento} onChange={e => setFiltroPagamento(e.target.value)} style={s.selectFiltro}>
+                    <option value="todos">Todas as formas</option>
+                    {formasPagamento.map(forma => <option key={forma} value={forma}>{forma}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              <div style={s.filtroRodape}>
+                <span style={s.filtroResultado}>{pedidosVisiveis.length} {pedidosVisiveis.length === 1 ? 'pedido encontrado' : 'pedidos encontrados'}</span>
+                {haFiltrosPedidos && <button type="button" style={s.limparFiltrosBtn} onClick={limparFiltrosPedidos}>Limpar filtros</button>}
               </div>
             </div>
+            {pedidoEncontrado && (
+              <div style={s.resultadoBusca}>
+                <span style={s.resultadoLabel}>Pedido encontrado</span>
+                {renderPedidoCard(pedidoEncontrado, true)}
+              </div>
+            )}
             <div style={s.lista}>
-              {pedidosVisiveis.length === 0 ? <EmptyState>Nenhum registro encontrado{filtroData ? ` em ${filtroData.split('-').reverse().join('/')}` : ''}.</EmptyState> : pedidosVisiveis.map(pedido => <PedidoCard key={pedido.id} pedido={pedido} />)}
+              {pedidosVisiveis.length === 0
+                ? <EmptyState>Nenhum registro encontrado{filtroData ? ` em ${filtroData.split('-').reverse().join('/')}` : ''}.</EmptyState>
+                : pedidosVisiveis
+                  .filter(pedido => pedido.id !== pedidoEncontrado?.id)
+                  .map(pedido => renderPedidoCard(pedido))}
             </div>
           </section>
         )}
+
+        {aba === 'atendimento' && (
+          <section style={{ ...s.sectionCard, ...s.atendimentoSection }}>
+            <div style={s.atendimentoHeader}>
+              <div>
+                <h3 style={s.sectionTitle}><MessageCircle size={18} /> Atendimento</h3>
+                <p style={s.meta}>Conversas vinculadas aos pedidos.</p>
+              </div>
+              <div style={s.atendimentoResumo}>
+                <span style={s.atendimentoResumoItem}><strong>{atendimentosAbertos.length}</strong> abertas</span>
+                <span style={s.atendimentoResumoItem}><strong>{atendimentosHoje.length}</strong> hoje</span>
+                <span style={s.atendimentoResumoItem}><strong>{atendimentosEncerrados.length}</strong> encerradas</span>
+              </div>
+            </div>
+
+            <div style={s.atendimentoToolbar}>
+              <div style={s.filtroOpcoes}>
+                {[
+                  ['hoje', 'Hoje'],
+                  ['todos', 'Todos os dias'],
+                ].map(([valor, label]) => (
+                  <button key={valor} type="button" style={{ ...s.filtroBtn, ...(filtroAtendimentoPeriodo === valor ? s.filtroBtnPeriodoAtivo : {}) }} onClick={() => setFiltroAtendimentoPeriodo(valor)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div style={s.filtroOpcoes}>
+                {[
+                  ['ativos', 'Abertos'],
+                  ['encerradas', 'Encerrados'],
+                  ['todos', 'Todos'],
+                ].map(([valor, label]) => (
+                  <button key={valor} type="button" style={{ ...s.filtroBtn, ...(filtroAtendimentoStatus === valor ? s.filtroBtnAtivo : {}) }} onClick={() => setFiltroAtendimentoStatus(valor)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                style={{ ...s.btnPerigo, minHeight: 38, padding: '0.5rem 0.75rem', opacity: atendimentosEncerrados.length > 0 ? 1 : 0.55 }}
+                onClick={() => limparHistoricoAtendimento(atendimentosEncerrados)}
+                disabled={limpandoAtendimento || atendimentosEncerrados.length === 0}
+              >
+                <Trash2 size={14} /> {limpandoAtendimento ? 'Limpando...' : 'Limpar histórico'}
+              </button>
+            </div>
+
+            {atendimentosVisiveis.length === 0 ? (
+              <EmptyState>Nenhuma conversa encontrada neste filtro.</EmptyState>
+            ) : (
+              <div style={{ ...s.atendimentoGrid, gridTemplateColumns: '1fr' }}>
+                <div style={s.atendimentoLista}>
+                  {atendimentosVisiveis.map(atendimento => {
+                    const ativo = atendimentoSelecionado?.id === atendimento.id
+                    const pedido = pedidoDoAtendimento(atendimento)
+                    const encerrado = atendimento.status === 'encerrada'
+                    return (
+                      <button
+                        key={atendimento.id}
+                        type="button"
+                        style={{ ...s.atendimentoCard, ...(ativo ? s.atendimentoCardAtivo : {}), ...(atendimento.novaParaVendedor ? s.atendimentoCardNovo : {}) }}
+                        onClick={() => abrirAtendimento(atendimento)}
+                      >
+                        <div style={s.atendimentoTop}>
+                          <strong>Pedido {codigoAtendimento(atendimento)}</strong>
+                          <span style={{ ...s.badge, background: encerrado ? '#E2E8F0' : '#DCFCE7', color: encerrado ? '#475569' : '#166534' }}>
+                            {encerrado ? 'Encerrado' : 'Aberto'}
+                          </span>
+                        </div>
+                        <span style={s.atendimentoCliente}>{atendimento.solicitanteNome} · {atendimento.solicitantePerfil || 'cliente'}</span>
+                        <div style={s.atendimentoMiniInfo}>
+                          <span>{pedido?.status || atendimento.pedidoStatus || 'Pedido sem status'}</span>
+                          <span>{formatPrice(getTotalPedido(pedido || {}))}</span>
+                        </div>
+                        <p style={s.atendimentoUltima}>{atendimento.ultimaMensagem || 'Sem mensagem recente'}</p>
+                        <div style={s.atendimentoRodape}>
+                          <span>{formatarDataHora(atendimento.atualizadoEm, 'Agora')}</span>
+                          {atendimento.novaParaVendedor && <span style={s.novoBadge}>Nova</span>}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {aba === 'atendimento' && atendimentoSelecionado && (() => {
+          const atendimento = atendimentoSelecionado
+          const pedido = pedidoDoAtendimento(atendimento)
+          const mensagens = atendimento.mensagens || []
+          const encerrado = atendimento.status === 'encerrada'
+          return (
+            <div style={s.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="chat-atendimento-title">
+              <div style={{ ...s.modal, maxWidth: 680, padding: isMobile ? 16 : 20 }}>
+                <div style={s.modalHeader}>
+                  <div>
+                    <h3 id="chat-atendimento-title" style={s.modalTitle}>Pedido {codigoAtendimento(atendimento)}</h3>
+                    <p style={s.meta}>{atendimento.solicitanteNome} · {atendimento.solicitanteMatricula || atendimento.solicitanteEmail || 'Sem identificador'}</p>
+                  </div>
+                  <button style={s.closeBtn} onClick={() => setAtendimentoAbertoId('')}>Fechar</button>
+                </div>
+                <div style={s.atendimentoPedidoInfo}>
+                  <span>Status: <strong>{pedido?.status || atendimento.pedidoStatus || 'Não informado'}</strong></span>
+                  <span>Total: <strong>{formatPrice(getTotalPedido(pedido || {}))}</strong></span>
+                  <span>Atualizado: <strong>{formatarDataHora(atendimento.atualizadoEm, 'Agora')}</strong></span>
+                </div>
+                <div style={s.atendimentoMensagens}>
+                  {mensagens.map(msg => {
+                    const vendedor = msg.tipo === 'vendedor'
+                    return (
+                      <div key={msg.id} style={{ ...s.atendimentoMsg, ...(vendedor ? s.atendimentoMsgVendedor : s.atendimentoMsgCliente) }}>
+                        <strong>{vendedor ? 'Vendedor' : msg.autorNome || 'Cliente'}</strong>
+                        <p>{msg.texto}</p>
+                        <span>{formatarDataHora(msg.criadoEm, '')}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+                {encerrado ? (
+                  <div style={s.estoqueSomenteLeitura}>Atendimento encerrado.</div>
+                ) : (
+                  <div style={s.atendimentoForm}>
+                    <input
+                      value={respostaAtendimento}
+                      onChange={e => setRespostaAtendimento(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') enviarRespostaAtendimento(atendimento) }}
+                      placeholder="Responder solicitação..."
+                      style={{ ...s.input, flex: 1, minWidth: isMobile ? '100%' : 220 }}
+                      maxLength={500}
+                    />
+                    <button type="button" style={s.btnPrimario} onClick={() => enviarRespostaAtendimento(atendimento)} disabled={enviandoAtendimento || !respostaAtendimento.trim()}>
+                      <Send size={15} /> Responder
+                    </button>
+                    <button type="button" style={s.btnPerigo} onClick={() => finalizarAtendimento(atendimento)}>
+                      Encerrar
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
+        {aba === 'balcao' && <PedidoBalcao />}
 
         {aba === 'produtos' && (
           <div style={{ ...s.contentGrid, gridTemplateColumns: isMobile ? '1fr' : 'minmax(300px, 390px) 1fr' }}>
@@ -640,10 +1440,36 @@ export default function Vendedor() {
             <section style={s.sectionCard}>
               <div style={s.sectionHeader}>
                 <h3 style={s.sectionTitle}>Produtos cadastrados</h3>
+                <button type="button" style={modoDisponibilidadeLote ? s.btnPerigo : s.btnSecundario} onClick={() => modoDisponibilidadeLote ? cancelarDisponibilidadeLote() : setModoDisponibilidadeLote(true)}>
+                  {modoDisponibilidadeLote ? <><XCircle size={15} /> Cancelar seleção</> : <><CheckCircle2 size={15} /> Disponibilidade em lote</>}
+                </button>
               </div>
+              {modoDisponibilidadeLote && (
+                <div style={{ ...s.acoes, padding: 10, borderRadius: 10, background: '#EFF6FF' }}>
+                  <button type="button" style={s.btnSecundario} onClick={() => setProdutosSelecionados(produtosFiltrados.map(produto => produto.id))}>Selecionar exibidos</button>
+                  <span style={s.meta}>{produtosSelecionados.length} selecionado(s)</span>
+                  <button type="button" style={s.btnEntregue} disabled={alterandoDisponibilidade} onClick={() => salvarDisponibilidadeLote(true)}><CheckCircle2 size={15} /> Disponibilizar no cardápio</button>
+                  <button type="button" style={s.btnEditar} disabled={!produtosSelecionados.length || alterandoDisponibilidade} onClick={() => salvarDisponibilidadeLote(false)}><EyeOff size={15} /> Pausar venda</button>
+                </div>
+              )}
               <div style={s.searchBox}>
                 <Search size={16} color="#64748B" />
                 <input value={buscaProduto} onChange={e => setBuscaProduto(e.target.value)} placeholder="Pesquisar produto" style={s.searchInput} />
+              </div>
+              <div style={s.categoriaChips}>
+                <button type="button" style={{ ...s.categoriaChip, ...(filtroCategoria === 'todas' ? s.categoriaChipAtivo : {}) }} onClick={() => setFiltroCategoria('todas')}>
+                  Todos
+                </button>
+                {CATEGORIAS_RAPIDAS_PRODUTOS.map(categoria => (
+                  <button
+                    key={categoria}
+                    type="button"
+                    style={{ ...s.categoriaChip, ...(filtroCategoria === categoria ? s.categoriaChipAtivo : {}) }}
+                    onClick={() => setFiltroCategoria(categoria)}
+                  >
+                    {categoria}
+                  </button>
+                ))}
               </div>
               <div style={s.filtros}>
                 <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)} style={s.selectFiltro}>
@@ -735,30 +1561,254 @@ export default function Vendedor() {
         </div>
       )}
 
+      {descarteItem && (
+        <div style={s.modalOverlay} role="dialog" aria-modal="true">
+          <div style={{ ...s.modal, maxWidth: 480, padding: isMobile ? 18 : 24 }}>
+            <div style={s.modalHeader}>
+              <div>
+                <h3 style={s.modalTitle}>Registrar descarte</h3>
+                <p style={s.meta}>{descarteItem.produtoNome} - Disponível para descarte: {maxDesperdicio(descarteItem)} un</p>
+              </div>
+              <button style={s.closeBtn} onClick={() => setDescarteItem(null)}>Fechar</button>
+            </div>
+            <form onSubmit={confirmarDescarte} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <label style={s.label}>Quantidade descartada</label>
+              <input
+                type="number"
+                min="1"
+                max={maxDesperdicio(descarteItem)}
+                value={formDescarte.quantidade}
+                onChange={e => { setFormDescarte({ ...formDescarte, quantidade: e.target.value }); setErroDescarte('') }}
+                placeholder="Quantidade"
+                style={s.input}
+                required
+              />
+              <label style={s.label}>Motivo</label>
+              <select value={formDescarte.motivo} onChange={e => setFormDescarte({ ...formDescarte, motivo: e.target.value })} style={s.input}>
+                {MOTIVOS_DESPERDICIO.map(motivo => <option key={motivo} value={motivo}>{motivo}</option>)}
+              </select>
+              <label style={s.label}>Observação (opcional)</label>
+              <input
+                value={formDescarte.observacao}
+                onChange={e => setFormDescarte({ ...formDescarte, observacao: e.target.value })}
+                placeholder="Ex.: produto caiu, venceu, sobrou no balcão..."
+                style={s.input}
+              />
+              {erroDescarte && <p style={s.erroRetirada}>{erroDescarte}</p>}
+              <div style={s.acoes}>
+                <button type="submit" style={s.btnPerigoForte}><Trash2 size={15} /> Confirmar descarte</button>
+                <button type="button" style={s.btnSecundario} onClick={() => setDescarteItem(null)}>Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {leitorQrAberto && (
+        <LeitorQrPedido
+          aberto
+          onClose={() => setLeitorQrAberto(false)}
+          onResultado={lerPedidoPorQr}
+        />
+      )}
+
+      {retiradaPedido && (
+        <div style={s.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="titulo-retirada">
+          <form onSubmit={concluirRetirada} style={{ ...s.modal, maxWidth: 460, padding: isMobile ? 18 : 24 }}>
+            <div style={s.modalHeader}>
+              <div>
+                <h3 id="titulo-retirada" style={s.modalTitle}>Entregar pedido {pedidoCodigo(retiradaPedido)}</h3>
+                <p style={s.meta}>{alunoNome(retiradaPedido)}</p>
+              </div>
+              <button type="button" style={s.closeBtn} onClick={() => setRetiradaPedido(null)}>Fechar</button>
+            </div>
+            <div style={s.orientacaoRetirada}>Confirme a matrícula do professor antes de entregar pela Conta do Professor.</div>
+            <label style={s.label} htmlFor="confirmacao-retirada">Matrícula do professor</label>
+            <input
+              id="confirmacao-retirada"
+              value={confirmacaoRetirada}
+              onChange={e => { setConfirmacaoRetirada(e.target.value); setErroRetirada('') }}
+              style={{ ...s.input, width: '100%', boxSizing: 'border-box', marginTop: 6 }}
+              placeholder="Digite a matrícula"
+              inputMode="numeric"
+              autoFocus
+            />
+            {erroRetirada && <p role="alert" style={s.erroRetirada}>{erroRetirada}</p>}
+            <button type="submit" style={{ ...s.btnPrimario, width: '100%', marginTop: 14 }}>
+              <CheckCircle2 size={15} /> Confirmar entrega
+            </button>
+          </form>
+        </div>
+      )}
+
+      {pedidoCancelando && (
+        <div style={s.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="titulo-cancelamento">
+          <form onSubmit={confirmarCancelamento} style={{ ...s.modal, maxWidth: 500, padding: isMobile ? 18 : 24 }}>
+            <div style={s.modalHeader}>
+              <div>
+                <h3 id="titulo-cancelamento" style={s.modalTitle}>Cancelar pedido {pedidoCodigo(pedidoCancelando)}</h3>
+                <p style={s.meta}>O estoque dos itens será devolvido automaticamente.</p>
+              </div>
+              <button type="button" style={s.closeBtn} onClick={() => setPedidoCancelando(null)}>Fechar</button>
+            </div>
+            <p style={s.avisoPerigo}>Tem certeza que deseja cancelar este pedido?</p>
+            <label style={s.label} htmlFor="motivo-cancelamento">Motivo do cancelamento</label>
+            <select id="motivo-cancelamento" value={motivoCancelamento} onChange={e => { setMotivoCancelamento(e.target.value); setErroCancelamento('') }} style={{ ...s.selectFiltro, width: '100%', minHeight: 44, marginTop: 6 }}>
+              {MOTIVOS_CANCELAMENTO.map(motivo => <option key={motivo} value={motivo}>{motivo}</option>)}
+            </select>
+            {motivoCancelamento === 'Outro motivo' && (
+              <input value={motivoOutro} onChange={e => { setMotivoOutro(e.target.value); setErroCancelamento('') }} placeholder="Descreva o motivo" style={{ ...s.input, width: '100%', boxSizing: 'border-box', marginTop: 10 }} autoFocus />
+            )}
+            {erroCancelamento && <p role="alert" style={s.erroRetirada}>{erroCancelamento}</p>}
+            <button type="submit" style={{ ...s.btnPerigoForte, width: '100%', marginTop: 14 }} disabled={cancelandoPedido}>
+              <XCircle size={16} /> {cancelandoPedido ? 'Cancelando...' : 'Confirmar cancelamento'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {pedidoEditando && (
+        <div style={s.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="titulo-edicao-pedido">
+          <form onSubmit={salvarEdicaoPedido} style={{ ...s.modal, maxWidth: 900, padding: isMobile ? 18 : 24 }}>
+            <div style={s.modalHeader}>
+              <div>
+                <h3 id="titulo-edicao-pedido" style={s.modalTitle}>Editar pedido {pedidoCodigo(pedidoEditando)}</h3>
+                <p style={s.meta}>{alunoNome(pedidoEditando)} · estoque validado ao salvar</p>
+              </div>
+              <button type="button" style={s.closeBtn} onClick={() => setPedidoEditando(null)}>Fechar</button>
+            </div>
+
+            <h4 style={s.detailTitle}>Itens do pedido</h4>
+            <div style={s.editorItens}>
+              {itensEdicao.map((item, index) => (
+                <div key={`${item.produtoId}-${index}`} style={s.editorItem}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <strong style={s.codigo}>{item.nome}</strong>
+                    <p style={s.meta}>{formatPrice(item.preco)} cada · {formatPrice(item.preco * item.quantidade)}</p>
+                  </div>
+                  <div style={s.quantidadeControle}>
+                    <button type="button" title="Diminuir quantidade" style={s.iconBtnMenu} onClick={() => alterarQuantidadeEdicao(index, -1)}><Minus size={15} /></button>
+                    <strong>{item.quantidade}</strong>
+                    <button type="button" title="Aumentar quantidade" style={s.iconBtnMenu} onClick={() => alterarQuantidadeEdicao(index, 1)}><Plus size={15} /></button>
+                    <button type="button" title="Remover item" style={s.iconBtnPerigo} onClick={() => removerItemEdicao(index)}><Trash2 size={15} /></button>
+                  </div>
+                </div>
+              ))}
+              {itensEdicao.length === 0 && <EmptyState>Adicione pelo menos um produto.</EmptyState>}
+            </div>
+
+            <h4 style={s.detailTitle}>Adicionar produto</h4>
+            <div style={{ ...s.searchBox, width: '100%', boxSizing: 'border-box' }}>
+              <Search size={16} color="#64748B" />
+              <input value={buscaProdutoEdicao} onChange={e => setBuscaProdutoEdicao(e.target.value)} placeholder="Buscar produto disponível" style={s.searchInput} />
+            </div>
+            <div style={s.produtosEdicao}>
+              {produtosParaEdicao.map(produto => (
+                <button type="button" key={produto.id} style={s.produtoEdicaoBtn} onClick={() => adicionarProdutoEdicao(produto)}>
+                  <PlusCircle size={16} />
+                  <span>{produto.nome}</span>
+                  <small>{produto.estoque} un · {formatPrice(produto.preco)}</small>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ ...s.formGrid, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' }}>
+              <label style={s.campoLabel}>Forma de pagamento
+                <select value={pagamentoEdicao} onChange={e => setPagamentoEdicao(e.target.value)} style={{ ...s.selectFiltro, width: '100%', minHeight: 44 }}>
+                  {[...new Set([getFormaPagamento(pedidoEditando), ...PAGAMENTOS_BALCAO, ...(perfilClientePedido(pedidoEditando, usuarios) === 'professor' ? ['Conta do Professor'] : [])])].map(forma => <option key={forma} value={forma}>{forma}</option>)}
+                </select>
+              </label>
+              <label style={s.campoLabel}>Horário de retirada
+                <input type="time" value={horarioEdicao} onChange={e => setHorarioEdicao(e.target.value)} style={{ ...s.input, width: '100%', boxSizing: 'border-box' }} />
+              </label>
+            </div>
+            <label style={s.campoLabel}>Observações
+              <textarea value={observacaoEdicao} onChange={e => setObservacaoEdicao(e.target.value)} placeholder="Observação do pedido" rows={3} style={{ ...s.input, width: '100%', boxSizing: 'border-box', resize: 'vertical' }} />
+            </label>
+            <div style={s.totalEdicao}><span>Total atualizado</span><strong>{formatPrice(itensEdicao.reduce((acc, item) => acc + item.preco * item.quantidade, 0))}</strong></div>
+            {erroEdicao && <p role="alert" style={s.erroRetirada}>{erroEdicao}</p>}
+            <button type="submit" style={{ ...s.btnEditar, width: '100%', marginTop: 14 }} disabled={salvandoEdicao || itensEdicao.length === 0}>
+              <Save size={16} /> {salvandoEdicao ? 'Salvando...' : 'Salvar alterações'}
+            </button>
+          </form>
+        </div>
+      )}
+
       {detalhePedido && (
         <div style={s.modalOverlay} role="dialog" aria-modal="true">
           <div style={{ ...s.modal, padding: isMobile ? 18 : 24 }}>
             <div style={s.modalHeader}>
               <div>
-                <h3 style={s.modalTitle}>Pedido #{pedidoCodigo(detalhePedido)}</h3>
+                <h3 style={s.modalTitle}>Pedido {pedidoCodigo(detalhePedido)}</h3>
                 <p style={s.meta}>{alunoNome(detalhePedido)} {detalhePedido.matricula ? `- ${detalhePedido.matricula}` : ''}</p>
               </div>
               <button style={s.closeBtn} onClick={() => setDetalhePedido(null)}>Fechar</button>
             </div>
             <div style={s.detailGrid}>
+              <p><strong>{clienteLabel(detalhePedido, usuarios)}:</strong> {alunoNome(detalhePedido)}</p>
+              <p><strong>Matrícula:</strong> {detalhePedido.matricula || detalhePedido.alunoMatricula || 'Não informada'}</p>
+              <p><strong>Cadastro:</strong> {detalhePedido.origem === 'balcao' && detalhePedido.alunoCadastrado === false ? 'Sem cadastro' : 'Cadastrado'}</p>
+              <p><strong>Origem:</strong> {origemLabel(detalhePedido)}</p>
+              <p><strong>Lançado por:</strong> {detalhePedido.lancadoPor?.nome || detalhePedido.lancadoPorNome || alunoNome(detalhePedido)}</p>
               <p><strong>Status:</strong> <StatusBadge status={detalhePedido.status} /></p>
               <p><strong>Pagamento:</strong> {getFormaPagamento(detalhePedido)} - {detalhePedido.pago ? 'Pago' : 'Pendente'}</p>
               <p><strong>Data:</strong> {formatarDataHora(getPedidoDate(detalhePedido) || detalhePedido.criadoEm || detalhePedido.createdAt)}</p>
+              <p><strong>Horário de retirada:</strong> {detalhePedido.horarioRetirada || 'Não informado'}</p>
+              <p><strong>Entregue por:</strong> {detalhePedido.entreguePorNome || 'Ainda não entregue'}</p>
               <p><strong>Total:</strong> {formatPrice(getTotalPedido(detalhePedido))}</p>
             </div>
+            {(!['entregue', 'cancelado'].includes(normalizeStatus(detalhePedido.status)) || podeEditarPreco) && (
+              <div style={s.pagamentoEditor}>
+                <label htmlFor="pagamento-pedido"><strong>Alterar forma de pagamento</strong></label>
+                <div style={{ ...s.acoes, flexDirection: isMobile ? 'column' : 'row' }}>
+                  <select
+                    id="pagamento-pedido"
+                    value={pagamentoEditando}
+                    onChange={e => setPagamentoEditando(e.target.value)}
+                    style={{ ...s.selectFiltro, flex: 1, minHeight: 44 }}
+                  >
+                    {[...new Set([
+                      getFormaPagamento(detalhePedido),
+                      ...PAGAMENTOS_BALCAO,
+                      ...(perfilClientePedido(detalhePedido, usuarios) === 'professor' ? ['Conta do Professor'] : []),
+                    ])].map(forma => <option key={forma} value={forma}>{forma}</option>)}
+                  </select>
+                  <button
+                    type="button"
+                    style={s.btnPrimario}
+                    onClick={salvarPagamentoPedido}
+                    disabled={salvandoPagamento || pagamentoEditando === getFormaPagamento(detalhePedido)}
+                  >
+                    <Save size={15} /> {salvandoPagamento ? 'Salvando...' : 'Salvar pagamento'}
+                  </button>
+                </div>
+                {erroPagamento && <p role="alert" style={s.erroRetirada}>{erroPagamento}</p>}
+              </div>
+            )}
             <h4 style={s.detailTitle}>Itens</h4>
             <div style={s.lista}>
-              {(detalhePedido.itens || []).map((item, index) => (
-                <div key={`${item.nome || 'item'}-${index}`} style={s.linhaResumo}>
-                  <span>{item.quantidade || 1}x {item.nome || item.produtoNome || 'Produto'}</span>
-                  <strong>{formatPrice(item.preco || item.valor || 0)}</strong>
-                </div>
-              ))}
+              {(detalhePedido.itens || []).map((item, index) => {
+                const quantidade = Number(item.quantidade || 1)
+                const preco = Number(item.preco || item.valor || 0)
+                return (
+                  <div key={`${item.nome || 'item'}-${index}`} style={s.linhaResumo}>
+                    <span>{quantidade}x {item.nome || item.produtoNome || 'Produto'} · {formatPrice(preco)} cada</span>
+                    <strong>{formatPrice(preco * quantidade)}</strong>
+                  </div>
+                )
+              })}
+            </div>
+            {(detalhePedido.observacao || detalhePedido.observacoes) && (
+              <><h4 style={s.detailTitle}>Observações</h4><p style={s.obs}>{detalhePedido.observacao || detalhePedido.observacoes}</p></>
+            )}
+            <div style={{ ...s.acoes, marginTop: 18, flexDirection: isMobile ? 'column' : 'row' }}>
+              {!['entregue', 'cancelado'].includes(normalizeStatus(detalhePedido.status)) && (
+                <>
+                  <button type="button" style={s.btnEntregue} onClick={() => confirmarRetirada(detalhePedido)}><CheckCircle2 size={15} /> Entregue</button>
+                  <button type="button" style={s.btnEditar} onClick={() => { setDetalhePedido(null); abrirEdicaoPedido(detalhePedido) }}><Edit3 size={15} /> Editar pedido</button>
+                  <button type="button" style={s.btnPerigo} onClick={() => { setDetalhePedido(null); cancelar(detalhePedido) }}><XCircle size={15} /> Cancelar pedido</button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -776,6 +1826,9 @@ export default function Vendedor() {
           erroSalvar={erroSalvarProduto}
           isMobile={isMobile}
           precoDesabilitado={!!produtoEditando && !podeEditarPreco}
+          categoriaDesabilitada={!!produtoEditando}
+          estoqueDesabilitado={!!produtoEditando || !produtoEhBebida(produtoForm)}
+          minimoDesabilitado
         />
       )}
 
@@ -817,22 +1870,46 @@ const s = {
   statValue: { fontSize: '1.4rem', fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   statUnidade: { fontSize: '0.75rem', fontWeight: 700, opacity: 0.7 },
   contentGrid: { display: 'grid', gap: 16, alignItems: 'start' },
-  sectionCard: { background: '#fff', borderRadius: 18, padding: 20, boxShadow: '0 8px 24px rgba(15,23,42,0.06)', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 },
+  sectionCard: { background: '#fff', borderRadius: 'clamp(12px, 1.5vw, 18px)', padding: 'clamp(14px, 2vw, 20px)', boxShadow: '0 8px 24px rgba(15,23,42,0.06)', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 },
   sectionHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
   sectionTitle: { margin: 0, fontWeight: 900, color: '#0F172A', fontSize: '1rem', display: 'inline-flex', alignItems: 'center', gap: 8 },
   lista: { display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 },
-  pedidoCard: { border: '1px solid #E5E7EB', background: '#F8FAFC', borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 },
+  pedidoCard: { border: '1px solid #E5E7EB', background: '#F8FAFC', borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 12, cursor: 'pointer' },
+  resultadoBusca: { border: '2px solid #93C5FD', background: '#EFF6FF', borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 },
+  resultadoLabel: { color: '#1D4ED8', fontSize: '0.75rem', fontWeight: 900, textTransform: 'uppercase' },
+  resultadoDetalhes: { borderTop: '1px solid #DBEAFE', paddingTop: 8 },
+  orientacaoRetirada: { background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', borderRadius: 10, padding: '0.7rem 0.85rem', fontSize: '0.84rem', fontWeight: 800 },
+  erroRetirada: { margin: '0.65rem 0 0', background: '#FEE2E2', color: '#B91C1C', borderRadius: 9, padding: '0.6rem 0.75rem', fontSize: '0.82rem', fontWeight: 700 },
   pedidoTop: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
+  pedidoBadges: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' },
+  mensagemPedidoBadge: { border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#003D7C', borderRadius: 999, padding: '0.28rem 0.65rem', fontSize: '0.72rem', fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' },
+  mensagemPedidoBadgeNova: { borderColor: '#F47920', background: '#FFF7ED', color: '#C2410C' },
   pedidoInfoGrid: { display: 'flex', gap: 14, flexWrap: 'wrap', color: '#64748B', fontSize: '0.82rem', fontWeight: 700 },
   codigo: { color: '#0F172A', fontWeight: 900 },
   meta: { color: '#64748B', fontSize: '0.84rem', margin: 0, lineHeight: 1.45 },
   badge: { borderRadius: 999, padding: '0.25rem 0.7rem', fontSize: '0.74rem', fontWeight: 900, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
   filtros: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' },
+  filtrosPedidos: { width: '100%', display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 2 },
+  filtroGrupos: { display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' },
+  filtroGrupo: { display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 },
+  filtroRotulo: { color: '#64748B', fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase' },
+  filtroOpcoes: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  filtroRodape: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', paddingTop: 10, borderTop: '1px solid #E2E8F0' },
+  filtroResultado: { color: '#475569', fontSize: '0.8rem', fontWeight: 800 },
+  limparFiltrosBtn: { border: 'none', background: 'transparent', color: '#1D4ED8', padding: '0.35rem 0', fontSize: '0.78rem', fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' },
   filtroBtn: { border: '1px solid #E2E8F0', background: '#fff', color: '#64748B', borderRadius: 999, padding: '0.42rem 0.8rem', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' },
+  filtroBtnPeriodoAtivo: { background: '#F47920', color: '#fff', borderColor: '#F47920' },
   filtroBtnAtivo: { background: '#003D7C', color: '#fff', borderColor: '#003D7C' },
+  categoriaChips: { display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' },
+  categoriaChip: { border: '1px solid #CBD5E1', background: '#fff', color: '#475569', borderRadius: 999, padding: '0.45rem 0.85rem', fontSize: '0.78rem', fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' },
+  categoriaChipAtivo: { background: '#003D7C', borderColor: '#003D7C', color: '#fff', boxShadow: '0 5px 14px rgba(0,61,124,0.16)' },
   selectFiltro: { border: '1px solid #CBD5E1', background: '#fff', color: '#475569', borderRadius: 12, padding: '0.5rem 0.75rem', fontWeight: 700, fontFamily: 'inherit' },
-  searchBox: { display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #CBD5E1', borderRadius: 12, padding: '0 0.75rem', minHeight: 44, background: '#fff', minWidth: 240 },
+  searchBox: { display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #CBD5E1', borderRadius: 12, padding: '0 0.75rem', minHeight: 40, background: '#fff', minWidth: 0, width: '100%', flex: '1 1 auto' },
+  searchBoxMobilePedido: { minHeight: 38, borderRadius: 10, borderColor: '#BFD0E4', background: '#fff', boxSizing: 'border-box', padding: '0 0.65rem' },
+  searchBoxPedidos: { width: '100%', minHeight: 42, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 10, padding: '0 0.8rem', borderRadius: 12, border: '1.5px solid #D8E4F2', background: '#F8FBFF', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8), 0 8px 20px rgba(15,23,42,0.04)', flex: '0 0 auto' },
+  searchBoxPedidosMobile: { minHeight: 40, borderRadius: 10, padding: '0 0.65rem', borderColor: '#BFD0E4', background: '#fff', boxShadow: 'none' },
   searchInput: { border: 'none', outline: 'none', fontFamily: 'inherit', flex: 1, minWidth: 0, fontWeight: 700 },
+  searchInputMobile: { fontSize: '0.82rem' },
   input: { border: '1px solid #CBD5E1', borderRadius: 12, padding: '0.72rem 0.8rem', fontFamily: 'inherit', outlineColor: '#003D7C', minHeight: 44 },
   formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
   fotoLinha: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
@@ -850,12 +1927,42 @@ const s = {
   item: { background: '#fff', color: '#475569', borderRadius: 20, padding: '0.3rem 0.7rem', fontSize: '0.8rem', fontWeight: 700, border: '1px solid #E2E8F0' },
   acoes: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   btnPrimario: { background: '#003D7C', color: '#fff', border: 'none', borderRadius: 12, padding: '0.68rem 0.95rem', fontWeight: 900, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, minHeight: 44, fontFamily: 'inherit' },
+  btnLeitorQr: { background: '#F47920', color: '#fff', border: 'none', borderRadius: 12, padding: '0.68rem 0.95rem', fontWeight: 900, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, minHeight: 44, fontFamily: 'inherit' },
+  btnEntregue: { background: '#15803D', color: '#fff', border: 'none', borderRadius: 12, padding: '0.68rem 0.95rem', fontWeight: 900, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, minHeight: 44, fontFamily: 'inherit' },
+  btnEditar: { background: '#F47920', color: '#fff', border: 'none', borderRadius: 12, padding: '0.68rem 0.95rem', fontWeight: 900, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, minHeight: 44, fontFamily: 'inherit' },
+  btnPagamento: { background: '#15803D', color: '#fff', border: 'none', borderRadius: 12, padding: '0.68rem 0.95rem', fontWeight: 900, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, minHeight: 44, fontFamily: 'inherit' },
   btnSecundario: { background: '#E8F0FB', color: '#003D7C', border: 'none', borderRadius: 12, padding: '0.68rem 0.95rem', fontWeight: 900, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, minHeight: 44, fontFamily: 'inherit' },
   btnPerigo: { background: '#FEE2E2', color: '#DC2626', border: 'none', borderRadius: 12, padding: '0.68rem 0.95rem', fontWeight: 900, cursor: 'pointer', minHeight: 44, fontFamily: 'inherit' },
+  btnPerigoForte: { background: '#DC2626', color: '#fff', border: 'none', borderRadius: 12, padding: '0.68rem 0.95rem', fontWeight: 900, cursor: 'pointer', minHeight: 44, fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 },
   linkBtn: { border: 'none', background: '#EFF6FF', color: '#1D4ED8', borderRadius: 10, padding: '0.5rem 0.75rem', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' },
   estoqueMiniRow: { display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #F1F5F9', background: '#F8FAFC', borderRadius: 12, padding: '0.5rem 0.7rem', cursor: 'pointer', fontFamily: 'inherit', width: '100%', textAlign: 'left' },
   estoqueMiniThumb: { width: 34, height: 34, borderRadius: 8, objectFit: 'cover', background: '#E2E8F0', flexShrink: 0 },
   estoqueMiniBadge: { background: '#FEE2E2', color: '#B91C1C', borderRadius: 999, padding: '0.18rem 0.6rem', fontSize: '0.75rem', fontWeight: 800, flexShrink: 0 },
+  estoqueSomenteLeitura: { background: '#F1F5F9', color: '#64748B', borderRadius: 10, padding: '0.65rem 0.75rem', fontSize: '0.78rem', fontWeight: 700 },
+  atendimentoSection: { gap: 16 },
+  atendimentoHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' },
+  atendimentoResumo: { display: 'flex', gap: 8, flexWrap: 'wrap' },
+  atendimentoResumoItem: { background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 999, padding: '0.35rem 0.65rem', color: '#475569', fontSize: '0.76rem', fontWeight: 800 },
+  atendimentoToolbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', borderTop: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0', padding: '12px 0' },
+  atendimentoGrid: { display: 'grid', gap: 16, alignItems: 'start' },
+  atendimentoLista: { display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, maxHeight: 620, overflowY: 'auto', paddingRight: 2 },
+  atendimentoCard: { border: '1px solid #D8E4F2', background: '#fff', borderRadius: 14, padding: 14, display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', width: '100%', boxShadow: '0 6px 16px rgba(15,23,42,0.04)' },
+  atendimentoCardAtivo: { borderColor: '#003D7C', background: '#EFF6FF', boxShadow: '0 10px 24px rgba(0,61,124,0.12)' },
+  atendimentoCardNovo: { borderLeft: '4px solid #F47920' },
+  atendimentoTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
+  atendimentoCliente: { color: '#475569', fontSize: '0.82rem', fontWeight: 800, lineHeight: 1.3 },
+  atendimentoMiniInfo: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, color: '#64748B', fontSize: '0.76rem', fontWeight: 800, background: '#F8FAFC', borderRadius: 10, padding: '0.38rem 0.55rem' },
+  atendimentoUltima: { margin: 0, color: '#0F172A', fontSize: '0.82rem', fontWeight: 800, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' },
+  atendimentoRodape: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, color: '#94A3B8', fontSize: '0.72rem', fontWeight: 800 },
+  novoBadge: { background: '#F47920', color: '#fff', borderRadius: 999, padding: '0.12rem 0.5rem', fontSize: '0.68rem', fontWeight: 900 },
+  atendimentoPainel: { border: '1px solid #D8E4F2', background: '#F8FAFC', borderRadius: 16, padding: 16, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, position: 'sticky', top: 88 },
+  atendimentoPainelHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
+  atendimentoPedidoInfo: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, padding: 10, color: '#64748B', fontSize: '0.78rem', fontWeight: 800 },
+  atendimentoMensagens: { display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 430, overflowY: 'auto', padding: 4 },
+  atendimentoMsg: { maxWidth: '86%', borderRadius: 12, padding: '0.65rem 0.8rem', fontSize: '0.82rem', lineHeight: 1.4 },
+  atendimentoMsgCliente: { alignSelf: 'flex-start', background: '#fff', color: '#0F172A', border: '1px solid #E2E8F0' },
+  atendimentoMsgVendedor: { alignSelf: 'flex-end', background: '#003D7C', color: '#fff' },
+  atendimentoForm: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
   prodRow: { border: '1px solid #E5E7EB', background: '#fff', borderRadius: 14, padding: '0.7rem 0.85rem', display: 'flex', flexDirection: 'column', gap: 8 },
   prodRowTop: { display: 'flex', alignItems: 'center', gap: 10 },
   prodRowQtd: { color: '#0F172A', fontSize: '0.88rem', whiteSpace: 'nowrap' },
@@ -871,6 +1978,15 @@ const s = {
   produtoIcon: { width: 58, height: 58, borderRadius: 12, background: '#E8F0FB', color: '#003D7C', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   vendasBox: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E5E7EB', borderRadius: 14, padding: 14, color: '#64748B', fontWeight: 800 },
   linhaResumo: { display: 'flex', justifyContent: 'space-between', gap: 10, borderBottom: '1px solid #E2E8F0', padding: '0.55rem 0', color: '#334155' },
+  avisoPerigo: { background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C', borderRadius: 10, padding: 12, fontWeight: 800 },
+  editorItens: { display: 'flex', flexDirection: 'column', gap: 8 },
+  editorItem: { border: '1px solid #E2E8F0', borderRadius: 10, padding: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
+  quantidadeControle: { display: 'flex', alignItems: 'center', gap: 8 },
+  iconBtnPerigo: { width: 34, height: 34, borderRadius: 10, border: 'none', background: '#FEE2E2', color: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' },
+  produtosEdicao: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8, marginTop: 8 },
+  produtoEdicaoBtn: { border: '1px solid #CBD5E1', background: '#fff', color: '#0F172A', borderRadius: 10, padding: 10, cursor: 'pointer', display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '2px 8px', alignItems: 'center', textAlign: 'left', fontFamily: 'inherit', fontWeight: 800 },
+  campoLabel: { color: '#475569', fontSize: '0.82rem', fontWeight: 800, display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 },
+  totalEdicao: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', borderTop: '2px solid #E2E8F0', marginTop: 14, padding: '14px 4px 0', color: '#0F172A', fontSize: '1.05rem', fontWeight: 900 },
   vazio: { background: '#F8FAFC', borderRadius: 14, padding: '2rem', textAlign: 'center', color: '#94A3B8', border: '1px dashed #CBD5E1', fontWeight: 700 },
   modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 },
   modal: { width: '100%', maxWidth: 820, maxHeight: '90vh', overflowY: 'auto', background: '#fff', borderRadius: 18, boxShadow: '0 24px 80px rgba(15,23,42,0.25)' },
@@ -878,6 +1994,7 @@ const s = {
   modalTitle: { margin: 0, color: '#0F172A', fontSize: '1.2rem', fontWeight: 900 },
   closeBtn: { border: 'none', background: '#003D7C', color: '#fff', borderRadius: 10, minHeight: 40, padding: '0 0.9rem', fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' },
   detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, color: '#475569', fontSize: '0.88rem' },
+  pagamentoEditor: { borderTop: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0', padding: '14px 0', marginTop: 12, color: '#334155' },
   detailTitle: { margin: '16px 0 8px', color: '#0F172A' },
   obs: { color: '#475569', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, margin: 0, lineHeight: 1.45 },
   produtoFotoModal: { width: '100%', maxHeight: 260, objectFit: 'cover', borderRadius: 14, marginBottom: 14, background: '#E2E8F0' },

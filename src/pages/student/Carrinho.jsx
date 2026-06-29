@@ -1,29 +1,37 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
+import AtendimentoPedido from '../../components/AtendimentoPedido'
 import { useApp } from '../../contexts/AppContext'
 import { useIsMobile } from '../../utils/useIsMobile'
 import { ShoppingCart, CheckCircle, Utensils } from 'lucide-react'
+import { codigoPedido as codigoPedidoBase, validarHorarioRetirada } from '../../utils/pedidos'
+import { normalizarPerfil } from '../../utils/perfis'
 
 const HORARIOS_SUGERIDOS = ['09:00','09:15','09:30','09:45','10:00','10:15','10:30','11:00','12:00','12:30','13:00','13:30']
 
 const CORES_CONFETTI = ['#F47920','#003D7C','#22C55E','#F59E0B','#EF4444','#8B5CF6','#EC4899','#06B6D4']
 
-function Confetti() {
-  const pieces = useMemo(() => Array.from({ length: 90 }, (_, i) => ({
-    id: i,
-    x: Math.random() * 100,
-    color: CORES_CONFETTI[i % CORES_CONFETTI.length],
-    delay: (Math.random() * 700).toFixed(0),
-    duration: (1300 + Math.random() * 1200).toFixed(0),
-    width: 6 + Math.floor(Math.random() * 8),
-    height: 4 + Math.floor(Math.random() * 6),
-    borderRadius: Math.random() > 0.4 ? 2 : '50%',
-  })), [])
+function valorPseudoAleatorio(semente) {
+  const valor = Math.sin(semente * 12.9898) * 43758.5453
+  return valor - Math.floor(valor)
+}
 
+const PECAS_CONFETTI = Array.from({ length: 90 }, (_, i) => ({
+  id: i,
+  x: valorPseudoAleatorio(i + 1) * 100,
+  color: CORES_CONFETTI[i % CORES_CONFETTI.length],
+  delay: (valorPseudoAleatorio(i + 101) * 700).toFixed(0),
+  duration: (1300 + valorPseudoAleatorio(i + 201) * 1200).toFixed(0),
+  width: 6 + Math.floor(valorPseudoAleatorio(i + 301) * 8),
+  height: 4 + Math.floor(valorPseudoAleatorio(i + 401) * 6),
+  borderRadius: valorPseudoAleatorio(i + 501) > 0.4 ? 2 : '50%',
+}))
+
+function Confetti() {
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 9999, overflow: 'hidden' }}>
-      {pieces.map(p => (
+      {PECAS_CONFETTI.map(p => (
         <div key={p.id} style={{
           position: 'absolute',
           top: -20,
@@ -40,7 +48,10 @@ function Confetti() {
 }
 
 export default function Carrinho() {
-  const { carrinho, adicionarAoCarrinho, removerDoCarrinho, limparCarrinho, totalCarrinho, fazerPedido } = useApp()
+  const {
+    carrinho, adicionarAoCarrinho, removerDoCarrinho, limparCarrinho,
+    totalCarrinho, fazerPedido, produtos, lanchoneteConfig, usuarioLogado,
+  } = useApp()
   const isMobile = useIsMobile()
   const navigate = useNavigate()
   const [horario, setHorario] = useState('09:30')
@@ -49,25 +60,56 @@ export default function Carrinho() {
   const [pedidoFeito, setPedidoFeito] = useState(null)
   const [enviando, setEnviando] = useState(false)
   const [mostrarConfetti, setMostrarConfetti] = useState(false)
+  const [erro, setErro] = useState('')
+  const confettiTimerRef = useRef(null)
+  const perfilProfessor = normalizarPerfil(usuarioLogado?.role || usuarioLogado?.perfil) === 'professor'
 
   useEffect(() => {
-    if (!pedidoFeito) return
-    setMostrarConfetti(true)
-    const t = setTimeout(() => setMostrarConfetti(false), 4000)
-    return () => clearTimeout(t)
-  }, [pedidoFeito])
+    return () => clearTimeout(confettiTimerRef.current)
+  }, [])
 
   async function handleConfirmar() {
     if (carrinho.length === 0 || enviando) return
+    const validacaoHorario = validarHorarioRetirada(horario, lanchoneteConfig)
+    if (!validacaoHorario.valido) {
+      setErro(validacaoHorario.mensagem)
+      return
+    }
+    const itemSemEstoque = carrinho.find(item => {
+      const atual = produtos.find(p => String(p.id) === String(item.id))
+      return !atual?.disponivel || Number(atual.estoque || 0) < Number(item.quantidade || 0)
+    })
+    if (itemSemEstoque) {
+      setErro(`Não há quantidade suficiente disponível para ${itemSemEstoque.nome}.`)
+      return
+    }
     setEnviando(true)
+    setErro('')
     try {
       const pedido = await fazerPedido(horario, pagamento)
       setPedidoFeito(pedido)
-    } catch {
-      alert('Erro ao enviar pedido. Tente novamente.')
+      setMostrarConfetti(true)
+      clearTimeout(confettiTimerRef.current)
+      confettiTimerRef.current = setTimeout(() => setMostrarConfetti(false), 4000)
+    } catch (error) {
+      setErro(error.message || 'Erro ao enviar pedido. Tente novamente.')
     } finally {
       setEnviando(false)
     }
+  }
+
+  function adicionarUnidade(item) {
+    const produtoAtual = produtos.find(p => String(p.id) === String(item.id))
+    if (!produtoAtual?.disponivel || Number(produtoAtual.estoque || 0) <= 0) {
+      setErro('Produto fora de estoque.')
+      return
+    }
+    if (Number(item.quantidade || 0) >= Number(produtoAtual.estoque || 0)) {
+      setErro('Não há quantidade suficiente disponível para este item.')
+      return
+    }
+    setErro('')
+    adicionarAoCarrinho(produtoAtual)
   }
 
   if (pedidoFeito) {
@@ -77,7 +119,7 @@ export default function Carrinho() {
         <Layout titulo="Pedido Confirmado!">
           <div style={s.sucesso}>
             <div style={s.sucessoIcon}><CheckCircle size={48} color="#22C55E" strokeWidth={1.5} /></div>
-            <h2 style={s.sucessoTitulo}>Pedido #{pedidoFeito.id.slice(-8)} realizado!</h2>
+            <h2 style={s.sucessoTitulo}>Pedido {codigoPedidoBase(pedidoFeito)} realizado!</h2>
             <p style={s.sucessoSub}>
               Retire seu pedido hoje às <strong>{pedidoFeito.horarioRetirada}</strong>
             </p>
@@ -87,9 +129,10 @@ export default function Carrinho() {
               <p style={s.pagInfoValor}>R$ {pedidoFeito.total.toFixed(2).replace('.', ',')}</p>
             </div>
             <div style={{ background: '#FEF3C7', borderRadius: 10, padding: '0.65rem 0.9rem', marginBottom: 16 }}>
-              <p style={{ color: '#B45309', fontSize: '0.82rem', fontWeight: 700, margin: 0 }}>⏱️ Após ficar pronto, você tem <strong>10 minutos</strong> para retirar ou o pedido será cancelado automaticamente.</p>
+              <p style={{ color: '#B45309', fontSize: '0.82rem', fontWeight: 700, margin: 0 }}>⏱️ A partir do horário de retirada, você tem <strong>10 minutos</strong> para retirar ou o pedido será cancelado automaticamente.</p>
             </div>
             <div style={s.sucessoBtns}>
+              <AtendimentoPedido pedido={pedidoFeito} />
               <button style={s.btnPrimario} onClick={() => navigate('/aluno/pedidos')}>Ver meu pedido</button>
               <button style={s.btnSecundario} onClick={() => navigate('/aluno/cardapio')}>Voltar ao cardápio</button>
             </div>
@@ -134,7 +177,7 @@ export default function Carrinho() {
                 <div style={s.qtdControls}>
                   <button style={s.qtdBtn} onClick={() => removerDoCarrinho(item.id)}>−</button>
                   <span style={s.qtd}>{item.quantidade}</span>
-                  <button style={s.qtdBtn} onClick={() => adicionarAoCarrinho(item)}>+</button>
+                  <button style={s.qtdBtn} onClick={() => adicionarUnidade(item)}>+</button>
                 </div>
                 <span style={{ ...s.itemTotal, minWidth: isMobile ? 60 : 70, fontSize: isMobile ? '0.88rem' : '1rem' }}>R$ {(item.preco * item.quantidade).toFixed(2).replace('.', ',')}</span>
               </div>
@@ -203,23 +246,39 @@ export default function Carrinho() {
                 { id: 'Crédito',  label: '💳 Crédito' },
                 { id: 'Débito',   label: '💳 Débito' },
                 { id: 'Dinheiro', label: '💵 Dinheiro' },
+                ...(perfilProfessor ? [{ id: 'Conta do Professor', label: 'Conta do Professor' }] : []),
               ].map(op => (
                 <button key={op.id}
-                  style={{ ...s.pagBtn, ...(pagamento === op.id ? s.pagBtnAtivo : {}) }}
+                  style={{
+                    ...s.pagBtn,
+                    ...(op.id === 'Conta do Professor' ? s.pagBtnProfessor : {}),
+                    ...(pagamento === op.id ? s.pagBtnAtivo : {}),
+                  }}
                   onClick={() => setPagamento(op.id)}>
                   {op.label}
                 </button>
               ))}
             </div>
+            {pagamento === 'Conta do Professor' && (
+              <p style={s.avisoContaProfessor}>O pagamento ficará pendente até a conta ser quitada na cantina.</p>
+            )}
           </div>
 
           {/* Aviso dos 10 min */}
           <div style={{ background: '#FEF3C7', borderRadius: 10, padding: '0.6rem 0.85rem', display: 'flex', gap: 7, alignItems: 'flex-start' }}>
             <span style={{ fontSize: '1rem', flexShrink: 0 }}>⏱️</span>
             <p style={{ color: '#B45309', fontSize: '0.78rem', fontWeight: 600, margin: 0, lineHeight: 1.5 }}>
-              Após o pedido ficar <strong>Pronto</strong>, você tem <strong>10 minutos</strong> para retirar ou será cancelado automaticamente.
+              A partir do <strong>horário de retirada</strong>, você tem <strong>10 minutos</strong> para retirar seu pedido ou ele será cancelado automaticamente.
             </p>
           </div>
+
+          {horario && validarHorarioRetirada(horario, lanchoneteConfig).valido && (
+            <div style={s.infoHorario}>
+              O tempo do pedido começará a contar a partir do horário selecionado para retirada.
+            </div>
+          )}
+
+          {erro && <div role="alert" style={s.erro}>{erro}</div>}
 
           <div style={s.totalLinha}>
             <span>Total</span>
@@ -256,10 +315,14 @@ const s = {
   select: { padding: '0.6rem 0.9rem', borderRadius: 8, border: '2px solid #E2E8F0', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' },
   pagGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
   pagBtn: { padding: '0.65rem 0.5rem', borderRadius: 8, border: '2px solid #E2E8F0', background: '#fff', fontWeight: 600, fontSize: '0.85rem', color: '#64748B', cursor: 'pointer', fontFamily: 'inherit' },
+  pagBtnProfessor: { gridColumn: '1 / -1' },
   pagBtnAtivo: { border: '2px solid #003D7C', color: '#003D7C', background: '#E8F0FB' },
+  avisoContaProfessor: { margin: '2px 0 0', color: '#92400E', background: '#FEF3C7', borderRadius: 8, padding: '0.55rem 0.7rem', fontSize: '0.78rem', fontWeight: 700, lineHeight: 1.4 },
   totalLinha: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', paddingTop: 12 },
   totalValor: { color: '#003D7C', fontSize: '1.2rem' },
   btnConfirmar: { background: '#F47920', color: '#fff', padding: '0.85rem', borderRadius: 10, fontWeight: 700, fontSize: '1rem', border: 'none', cursor: 'pointer' },
+  infoHorario: { background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', borderRadius: 10, padding: '0.65rem 0.8rem', fontSize: '0.8rem', fontWeight: 700, lineHeight: 1.45 },
+  erro: { background: '#FEE2E2', color: '#B91C1C', border: '1px solid #FCA5A5', borderRadius: 10, padding: '0.65rem 0.8rem', fontSize: '0.82rem', fontWeight: 700, lineHeight: 1.45 },
   vazio: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 0' },
   sucesso: { maxWidth: 420, margin: '2rem auto', background: '#fff', borderRadius: 16, padding: '2.5rem 2rem', textAlign: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' },
   sucessoIcon: { fontSize: 56, marginBottom: 12 },

@@ -15,9 +15,31 @@ import {
   removerCamposSensiveis,
   sairDoFirebase,
 } from '../../services/authService'
-import { PERFIS, ehStaff, normalizarPerfil } from '../../utils/perfis'
+import { ORDEM_PERFIS, ehGestao, ehStaff, normalizarPerfil, perfisDoUsuario, perfisPorTipoEntrada } from '../../utils/perfis'
+import { nomeParaVinculo } from '../../utils/nomes'
 
-const ROLES_VALIDOS = [PERFIS.aluno, PERFIS.professor, PERFIS.admin, PERFIS.vendedor, PERFIS.cozinha]
+const ROLES_VALIDOS = ORDEM_PERFIS
+const chavePerfilAtivo = uid => `senac-perfil-ativo-${uid}`
+const chaveAcessosEntrada = uid => `senac-acessos-entrada-${uid}`
+const chaveSelecaoPendente = uid => `senac-selecao-pendente-${uid}`
+const chaveTipoEntrada = uid => `senac-tipo-entrada-${uid}`
+
+function tipoEntradaDoPerfil(perfil, roles = []) {
+  return roles.includes('professor') || ehStaff(perfil) ? 'equipe' : 'aluno'
+}
+
+function perfilInicialAcesso(perfis = []) {
+  return perfis.includes('professor') ? 'professor' : perfis[0]
+}
+
+function lerListaSessao(chave) {
+  try {
+    const valor = JSON.parse(sessionStorage.getItem(chave) || 'null')
+    return Array.isArray(valor) ? valor : null
+  } catch {
+    return null
+  }
+}
 
 async function chamarAdminUsuarios(acao, payload = {}) {
   const token = await auth.currentUser?.getIdToken()
@@ -36,17 +58,21 @@ async function chamarAdminUsuarios(acao, payload = {}) {
   return dados
 }
 
-function normalizarUsuario(user, dados) {
+function normalizarUsuario(user, dados, perfilAtivoPreferido = '') {
   if (!user || !dados) return null
   const seguro = removerCamposSensiveis({ uid: user.uid, ...dados })
-  const roleCru = seguro.role || seguro.perfil || 'aluno'
-  const perfilOficial = normalizarPerfil(roleCru)
+  const roles = perfisDoUsuario(seguro)
+  const principal = normalizarPerfil(seguro.role || seguro.perfil || seguro.tipo || roles[0])
+  const preferido = perfilAtivoPreferido ? normalizarPerfil(perfilAtivoPreferido) : ''
+  const perfilAtivo = roles.includes(preferido) ? preferido : roles.includes(principal) ? principal : roles[0]
   return {
     ...seguro,
     uid: user.uid,
     email: String(seguro.email || user.email || '').trim().toLowerCase(),
-    role: perfilOficial,
-    perfil: perfilOficial,
+    roles,
+    rolePrincipal: principal,
+    role: perfilAtivo,
+    perfil: perfilAtivo,
     ativo: seguro.ativo !== false && seguro.bloqueado !== true,
     bloqueado: seguro.ativo === false || seguro.bloqueado === true,
   }
@@ -54,6 +80,13 @@ function normalizarUsuario(user, dados) {
 
 function prepararAtualizacaoUsuario(dados = {}) {
   const atualizacao = { ...dados }
+  if (Object.hasOwn(atualizacao, 'roles') || Object.hasOwn(atualizacao, 'perfis')) {
+    const roles = perfisDoUsuario(atualizacao.roles || atualizacao.perfis)
+    atualizacao.roles = roles
+    delete atualizacao.perfis
+    delete atualizacao.role
+    delete atualizacao.perfil
+  }
   if (Object.hasOwn(atualizacao, 'perfil') && !Object.hasOwn(atualizacao, 'role')) {
     atualizacao.role = normalizarPerfil(atualizacao.perfil)
     delete atualizacao.perfil
@@ -96,7 +129,11 @@ export function useAuth({ onLogout }) {
           return
         }
 
-        const usuario = normalizarUsuario(user, snap.data())
+        const perfilSalvo = sessionStorage.getItem(chavePerfilAtivo(user.uid)) || ''
+        const acessosSalvos = lerListaSessao(chaveAcessosEntrada(user.uid))
+        const selecaoPendente = sessionStorage.getItem(chaveSelecaoPendente(user.uid)) === '1'
+        const perfilPreferido = usuarioLogadoRef.current?.uid === user.uid ? usuarioLogadoRef.current.perfil : perfilSalvo
+        const usuario = normalizarUsuario(user, snap.data(), perfilPreferido)
         if (!usuario.ativo) {
           sairDoFirebase(auth)
           setUsuarioLogado(null)
@@ -106,7 +143,29 @@ export function useAuth({ onLogout }) {
           return
         }
 
-        setUsuarioLogado(usuario)
+        const tipoEntradaSalvo = sessionStorage.getItem(chaveTipoEntrada(user.uid))
+        const tipoEntradaPreferido = ['aluno', 'equipe'].includes(tipoEntradaSalvo)
+          ? tipoEntradaSalvo
+          : tipoEntradaDoPerfil(usuario.perfil, usuario.roles)
+        const tipoEntrada = usuario.roles.includes('professor') && tipoEntradaPreferido === 'aluno'
+          ? 'equipe'
+          : tipoEntradaPreferido
+        const fonteAcessos = Array.isArray(acessosSalvos) ? acessosSalvos : usuario.roles
+        const acessosEntrada = perfisPorTipoEntrada(fonteAcessos, tipoEntrada)
+        const acessosValidos = acessosEntrada.length ? acessosEntrada : perfisPorTipoEntrada(usuario.roles, tipoEntrada)
+        const perfilAtivoBase = acessosValidos.includes(usuario.perfil) ? usuario.perfil : (perfilInicialAcesso(acessosValidos) || usuario.perfil)
+        const perfilAtivo = perfilAtivoBase === 'aluno' && acessosValidos.includes('professor') ? 'professor' : perfilAtivoBase
+        sessionStorage.setItem(chaveTipoEntrada(user.uid), tipoEntrada)
+        sessionStorage.setItem(chaveAcessosEntrada(user.uid), JSON.stringify(acessosValidos))
+        sessionStorage.setItem(chavePerfilAtivo(user.uid), perfilAtivo)
+
+        setUsuarioLogado(atual => ({
+          ...usuario,
+          role: perfilAtivo,
+          perfil: perfilAtivo,
+          acessosEntrada: acessosValidos,
+          selecaoAcessoPendente: atual?.uid === user.uid ? atual.selecaoAcessoPendente : selecaoPendente,
+        }))
         if (!ehStaff(usuario.role)) setUsuarios([usuario])
         setCarregandoAuth(false)
       }, err => {
@@ -130,7 +189,7 @@ export function useAuth({ onLogout }) {
     return unsub
   }, [usuarioLogado])
 
-  const login = useCallback(async (email, senha) => {
+  const login = useCallback(async (email, senha, tipoEntrada = 'aluno') => {
     try {
       const user = await entrarComEmail(auth, email, senha)
       const snap = await getDoc(doc(db, 'usuarios', user.uid))
@@ -140,20 +199,45 @@ export function useAuth({ onLogout }) {
         return { erro: 'Conta não configurada no banco de dados. Procure o suporte.' }
       }
 
-      const usuario = normalizarUsuario(user, snap.data())
+      const usuarioBase = normalizarUsuario(user, snap.data())
+      const tipoEntradaNormalizado = tipoEntrada === 'equipe' ? 'equipe' : 'aluno'
+      const acessosPermitidos = perfisPorTipoEntrada(usuarioBase.roles, tipoEntradaNormalizado)
 
-      if (!ROLES_VALIDOS.includes(usuario.role)) {
+      if (usuarioBase.roles.some(role => !ROLES_VALIDOS.includes(role))) {
         await sairDoFirebase(auth)
         return { erro: 'Perfil de acesso inválido.' }
       }
 
-      if (!usuario.ativo) {
+      if (!usuarioBase.ativo) {
         await sairDoFirebase(auth)
         return { erro: 'Sua conta está desativada ou bloqueada.', bloqueado: true }
       }
 
+      if (tipoEntradaNormalizado === 'aluno' && usuarioBase.roles.includes('professor')) {
+        await sairDoFirebase(auth)
+        return { erro: 'Professores devem entrar pelo Acesso da Equipe.' }
+      }
+
+      if (acessosPermitidos.length === 0) {
+        await sairDoFirebase(auth)
+        return { erro: tipoEntrada === 'equipe'
+          ? 'Este acesso é exclusivo para a equipe. Use a opção Entrar como Aluno.'
+          : 'Este acesso é exclusivo para alunos. Para entrar como equipe, use a opção Acesso da Equipe.' }
+      }
+
+      const precisaEscolher = acessosPermitidos.length > 1
+      const usuario = {
+        ...normalizarUsuario(user, snap.data(), perfilInicialAcesso(acessosPermitidos)),
+        acessosEntrada: acessosPermitidos,
+        selecaoAcessoPendente: precisaEscolher,
+      }
+      sessionStorage.setItem(chavePerfilAtivo(user.uid), perfilInicialAcesso(acessosPermitidos))
+      sessionStorage.setItem(chaveAcessosEntrada(user.uid), JSON.stringify(acessosPermitidos))
+      sessionStorage.setItem(chaveSelecaoPendente(user.uid), precisaEscolher ? '1' : '0')
+      sessionStorage.setItem(chaveTipoEntrada(user.uid), tipoEntradaNormalizado)
+      usuarioLogadoRef.current = usuario
       setUsuarioLogado(usuario)
-      return { usuario }
+      return { usuario, precisaEscolher, perfisDisponiveis: acessosPermitidos }
     } catch (e) {
       console.error('login:', e)
       let mensagem = 'Erro ao realizar login.'
@@ -167,16 +251,45 @@ export function useAuth({ onLogout }) {
   }, [])
 
   const logout = useCallback(async () => {
+    const uid = usuarioLogadoRef.current?.uid
+    if (uid) {
+      sessionStorage.removeItem(chavePerfilAtivo(uid))
+      sessionStorage.removeItem(chaveAcessosEntrada(uid))
+      sessionStorage.removeItem(chaveSelecaoPendente(uid))
+      sessionStorage.removeItem(chaveTipoEntrada(uid))
+    }
     await sairDoFirebase(auth)
     setUsuarioLogado(null)
     setUsuarios([])
     onLogout?.()
   }, [onLogout])
 
+  const trocarAcesso = useCallback((perfil) => {
+    const perfilNormalizado = normalizarPerfil(perfil)
+    const atual = usuarioLogadoRef.current
+    const tipoEntradaSalvo = atual ? sessionStorage.getItem(chaveTipoEntrada(atual.uid)) : ''
+    const tipoEntrada = ['aluno', 'equipe'].includes(tipoEntradaSalvo)
+      ? tipoEntradaSalvo
+      : tipoEntradaDoPerfil(atual?.perfil)
+    const acessosEntrada = atual ? perfisPorTipoEntrada(atual.roles, tipoEntrada) : []
+    if (!atual || !acessosEntrada.includes(perfilNormalizado)) {
+      return { erro: 'Você não tem permissão para acessar esta área.' }
+    }
+    sessionStorage.setItem(chavePerfilAtivo(atual.uid), perfilNormalizado)
+    sessionStorage.setItem(chaveAcessosEntrada(atual.uid), JSON.stringify(acessosEntrada))
+    sessionStorage.setItem(chaveSelecaoPendente(atual.uid), '0')
+    sessionStorage.setItem(chaveTipoEntrada(atual.uid), tipoEntrada)
+    const atualizado = { ...atual, role: perfilNormalizado, perfil: perfilNormalizado, acessosEntrada, selecaoAcessoPendente: false }
+    usuarioLogadoRef.current = atualizado
+    setUsuarioLogado(atualizado)
+    return { ok: true, perfil: perfilNormalizado }
+  }, [])
+
   const cadastrar = useCallback(async ({ nome, matricula, senha, curso, telefone = '', email = '', alergias = [] }) => {
     const matriculaLimpa = normalizarMatricula(matricula)
     const emailLimpo = String(email || '').trim().toLowerCase()
     if (!nome?.trim()) return { erro: 'Informe seu nome.' }
+    if (nomeParaVinculo(nome).split(' ').filter(Boolean).length < 2) return { erro: 'Informe seu nome completo, incluindo o sobrenome.' }
     if (!emailValida(emailLimpo)) return { erro: 'Informe um e-mail valido.' }
     if (!matriculaAlunoValida(matriculaLimpa)) return { erro: 'Use uma matricula numerica com 4 a 12 digitos.' }
     if (usuarios.find(u => u.matricula === matriculaLimpa)) return { erro: 'Matricula ja cadastrada.' }
@@ -186,9 +299,12 @@ export function useAuth({ onLogout }) {
       const novo = {
         uid: user.uid,
         nome: nome.trim(),
+        nomeVinculo: nomeParaVinculo(nome),
         email: emailLimpo,
         matricula: matriculaLimpa,
         role: 'aluno',
+        perfil: 'aluno',
+        roles: ['aluno'],
         ativo: true,
         curso,
         telefone: telefone || '',
@@ -205,10 +321,11 @@ export function useAuth({ onLogout }) {
     }
   }, [usuarios])
 
-  const cadastrarUsuario = useCallback(async ({ nome, matricula, senha, perfil, role, curso = '', telefone = '', email = '' }) => {
+  const cadastrarUsuario = useCallback(async ({ nome, matricula, senha, perfil, role, roles, curso = '', telefone = '', email = '' }) => {
     const matriculaLimpa = normalizarMatricula(matricula)
     const emailLimpo = String(email || '').trim().toLowerCase()
-    const roleLimpo = normalizarPerfil(role || perfil || 'aluno')
+    const rolesLimpos = perfisDoUsuario(Array.isArray(roles) && roles.length ? roles : [role || perfil || 'aluno'])
+    const roleLimpo = rolesLimpos[0]
     if (!nome?.trim()) return { erro: 'Informe o nome.' }
     if (!emailValida(emailLimpo)) return { erro: 'Informe um e-mail valido.' }
     if (!ROLES_VALIDOS.includes(roleLimpo)) return { erro: 'Perfil invalido.' }
@@ -222,6 +339,7 @@ export function useAuth({ onLogout }) {
         matricula: matriculaLimpa,
         senha,
         role: roleLimpo,
+        roles: rolesLimpos,
         curso,
         telefone,
       })
@@ -265,7 +383,7 @@ export function useAuth({ onLogout }) {
     const atualizacao = prepararAtualizacaoUsuario(dados)
     try {
       const usuarioAtual = usuarioLogadoRef.current
-      const atualizandoViaAdmin = normalizarPerfil(usuarioAtual?.role || usuarioAtual?.perfil) === PERFIS.admin
+      const atualizandoViaAdmin = ehGestao(usuarioAtual?.role || usuarioAtual?.perfil)
 
       if (atualizandoViaAdmin) {
         const res = await chamarAdminUsuarios('atualizar', { uid: String(uid), ...atualizacao })
@@ -278,7 +396,7 @@ export function useAuth({ onLogout }) {
         const usuarioAtualizado = normalizarUsuario({ uid, email: usuarioLogadoRef.current.email }, {
           ...usuarioLogadoRef.current,
           ...atualizacao,
-        })
+        }, usuarioLogadoRef.current.perfil)
         setUsuarioLogado(usuarioAtualizado)
       }
       return { ok: true }
@@ -328,7 +446,7 @@ export function useAuth({ onLogout }) {
   }
 
   return {
-    usuarioLogado, carregandoAuth, login, logout, cadastrar, cadastrarUsuario, alterarSenha, redefinirSenhaTelefone, redefinirSenhaVerificada,
+    usuarioLogado, carregandoAuth, login, logout, trocarAcesso, cadastrar, cadastrarUsuario, alterarSenha, redefinirSenhaTelefone, redefinirSenhaVerificada,
     usuarios, bloquearUsuario, desbloquearUsuario, excluirUsuario, resetarSenhaAdmin, atualizarUsuario,
   }
 }

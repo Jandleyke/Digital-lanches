@@ -1,6 +1,6 @@
 import admin from 'firebase-admin'
 
-const ROLES_VALIDOS = ['aluno', 'professor', 'admin', 'vendedor', 'cozinha']
+const ROLES_VALIDOS = ['aluno', 'professor', 'admin', 'gerente', 'vendedor', 'cozinha']
 
 function privateKey() {
   return process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -38,11 +38,28 @@ function appAdmin() {
 
 function normalizarPerfil(perfil = '') {
   const p = String(perfil).toLowerCase().trim()
-  if (['gerente', 'administrador', 'adm', 'gestor', 'lanchonete'].includes(p)) return 'admin'
+  if (['administrador', 'adm', 'lanchonete'].includes(p)) return 'admin'
+  if (['gerente', 'gestor'].includes(p)) return 'gerente'
   if (['vendedor', 'vendedora', 'atendente'].includes(p)) return 'vendedor'
   if (['cozinheiro', 'cozinha', 'producao', 'produção'].includes(p)) return 'cozinha'
   if (['prof', 'docente', 'professora'].includes(p)) return 'professor'
   return ROLES_VALIDOS.includes(p) ? p : 'aluno'
+}
+
+function normalizarPerfis(valor, fallback = 'aluno') {
+  const lista = Array.isArray(valor) && valor.length ? valor : [fallback]
+  return [...new Set(lista.map(normalizarPerfil).filter(role => ROLES_VALIDOS.includes(role)))]
+}
+
+function nomeParaVinculo(valor = '') {
+  return String(valor)
+    .trim()
+    .toLocaleLowerCase('pt-BR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function normalizarMatricula(matricula = '') {
@@ -70,13 +87,14 @@ async function exigirAdmin(req) {
   const decoded = await admin.auth(app).verifyIdToken(token)
   const snap = await admin.firestore(app).doc(`usuarios/${decoded.uid}`).get()
   const dados = snap.data()
-  if (!snap.exists || dados?.ativo === false || normalizarPerfil(dados?.role || dados?.perfil) !== 'admin') {
+  const roles = normalizarPerfis(dados?.roles || dados?.perfis, dados?.role || dados?.perfil)
+  if (!snap.exists || dados?.ativo === false || !roles.some(role => ['admin', 'gerente'].includes(role))) {
     const erro = new Error('Apenas administradores podem executar esta acao.')
     erro.status = 403
     throw erro
   }
 
-  return { app, uid: decoded.uid }
+  return { app, uid: decoded.uid, nome: dados?.nome || 'Admin' }
 }
 
 async function criarUsuario(app, payload) {
@@ -84,7 +102,8 @@ async function criarUsuario(app, payload) {
   const email = String(payload.email || '').trim().toLowerCase()
   const matricula = normalizarMatricula(payload.matricula)
   const senha = String(payload.senha || '')
-  const role = normalizarPerfil(payload.role || payload.perfil)
+  const roles = normalizarPerfis(payload.roles, payload.role || payload.perfil)
+  const role = roles[0]
 
   if (!nome) return { status: 400, body: { erro: 'Informe o nome.' } }
   if (!emailValido(email)) return { status: 400, body: { erro: 'Informe um e-mail valido.' } }
@@ -112,10 +131,12 @@ async function criarUsuario(app, payload) {
   const novo = {
     uid: user.uid,
     nome,
+    nomeVinculo: nomeParaVinculo(nome),
     email,
     matricula,
     role,
     perfil: role,
+    roles,
     ativo: true,
     bloqueado: false,
     curso: String(payload.curso || '').trim(),
@@ -150,7 +171,7 @@ async function excluirUsuario(app, adminUid, payload) {
   return { status: 200, body: { ok: true } }
 }
 
-async function atualizarUsuario(app, payload) {
+async function atualizarUsuario(app, adminUid, adminNome, payload) {
   const uid = String(payload.uid || '').trim()
   if (!uid) return { status: 400, body: { erro: 'UID invalido.' } }
 
@@ -164,6 +185,7 @@ async function atualizarUsuario(app, payload) {
     if (!nome) return { status: 400, body: { erro: 'Informe o nome.' } }
     authUpdate.displayName = nome
     firestoreUpdate.nome = nome
+    firestoreUpdate.nomeVinculo = nomeParaVinculo(nome)
   }
 
   if (Object.hasOwn(payload, 'email')) {
@@ -173,11 +195,26 @@ async function atualizarUsuario(app, payload) {
     firestoreUpdate.email = email
   }
 
-  if (Object.hasOwn(payload, 'perfil') || Object.hasOwn(payload, 'role')) {
-    const role = normalizarPerfil(payload.role || payload.perfil)
-    if (!ROLES_VALIDOS.includes(role)) return { status: 400, body: { erro: 'Perfil invalido.' } }
+  if (Object.hasOwn(payload, 'roles') || Object.hasOwn(payload, 'perfis') || Object.hasOwn(payload, 'perfil') || Object.hasOwn(payload, 'role')) {
+    const alvoRef = admin.firestore(app).doc(`usuarios/${uid}`)
+    const alvoSnap = await alvoRef.get()
+    if (!alvoSnap.exists) return { status: 404, body: { erro: 'Usuario nao encontrado.' } }
+    const antigos = normalizarPerfis(alvoSnap.data()?.roles || alvoSnap.data()?.perfis, alvoSnap.data()?.role || alvoSnap.data()?.perfil)
+    const roles = normalizarPerfis(payload.roles || payload.perfis, payload.role || payload.perfil)
+    if (!roles.length) return { status: 400, body: { erro: 'Selecione pelo menos um perfil.' } }
+    const role = roles[0]
     firestoreUpdate.role = role
     firestoreUpdate.perfil = role
+    firestoreUpdate.roles = roles
+    if (JSON.stringify(antigos) !== JSON.stringify(roles)) {
+      firestoreUpdate.historicoPerfis = admin.firestore.FieldValue.arrayUnion({
+        alteradoPor: adminUid,
+        alteradoPorNome: adminNome,
+        perfisAntigos: antigos,
+        perfisNovos: roles,
+        dataHora: new Date().toISOString(),
+      })
+    }
   }
 
   if (Object.hasOwn(payload, 'curso')) firestoreUpdate.curso = String(payload.curso || '').trim()
@@ -210,12 +247,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { app, uid } = await exigirAdmin(req)
+    const { app, uid, nome } = await exigirAdmin(req)
     const { acao, ...payload } = req.body || {}
     const resultado = acao === 'criar'
       ? await criarUsuario(app, payload)
       : acao === 'atualizar'
-        ? await atualizarUsuario(app, payload)
+        ? await atualizarUsuario(app, uid, nome, payload)
       : acao === 'excluir'
         ? await excluirUsuario(app, uid, payload)
         : { status: 400, body: { erro: 'Acao invalida.' } }

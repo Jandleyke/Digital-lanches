@@ -1,7 +1,7 @@
 export const STATUS_COR = {
   'Recebido':  { bg: '#FEF3C7', color: '#D97706' },
   'Pronto':    { bg: '#D1FAE5', color: '#059669' },
-  'Entregue':  { bg: '#F1F5F9', color: '#64748B' },
+  'Entregue':  { bg: '#DCFCE7', color: '#166534' },
   'Cancelado': { bg: '#FEE2E2', color: '#DC2626' },
 }
 

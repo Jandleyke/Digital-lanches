@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
 import { useIsMobile } from '../../utils/useIsMobile'
 import { suportaNotificacao, permissaoNotificacao, solicitarPermissaoNotificacao } from '../../utils/notifications'
 import { processarFotoPerfil } from '../../utils/image.js'
 import LanchoneteInfoCard from '../../components/LanchoneteInfoCard'
+import MeuAcesso from '../../components/MeuAcesso'
+import { PERFIL_INFO } from '../../utils/perfis'
 
 const ALERGIAS_PADRAO = ['gluten', 'lactose', 'amendoim', 'ovo', 'soja', 'frutos-do-mar']
 
@@ -158,7 +160,7 @@ export default function Perfil() {
         <div style={{ ...s.heroCard, padding: isMobile ? '1rem 1rem' : '1.35rem 1.25rem', alignItems: 'center' }}>
           <div style={{ flex: 1 }}>
             <p style={{ ...s.heroLabel, fontSize: isMobile ? '0.78rem' : '0.85rem' }}>Olá, {usuarioAtualizado?.nome}</p>
-            <h1 style={{ ...s.heroTitle, fontSize: isMobile ? '1.1rem' : '1.45rem' }}>Perfil do Aluno</h1>
+            <h1 style={{ ...s.heroTitle, fontSize: isMobile ? '1.1rem' : '1.45rem' }}>Perfil do {PERFIL_INFO[usuarioLogado?.perfil]?.nome || 'Aluno'}</h1>
             {!isMobile && <p style={s.heroText}>Gerencie suas informações de conta e segurança em um só lugar.</p>}
           </div>
           <div style={{ ...s.heroAvatar, flexShrink: 0, width: isMobile ? 52 : 72, height: isMobile ? 52 : 72 }}>
@@ -169,6 +171,8 @@ export default function Perfil() {
             )}
           </div>
         </div>
+
+        <MeuAcesso usuario={usuarioLogado} compacto={isMobile} />
 
         <LanchoneteInfoCard isMobile={isMobile} />
 

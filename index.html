@@ -15,6 +15,49 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (() => {
+        const recoveryKey = 'senac-cache-recovery'
+        let recovering = false
+
+        async function recoverFromStaleVersion() {
+          if (recovering || sessionStorage.getItem(recoveryKey)) return
+          recovering = true
+          sessionStorage.setItem(recoveryKey, '1')
+
+          try {
+            if ('serviceWorker' in navigator) {
+              const registrations = await navigator.serviceWorker.getRegistrations()
+              await Promise.all(registrations.map(registration => registration.unregister()))
+            }
+            if ('caches' in window) {
+              const cacheNames = await caches.keys()
+              await Promise.all(cacheNames.map(cacheName => caches.delete(cacheName)))
+            }
+          } finally {
+            window.location.reload()
+          }
+        }
+
+        window.addEventListener('error', event => {
+          const target = event.target
+          if (target?.tagName === 'SCRIPT' || target?.tagName === 'LINK') {
+            recoverFromStaleVersion()
+          }
+        }, true)
+
+        window.addEventListener('unhandledrejection', event => {
+          const message = String(event.reason?.message || event.reason || '')
+          if (/module|chunk|failed to fetch|import/i.test(message)) recoverFromStaleVersion()
+        })
+
+        window.setTimeout(() => {
+          const root = document.getElementById('root')
+          if (!root?.childElementCount) recoverFromStaleVersion()
+          else sessionStorage.removeItem(recoveryKey)
+        }, 5000)
+      })()
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

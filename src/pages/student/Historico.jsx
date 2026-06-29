@@ -1,5 +1,6 @@
 import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
+import { codigoPedido } from '../../utils/pedidos'
 
 export default function Historico() {
   const { pedidos, usuarioLogado } = useApp()
@@ -15,7 +16,7 @@ export default function Historico() {
               <div key={pedido.id} style={s.card}>
                 <div style={s.top}>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>Pedido #{pedido.id.slice(-8)}</strong>
+                    <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>Pedido {codigoPedido(pedido)}</strong>
                     <span style={s.data}>
                       {pedido.criadoEm
                         ? new Date(pedido.criadoEm).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' às ' + new Date(pedido.criadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })

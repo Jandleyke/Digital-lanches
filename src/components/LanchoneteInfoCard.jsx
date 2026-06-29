@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Clock, Mail, MapPin, Phone, Store, UserRound } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
+import { calcularStatusLanchonete } from '../utils/lanchonete'
 
 const DIAS_LABEL = {
   segunda: 'Segunda',
@@ -10,35 +11,6 @@ const DIAS_LABEL = {
   sexta: 'Sexta',
   sabado: 'Sabado',
   domingo: 'Domingo',
-}
-
-const DIA_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
-
-function toMinutos(str) {
-  if (!str) return null
-  const [h, m] = str.split(':').map(Number)
-  return h * 60 + m
-}
-
-function calcularStatus(config, agora) {
-  const dias = config.diasFuncionamento || []
-  const hoje = DIA_SEMANA[agora.getDay()]
-  const funcionaHoje = dias.includes(hoje)
-
-  if (dias.length > 0 && !funcionaHoje) return { texto: 'Fechada hoje', aberta: false }
-
-  const abertura = toMinutos(config.horarioAbertura)
-  const fechamento = toMinutos(config.horarioFechamento)
-  const agoraMin = agora.getHours() * 60 + agora.getMinutes()
-
-  if (abertura !== null && fechamento !== null) {
-    if (agoraMin >= abertura && agoraMin < fechamento) return { texto: 'Aberta agora', aberta: true }
-    if (agoraMin < abertura) return { texto: `Abre às ${config.horarioAbertura}`, aberta: false }
-    return { texto: 'Fechada agora', aberta: false }
-  }
-
-  if (dias.length > 0 && funcionaHoje) return { texto: 'Aberta hoje', aberta: true }
-  return null
 }
 
 function juntarEndereco(config) {
@@ -59,12 +31,12 @@ export default function LanchoneteInfoCard({ compacto = false, isMobile = false 
   const [agora, setAgora] = useState(() => new Date())
 
   useEffect(() => {
-    const timer = setInterval(() => setAgora(new Date()), 60000)
+    const timer = setInterval(() => setAgora(new Date()), 10000)
     return () => clearInterval(timer)
   }, [])
 
-  const hoje = DIA_SEMANA[agora.getDay()]
-  const status = calcularStatus(config, agora)
+  const hoje = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'][agora.getDay()]
+  const status = calcularStatusLanchonete(config, agora)
   const endereco = juntarEndereco(config)
   const contatos = [
     config.telefone && { icon: Phone, texto: config.telefone },

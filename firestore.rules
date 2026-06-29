@@ -18,17 +18,19 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
         && userDoc().data.ativo != false
         && (
-          userDoc().data.role in roles ||
-          userDoc().data.perfil in roles
+          (userDoc().data.keys().hasAny(['roles']) && userDoc().data.roles is list && userDoc().data.roles.hasAny(roles)) ||
+          (userDoc().data.keys().hasAny(['perfis']) && userDoc().data.perfis is list && userDoc().data.perfis.hasAny(roles)) ||
+          (userDoc().data.keys().hasAny(['role']) && userDoc().data.role in roles) ||
+          (userDoc().data.keys().hasAny(['perfil']) && userDoc().data.perfil in roles)
         );
     }
 
     function isStaff() {
-      return hasRole(['admin', 'vendedora', 'vendedor', 'cozinha']);
+      return hasRole(['admin', 'gerente', 'vendedora', 'vendedor', 'cozinha']);
     }
 
     function isCozinhaOuAdmin() {
-      return hasRole(['admin', 'cozinha']);
+      return hasRole(['admin', 'gerente', 'cozinha']);
     }
 
     function podeGerenciarAvisos() {
@@ -75,18 +77,65 @@ service cloud.firestore {
       ]);
     }
 
-    function atualizacaoApenasEstoque() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estoque'])
+    function decrementoEstoquePorPedido() {
+      return hasRole(['aluno', 'professor'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estoque'])
         && request.resource.data.estoque is number
         && request.resource.data.estoque >= 0
-        && request.resource.data.estoque != resource.data.estoque
-        && (request.resource.data.estoque - resource.data.estoque) <= 20
-        && (request.resource.data.estoque - resource.data.estoque) >= -20;
+        && request.resource.data.estoque < resource.data.estoque
+        && (resource.data.estoque - request.resource.data.estoque) <= 20;
     }
 
-    function atualizacaoProdutoOperacional() {
-      return hasRole(['vendedor', 'vendedora', 'cozinha'])
-        && !('preco' in request.resource.data.diff(resource.data).affectedKeys());
+    function quantidadesProdutoValidas() {
+      return request.resource.data.estoque is number
+        && request.resource.data.estoque >= 0
+        && (!request.resource.data.keys().hasAny(['estoqueInicial'])
+          || (request.resource.data.estoqueInicial is number && request.resource.data.estoqueInicial >= 0))
+        && (!request.resource.data.keys().hasAny(['estoqueBaixo'])
+          || (request.resource.data.estoqueBaixo is number && request.resource.data.estoqueBaixo >= 0));
+    }
+
+    function atualizacaoEstoqueBebidaVendedor() {
+      return hasRole(['vendedor', 'vendedora'])
+        && resource.data.categoria == 'Bebidas'
+        && request.resource.data.categoria == 'Bebidas'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estoque'])
+        && request.resource.data.estoque is number
+        && request.resource.data.estoque >= 0;
+    }
+
+    function decrementoEstoquePedidoBalcao() {
+      return hasRole(['vendedor', 'vendedora'])
+        && resource.data.disponivel != false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estoque'])
+        && request.resource.data.estoque is number
+        && request.resource.data.estoque >= 0
+        && request.resource.data.estoque < resource.data.estoque
+        && (resource.data.estoque - request.resource.data.estoque) <= 20;
+    }
+
+    function atualizacaoProdutoAdminSemEstoque() {
+      return hasRole(['admin', 'gerente'])
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['estoque']);
+    }
+
+    function atualizacaoProdutoVendedorSemEstoque() {
+      return hasRole(['vendedor', 'vendedora'])
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['preco', 'estoque', 'categoria']);
+    }
+
+    function atualizacaoProdutoCozinha() {
+      return hasRole(['cozinha'])
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['preco'])
+        && request.resource.data.estoque is number
+        && request.resource.data.estoque >= 0;
+    }
+
+    function criacaoProdutoVendedorValida() {
+      return hasRole(['vendedor', 'vendedora'])
+        && request.resource.data.estoque is number
+        && request.resource.data.estoque >= 0
+        && (request.resource.data.categoria == 'Bebidas' || request.resource.data.estoque == 0);
     }
 
     function atualizacaoAjusteProducaoVendedor() {
@@ -110,6 +159,80 @@ service cloud.firestore {
       return isSignedIn() && request.resource.data.uid == request.auth.uid;
     }
 
+    function isPedidoAvulsoDoNome() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+        && resource.data.alunoCadastrado == false
+        && userDoc().data.nomeVinculo is string
+        && (
+          (
+            'nomeVinculo' in resource.data
+            && resource.data.nomeVinculo is string
+            && resource.data.nomeVinculo == userDoc().data.nomeVinculo
+          )
+          || (
+            resource.data.aluno == userDoc().data.nome
+          )
+        );
+    }
+
+    function vinculoPedidoAvulsoValido() {
+      return isPedidoAvulsoDoNome()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'uid',
+          'matricula',
+          'nomeVinculo',
+          'alunoCadastrado',
+          'alunoPerfil',
+          'vinculadoEm',
+          'vinculadoPor'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.matricula == userDoc().data.matricula
+        && request.resource.data.nomeVinculo == userDoc().data.nomeVinculo
+        && request.resource.data.alunoCadastrado == true
+        && request.resource.data.vinculadoPor == request.auth.uid;
+    }
+
+    function contaProfessorPedidoBalcaoValida() {
+      return request.resource.data.formaPagamento != 'Conta do Professor'
+        || (
+          request.resource.data.alunoCadastrado == true
+          && exists(/databases/$(database)/documents/usuarios/$(request.resource.data.uid))
+          && (
+            get(/databases/$(database)/documents/usuarios/$(request.resource.data.uid)).data.role == 'professor'
+            || get(/databases/$(database)/documents/usuarios/$(request.resource.data.uid)).data.perfil == 'professor'
+          )
+        );
+    }
+
+    function criacaoPedidoBalcaoValida(pedidoId) {
+      return hasRole(['vendedor', 'vendedora'])
+        && request.resource.data.id == pedidoId
+        && request.resource.data.origem == 'balcao'
+        && request.resource.data.status == 'Recebido'
+        && request.resource.data.lancadoPor.uid == request.auth.uid
+        && request.resource.data.aluno is string
+        && request.resource.data.aluno.size() >= 3
+        && request.resource.data.nomeVinculo is string
+        && request.resource.data.nomeVinculo.size() >= 3
+        && request.resource.data.matricula is string
+        && (
+          request.resource.data.matricula == ''
+          || request.resource.data.matricula.matches('^[A-Za-z0-9._-]{4,20}$')
+        )
+        && request.resource.data.itens is list
+        && request.resource.data.itens.size() > 0
+        && request.resource.data.itens.size() <= 50
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.numero is int
+        && request.resource.data.numero > 0
+        && request.resource.data.numero <= 9999
+        && request.resource.data.formaPagamento in ['Dinheiro', 'PIX', 'Débito', 'Crédito', 'Conta do Professor']
+        && contaProfessorPedidoBalcaoValida();
+    }
+
     function atualizacaoAvaliacaoPedido() {
       return isPedidoOwner()
         && resource.data.status == 'Entregue'
@@ -128,9 +251,9 @@ service cloud.firestore {
     match /usuarios/{uid} {
       allow get: if isSelf(uid) || isStaff();
       allow list: if isStaff();
-      allow create: if autoCadastroAlunoValido(uid) || isStaff();
-      allow update: if (isSelf(uid) && atualizacaoPropriaSegura()) || isStaff();
-      allow delete: if isStaff();
+      allow create: if autoCadastroAlunoValido(uid) || hasRole(['admin', 'gerente']);
+      allow update: if (isSelf(uid) && atualizacaoPropriaSegura()) || hasRole(['admin', 'gerente']);
+      allow delete: if hasRole(['admin', 'gerente']);
     }
 
     match /recuperacaoSenha/{matricula} {
@@ -139,18 +262,39 @@ service cloud.firestore {
 
     match /produtos/{produtoId} {
       allow read: if isSignedIn();
-      allow create, delete: if isStaff();
-      allow update: if hasRole(['admin'])
-        || atualizacaoProdutoOperacional()
-        || (isSignedIn() && atualizacaoApenasEstoque());
+      allow create: if quantidadesProdutoValidas()
+        && (hasRole(['admin', 'gerente', 'cozinha']) || criacaoProdutoVendedorValida());
+      allow delete: if isStaff();
+      allow update: if quantidadesProdutoValidas()
+        && (atualizacaoProdutoAdminSemEstoque()
+          || atualizacaoProdutoVendedorSemEstoque()
+          || atualizacaoEstoqueBebidaVendedor()
+          || decrementoEstoquePedidoBalcao()
+          || atualizacaoProdutoCozinha()
+          || decrementoEstoquePorPedido());
+    }
+
+    match /contadoresPedidos/{chaveDiaria} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.ultimoNumero == 1
+        && request.resource.data.chaveDiaria == chaveDiaria;
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoNumero', 'chaveDiaria', 'atualizadoEm'])
+        && request.resource.data.ultimoNumero == resource.data.ultimoNumero + 1
+        && request.resource.data.ultimoNumero <= 9999
+        && request.resource.data.chaveDiaria == chaveDiaria;
+      allow delete: if false;
     }
 
     match /pedidos/{pedidoId} {
-      allow read: if isStaff() || isPedidoOwner();
-      allow create: if isNovoPedidoOwner()
-        && request.resource.data.status == 'Recebido';
+      allow read: if isStaff() || isPedidoOwner() || isPedidoAvulsoDoNome();
+      allow create: if (isNovoPedidoOwner()
+        && request.resource.data.status == 'Recebido')
+        || criacaoPedidoBalcaoValida(pedidoId);
       allow update: if isStaff()
         || atualizacaoAvaliacaoPedido()
+        || vinculoPedidoAvulsoValido()
         || (
           isPedidoOwner()
           && isNovoPedidoOwner()
@@ -182,6 +326,18 @@ service cloud.firestore {
         || (isSignedIn() && (atualizacaoLeituraAviso() || atualizacaoRespostaAviso()));
     }
 
+    match /atendimentos/{atendimentoId} {
+      allow read: if isStaff()
+        || (isSignedIn() && resource.data.solicitanteId == request.auth.uid);
+      allow create: if isSignedIn()
+        && request.resource.data.solicitanteId == request.auth.uid
+        && request.resource.data.pedidoId is string
+        && request.resource.data.mensagens is list;
+      allow update: if isStaff()
+        || (isSignedIn() && resource.data.solicitanteId == request.auth.uid);
+      allow delete: if hasRole(['admin', 'gerente']);
+    }
+
     match /producaoDiaria/{producaoId} {
       allow read: if isStaff();
       allow create, delete: if isCozinhaOuAdmin();
@@ -195,7 +351,7 @@ service cloud.firestore {
 
     match /configuracoes/{configId} {
       allow read: if isSignedIn();
-      allow write: if hasRole(['admin']);
+      allow write: if hasRole(['admin', 'gerente']);
     }
 
     match /_debug/{doc} {

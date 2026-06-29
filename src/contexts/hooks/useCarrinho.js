@@ -45,8 +45,11 @@ export function useCarrinho(usuarioLogado) {
 
   const adicionarAoCarrinho = useCallback((produto) => {
     setCarrinho(prev => {
+      const estoqueDisponivel = Math.max(0, Number(produto?.estoque || 0))
+      if (!produto?.disponivel || estoqueDisponivel <= 0) return prev
       const existe = prev.find(i => i.id === produto.id)
-      if (existe) return prev.map(i => i.id === produto.id ? { ...i, quantidade: i.quantidade + 1 } : i)
+      if (existe?.quantidade >= estoqueDisponivel) return prev
+      if (existe) return prev.map(i => i.id === produto.id ? { ...i, ...produto, quantidade: i.quantidade + 1 } : i)
       return [...prev, { ...produto, quantidade: 1 }]
     })
   }, [setCarrinho])

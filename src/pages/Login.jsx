@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '../contexts/AppContext'
 import { useIsMobile } from '../utils/useIsMobile'
 import { ArrowLeft, ArrowRight, Clock3, Eye, EyeOff, Heart, Lock, Mail, ShoppingBag, UsersRound } from 'lucide-react'
-import { caminhoInicialPorPerfil, normalizarPerfil } from '../utils/perfis'
+import { caminhoInicialPorPerfil } from '../utils/perfis'
 
 function ModalRedefinirSenha({ onFechar, redefinirSenhaVerificada }) {
   const [email, setEmail] = useState('')
@@ -109,7 +109,7 @@ const ms = {
 }
 
 export default function Login({ gerencial = false }) {
-  const { login, logout, redefinirSenhaVerificada } = useApp()
+  const { login, redefinirSenhaVerificada } = useApp()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [modalSenha, setModalSenha] = useState(false)
@@ -131,7 +131,7 @@ export default function Login({ gerencial = false }) {
     setErro('')
     setEntrando(true)
     
-    const res = await login(email, senha)
+    const res = await login(email, senha, gerencial ? 'equipe' : 'aluno')
     
     if (res?.erro) {
       setEntrando(false)
@@ -139,27 +139,8 @@ export default function Login({ gerencial = false }) {
       return
     }
 
-    const { usuario } = res
-
-    const perfilNorm = normalizarPerfil(usuario.perfil)
-    const perfilEquipe = !['aluno', 'professor'].includes(perfilNorm)
-
-    if (!gerencial && perfilEquipe) {
-      await logout()
-      setEntrando(false)
-      setErro('Este acesso é exclusivo para alunos e professores. Use o "Acesso da Equipe".')
-      return
-    }
-
-    if (gerencial && !perfilEquipe) {
-      await logout()
-      setEntrando(false)
-      setErro('Este acesso é exclusivo para a equipe. Use o login de aluno.')
-      return
-    }
-
     setEntrando(false)
-    navigate(caminhoInicialPorPerfil(usuario.perfil))
+    navigate(res.precisaEscolher ? '/escolher-acesso' : caminhoInicialPorPerfil(res.usuario.perfil))
   }
 
   return (
@@ -170,7 +151,7 @@ export default function Login({ gerencial = false }) {
           redefinirSenhaVerificada={redefinirSenhaVerificada}
         />
       )}
-      <div style={{ ...s.card, gridTemplateColumns: isMobile ? '1fr' : '0.95fr 1.05fr', minHeight: isMobile ? 'auto' : 560 }}>
+      <div style={{ ...s.card, gridTemplateColumns: isMobile ? '1fr' : '0.95fr 1.05fr', minHeight: isMobile ? 'auto' : 560, maxWidth: isMobile ? 'calc(100vw - 1.5rem)' : 920 }}>
 
         <div style={{ ...s.brandPanel, padding: isMobile ? '1.35rem 1.35rem 1.25rem' : '2.6rem 2.45rem' }}>
           <div style={s.brandMark}>
@@ -213,7 +194,7 @@ export default function Login({ gerencial = false }) {
               {gerencial ? 'Equipe' : 'Aluno'}
             </span>
             <h2 style={{ ...s.formTitle, fontSize: isMobile ? '1.35rem' : '1.65rem' }}>{gerencial ? 'Login gerencial' : 'Entrar na conta'}</h2>
-            <p style={s.formSub}>{gerencial ? 'Acesso da equipe administrativa, vendas e cozinha' : 'Acesse com seu e-mail e senha'}</p>
+            <p style={s.formSub}>{gerencial ? 'Acesso da administração, vendas, cozinha e professores' : 'Acesse com seu e-mail e senha'}</p>
           </div>
 
           <form onSubmit={handleLogin} style={s.form}>
@@ -294,7 +275,7 @@ const s = {
   page: {
     minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'linear-gradient(135deg, #071832 0%, #0B1E45 36%, #003D7C 72%, #004F9E 100%)',
-    padding: '1.25rem',
+    padding: '1.25rem', width: '100%', minWidth: 0,
   },
   card: {
     display: 'grid',

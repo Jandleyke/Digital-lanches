@@ -3,28 +3,69 @@ import { QRCodeSVG } from 'qrcode.react'
 import { useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import EmptyState from '../../components/EmptyState'
+import AtendimentoPedido from '../../components/AtendimentoPedido'
 import { useApp } from '../../contexts/AppContext'
 import { STATUS_COR } from '../../utils/statusColors'
 import { formatPrice } from '../../utils/formatters'
 import { useIsMobile } from '../../utils/useIsMobile'
-import { Package, ClipboardList, QrCode } from 'lucide-react'
+import {
+  CalendarDays, CheckCircle2, ClipboardList, Clock3, CreditCard,
+  Package, QrCode, RotateCcw, XCircle,
+} from 'lucide-react'
+import { JANELA_PEDIDO_MS, codigoPedido, inicioContagemPedido, matriculaParaRetirada } from '../../utils/pedidos'
 
-const statusPasso = ['Recebido', 'Pronto', 'Entregue']
-const LIMITE_MS = 10 * 60 * 1000
-const JANELA_CANCELAMENTO_MS = 10 * 60 * 1000
+const statusPasso = ['Recebido', 'Entregue']
+
+function pagamentoContaProfessor(pedido) {
+  return String(pedido?.formaPagamento || pedido?.pagamento || '').trim().toLocaleLowerCase('pt-BR') === 'conta do professor'
+}
+
+function dataValida(valor) {
+  if (!valor) return null
+  const data = typeof valor?.toDate === 'function' ? valor.toDate() : new Date(valor)
+  return Number.isNaN(data.getTime()) ? null : data
+}
+
+function formatarDataHora(valor, fallback = '') {
+  const data = dataValida(valor)
+  if (!data) return fallback
+  const dia = data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const hora = data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  return `${dia} às ${hora}`
+}
+
+
+function getPedidoDate(pedido) {
+  const value =
+    pedido?.criadoEm ||
+    pedido?.createdAt ||
+    pedido?.dataPedido ||
+    pedido?.data ||
+    pedido?.timestamp
+
+  return dataValida(value)
+}
+
+function getPedidoTime(pedido) {
+  const data = getPedidoDate(pedido)
+  return data ? data.getTime() : 0
+}
 
 function CancelamentoTimer({ pedido }) {
-  const cancelavelAte = pedido.cancelavelAte || (pedido.criadoEm ? pedido.criadoEm + JANELA_CANCELAMENTO_MS : null)
-  const [restante, setRestante] = useState(() => Math.max(0, Number(cancelavelAte || 0) - Date.now()))
+  const inicioContagem = inicioContagemPedido(pedido)
+  const cancelavelAte = pedido.cancelavelAte || (inicioContagem ? inicioContagem + JANELA_PEDIDO_MS : null)
+  const [agora, setAgora] = useState(Date.now)
 
   useEffect(() => {
-    if (!cancelavelAte) return
-    const id = setInterval(() => {
-      setRestante(Math.max(0, Number(cancelavelAte) - Date.now()))
-    }, 1000)
+    const id = setInterval(() => setAgora(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [cancelavelAte])
+  }, [])
 
+  if (inicioContagem > agora) {
+    return <div style={s.infoHorario}>O tempo do pedido começará a contar a partir do horário selecionado para retirada.</div>
+  }
+
+  const restante = Math.max(0, Number(cancelavelAte || 0) - agora)
   if (!cancelavelAte || restante <= 0) return null
   const min = Math.floor(restante / 60000)
   const seg = Math.floor((restante % 60000) / 1000)
@@ -42,7 +83,7 @@ function CancelamentoTimer({ pedido }) {
       marginBottom: '0.75rem',
       textAlign: 'center',
     }}>
-      Pedido em processo: cancelamento disponivel por{' '}
+      Pedido em processo: cancelamento automático em{' '}
       <strong style={{ fontVariantNumeric: 'tabular-nums' }}>
         {min}:{String(seg).padStart(2, '0')}
       </strong>
@@ -50,16 +91,20 @@ function CancelamentoTimer({ pedido }) {
   )
 }
 
-function CountdownTimer({ prontoEm }) {
-  const [restante, setRestante] = useState(() => Math.max(0, LIMITE_MS - (Date.now() - prontoEm)))
+function CountdownTimer({ pedido }) {
+  const inicioContagem = Math.max(Number(pedido.prontoEm || 0), inicioContagemPedido(pedido))
+  const [agora, setAgora] = useState(Date.now)
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setRestante(Math.max(0, LIMITE_MS - (Date.now() - prontoEm)))
-    }, 1000)
+    const id = setInterval(() => setAgora(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [prontoEm])
+  }, [])
 
+  if (inicioContagem > agora) {
+    return <div style={s.infoHorario}>O tempo do pedido começará a contar a partir do horário selecionado para retirada.</div>
+  }
+
+  const restante = Math.max(0, JANELA_PEDIDO_MS - (agora - inicioContagem))
   if (restante <= 0) return null
   const min = Math.floor(restante / 60000)
   const seg = Math.floor((restante % 60000) / 1000)
@@ -98,7 +143,7 @@ function ModalCancelar({ pedido, onConfirmar, onFechar }) {
       <div style={s.overlayBox}>
         <h3 style={{ fontWeight: 800, color: '#1A202C', marginBottom: 8 }}>Cancelar pedido?</h3>
         <p style={{ color: '#64748B', fontSize: '0.88rem', marginBottom: '1rem' }}>
-          Pedido #{pedido.id.slice(-8)} será cancelado e o estoque devolvido.
+          Pedido {codigoPedido(pedido)} será cancelado e o estoque devolvido.
         </p>
         <label style={s.label}>Motivo (opcional)</label>
         <textarea
@@ -127,9 +172,15 @@ export default function Pedidos() {
   const [avaliando, setAvaliando] = useState({})
   const [msgAvaliacao, setMsgAvaliacao] = useState({})
 
-  const meusPedidos = pedidos.filter(p => p.matricula === usuarioLogado?.matricula)
+  const meusPedidos = pedidos
+    .filter(p => p.matricula === usuarioLogado?.matricula)
+    .sort((a, b) => getPedidoTime(a) - getPedidoTime(b))
+
   const ativos = meusPedidos.filter(p => p.status !== 'Entregue' && p.status !== 'Cancelado')
-  const historico = meusPedidos.filter(p => p.status === 'Entregue' || p.status === 'Cancelado')
+
+  const historico = meusPedidos
+    .filter(p => p.status === 'Entregue' || p.status === 'Cancelado')
+    .sort((a, b) => getPedidoTime(b) - getPedidoTime(a))
 
   const lista = aba === 'ativos' ? ativos : historico
 
@@ -145,13 +196,15 @@ export default function Pedidos() {
   useEffect(() => {
     const id = setInterval(() => {
       ativosRef.current.forEach(pedido => {
-        const cancelavelAte = pedido.cancelavelAte || (pedido.criadoEm ? pedido.criadoEm + JANELA_CANCELAMENTO_MS : null)
+        const inicioContagem = inicioContagemPedido(pedido)
+        const cancelavelAte = pedido.cancelavelAte || (inicioContagem ? inicioContagem + JANELA_PEDIDO_MS : null)
         if (pedido.status === 'Recebido' && cancelavelAte && Date.now() >= cancelavelAte) {
           cancelarRef.current(pedido.id, 'Tempo de cancelamento expirado - cancelamento automatico')
           return
         }
         if (pedido.status === 'Pronto' && pedido.prontoEm) {
-          if (Date.now() - pedido.prontoEm >= LIMITE_MS) {
+          const inicioRetirada = Math.max(Number(pedido.prontoEm), inicioContagem)
+          if (Date.now() - inicioRetirada >= JANELA_PEDIDO_MS) {
             cancelarRef.current(pedido.id, 'Não retirado em 10 minutos — cancelamento automático')
           }
         }
@@ -227,25 +280,27 @@ export default function Pedidos() {
       <div style={{ ...s.lista, gap: isMobile ? '0.6rem' : '1rem' }}>
         {/* ── Pedidos ativos ─────────────────────────────────────────────── */}
         {aba === 'ativos' && ativos.map(pedido => {
-          const passoAtual = statusPasso.indexOf(pedido.status)
+          const passoAtual = pedido.status === 'Entregue' ? 1 : 0
           const pronto = pedido.status === 'Pronto'
-          const sc = STATUS_COR[pedido.status] || {}
+          const statusExibido = pedido.status === 'Entregue' ? 'Entregue' : 'Recebido'
+          const sc = STATUS_COR[statusExibido] || {}
+          const matriculaRetirada = matriculaParaRetirada(pedido, usuarioLogado)
           return (
             <div key={pedido.id} style={{ ...s.card, ...(pronto ? s.cardPronto : {}), padding: isMobile ? '0.85rem' : '1.25rem' }}>
-              {pronto && <div style={s.prontoAlert}>🎉 Seu pedido está PRONTO! Vá retirar no balcão!</div>}
+              {pronto && <div style={s.prontoAlert}>Seu pedido já pode ser retirado no balcão.</div>}
 
               {/* Countdown de retirada */}
               {pronto && pedido.prontoEm && (
-                <CountdownTimer prontoEm={pedido.prontoEm} />
+                <CountdownTimer pedido={pedido} />
               )}
               {pedido.status === 'Recebido' && <CancelamentoTimer pedido={pedido} />}
 
               <div style={s.cardTop}>
                 <div>
-                  <strong style={s.pedidoId}>Pedido #{pedido.id.slice(-8)}</strong>
+                  <strong style={s.pedidoId}>Pedido {codigoPedido(pedido)}</strong>
                   <span style={s.horario}>Retirada: {pedido.horarioRetirada}</span>
                 </div>
-                <span style={{ ...s.badge, background: sc.bg, color: sc.color }}>{pedido.status}</span>
+                <span style={{ ...s.badge, background: sc.bg, color: sc.color }}>{statusExibido}</span>
               </div>
 
               {/* Progresso */}
@@ -284,7 +339,9 @@ export default function Pedidos() {
 
               <div style={{ ...s.cardBottom, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 10 : 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: isMobile ? '100%' : 'auto' }}>
-                  <span style={s.pagamento}>{pedido.pagamento} · {pedido.pago ? 'Pago' : 'Pagar na retirada'}</span>
+                  <span style={s.pagamento}>
+                    {pedido.pagamento} · {pedido.pago ? 'Pago' : pagamentoContaProfessor(pedido) ? 'Pagamento pendente' : 'Pagar na retirada'}
+                  </span>
                   <strong style={s.total}>{formatPrice(pedido.total)}</strong>
                 </div>
                 <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : 'auto' }}>
@@ -304,9 +361,16 @@ export default function Pedidos() {
                   <div style={s.qrWrap}>
                     <QRCodeSVG value={`SENAC-LANCHES:${pedido.id}`} size={160} bgColor="#fff" fgColor="#003D7C" level="M" />
                   </div>
-                  <p style={s.qrId}>#{pedido.id.slice(-8)}</p>
+                  <p style={s.qrId}>{codigoPedido(pedido)}</p>
+                  {matriculaRetirada && (
+                    <div style={s.matriculaRetirada}>
+                      <span style={s.matriculaRetiradaTitulo}>Ou informe sua matrícula no balcão</span>
+                      <strong style={s.matriculaRetiradaNumero}>{matriculaRetirada}</strong>
+                    </div>
+                  )}
                 </div>
               )}
+              <AtendimentoPedido pedido={pedido} />
             </div>
           )
         })}
@@ -314,39 +378,80 @@ export default function Pedidos() {
         {/* ── Histórico ──────────────────────────────────────────────────── */}
         {aba === 'historico' && historico.map(pedido => {
           const sc = STATUS_COR[pedido.status] || {}
+          const itens = pedido.itens || []
+          const quantidadeItens = itens.reduce((total, item) => total + Number(item.quantidade || 1), 0)
+          const formaPagamento = pedido.formaPagamento || pedido.pagamento || 'Pagamento não informado'
+          const pagamentoStatus = pedido.pago
+            ? 'Pago'
+            : pedido.status === 'Cancelado'
+              ? 'Não concluído'
+              : pagamentoContaProfessor(pedido) ? 'Pendente' : 'Pagar na retirada'
+          const dataPedido = formatarDataHora(
+            pedido.criadoEm || pedido.createdAt || pedido.dataPedido || pedido.data,
+            pedido.horarioPedido || 'Horário não informado'
+          )
+          const dataCancelamento = formatarDataHora(pedido.canceladoEm || pedido.dataCancelamento)
+          const dataEntrega = formatarDataHora(pedido.entregueEm || pedido.retiradoEm)
           return (
-            <div key={pedido.id} style={{ ...s.cardHist, padding: isMobile ? '0.75rem 0.85rem' : '1rem 1.25rem' }}>
+            <div key={pedido.id} style={{ ...s.cardHist, padding: isMobile ? '0.9rem' : '1.15rem 1.25rem' }}>
               <div style={s.histTop}>
-                <div>
-                  <strong style={{ fontSize: '0.9rem', color: '#1A202C' }}>Pedido #{pedido.id.slice(-8)}</strong>
-                  <span style={{ display: 'block', fontSize: '0.78rem', color: '#94A3B8', marginTop: 2 }}>
-                    {pedido.horarioPedido}
-                    {pedido.status === 'Cancelado' && pedido.motivoCancelamento
-                      ? ` · ${pedido.motivoCancelamento}`
-                      : ''}
-                  </span>
+                <div style={{ minWidth: 0 }}>
+                  <strong style={s.histPedidoId}>Pedido {codigoPedido(pedido)}</strong>
+                  <span style={s.histResumo}>{quantidadeItens} {quantidadeItens === 1 ? 'item' : 'itens'}</span>
                 </div>
-                <div style={{ textAlign: 'right' }}>
+                <div style={s.histStatusTotal}>
                   <span style={{ ...s.badge, background: sc.bg, color: sc.color }}>{pedido.status}</span>
-                  <strong style={{ display: 'block', color: '#003D7C', marginTop: 4 }}>{formatPrice(pedido.total)}</strong>
+                  <strong style={s.histTotal}>{formatPrice(pedido.total)}</strong>
                 </div>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: '0.5rem' }}>
-                {pedido.itens.map((item, i) => {
+
+              <div style={s.histMetaGrid}>
+                <span style={s.histMeta}><CalendarDays size={15} /> {dataPedido}</span>
+                {pedido.horarioRetirada && <span style={s.histMeta}><Clock3 size={15} /> Retirada: {pedido.horarioRetirada}</span>}
+                <span style={s.histMeta}><CreditCard size={15} /> {formaPagamento} · {pagamentoStatus}</span>
+                {pedido.status === 'Entregue' && dataEntrega && <span style={{ ...s.histMeta, color: '#15803D' }}><CheckCircle2 size={15} /> Entregue em {dataEntrega}</span>}
+              </div>
+
+              {pedido.status === 'Cancelado' && (
+                <div style={s.cancelamentoInfo}>
+                  <XCircle size={19} style={{ flexShrink: 0 }} />
+                  <div style={{ minWidth: 0 }}>
+                    <span style={s.cancelamentoTitulo}>{dataCancelamento ? `Cancelado em ${dataCancelamento}` : 'Pedido cancelado'}</span>
+                    <strong style={s.cancelamentoMotivo}>{pedido.motivoCancelamento || pedido.cancelamentoMotivo || pedido.motivo || 'Motivo não informado.'}</strong>
+                  </div>
+                </div>
+              )}
+
+              <div style={s.histItens}>
+                {itens.map((item, i) => {
                   const prod = produtos.find(p => p.id === item.produtoId)
+                  const quantidade = Number(item.quantidade || 1)
+                  const precoUnitario = Number(item.preco ?? item.valor ?? prod?.preco ?? 0)
                   return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, background: '#F8FAFC', borderRadius: 10, padding: '4px 8px 4px 4px', border: '1px solid #E2E8F0' }}>
-                      <div style={{ width: 28, height: 28, borderRadius: 7, background: '#E8F0FB', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div key={i} style={s.histItemLinha}>
+                      <div style={s.histItemFoto}>
                         {prod?.foto
                           ? <img src={prod.foto} alt={item.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          : <span style={{ fontSize: '1rem' }}>{prod?.emoji || '🍴'}</span>
+                          : <Package size={18} color="#64748B" />
                         }
                       </div>
-                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155' }}>{item.quantidade}× {item.nome}</span>
+                      <div style={s.histItemTexto}>
+                        <strong>{item.nome || item.produtoNome || 'Produto'}</strong>
+                        <span>{quantidade} {quantidade === 1 ? 'unidade' : 'unidades'}{precoUnitario > 0 ? ` · ${formatPrice(precoUnitario)} cada` : ''}</span>
+                      </div>
+                      {precoUnitario > 0 && <strong style={s.histItemSubtotal}>{formatPrice(precoUnitario * quantidade)}</strong>}
                     </div>
                   )
                 })}
               </div>
+
+              {pagamentoContaProfessor(pedido) && (
+                <div style={{ ...s.contaProfessorStatus, ...(pedido.pago ? s.contaProfessorPago : {}) }}>
+                  Conta do Professor · {pedido.pago ? 'Pagamento baixado' : 'Pagamento pendente'}
+                </div>
+              )}
+
+              <AtendimentoPedido pedido={pedido} />
 
               {pedido.status === 'Entregue' && (
                 <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTop: '1px solid #F1F5F9' }}>
@@ -387,7 +492,7 @@ export default function Pedidos() {
                   </div>
                   <button style={{ ...s.qrBtn, alignSelf: isMobile ? 'stretch' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
                     onClick={() => pedirNovamente(pedido)}>
-                    🔁 Pedir de novo
+                    <RotateCcw size={15} /> Pedir de novo
                   </button>
                 </div>
               )}
@@ -407,10 +512,27 @@ const s = {
   lista: { display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 680 },
   card: { background: '#fff', borderRadius: 14, padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', overflow: 'hidden' },
   cardPronto: { border: '2px solid #22C55E', boxShadow: '0 4px 20px rgba(34,197,94,0.2)' },
-  cardHist: { background: '#fff', borderRadius: 12, padding: '1rem 1.25rem', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' },
+  contaProfessorStatus: { margin: '0.45rem 0', padding: '0.5rem 0.7rem', borderRadius: 8, background: '#FEF3C7', color: '#92400E', fontSize: '0.76rem', fontWeight: 800 },
+  contaProfessorPago: { background: '#DCFCE7', color: '#166534' },
+  cardHist: { background: '#fff', borderRadius: 12, padding: '1rem 1.25rem', border: '1px solid #E2E8F0', boxShadow: '0 4px 14px rgba(15,23,42,0.06)', overflow: 'hidden' },
   prontoAlert: { background: '#D1FAE5', color: '#065F46', fontWeight: 700, fontSize: '0.88rem', padding: '0.6rem 1rem', borderRadius: 8, marginBottom: '0.75rem', textAlign: 'center' },
+  infoHorario: { background: '#EFF6FF', color: '#1D4ED8', border: '1.5px solid #BFDBFE', padding: '0.6rem 0.9rem', borderRadius: 8, fontWeight: 700, fontSize: '0.82rem', marginBottom: '0.75rem', textAlign: 'center' },
   cardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' },
-  histTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.6rem' },
+  histTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: '0.75rem' },
+  histPedidoId: { display: 'block', fontSize: '1rem', color: '#0F172A', fontWeight: 900 },
+  histResumo: { display: 'block', color: '#64748B', fontSize: '0.76rem', fontWeight: 700, marginTop: 3 },
+  histStatusTotal: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5, flexShrink: 0 },
+  histTotal: { display: 'block', color: '#003D7C', fontSize: '1.05rem' },
+  histMetaGrid: { display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 12 },
+  histMeta: { display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%', boxSizing: 'border-box', overflowWrap: 'anywhere', color: '#475569', background: '#F8FAFC', borderRadius: 8, padding: '0.42rem 0.58rem', fontSize: '0.76rem', fontWeight: 700 },
+  cancelamentoInfo: { display: 'flex', alignItems: 'flex-start', gap: 9, background: '#FEF2F2', color: '#B91C1C', borderLeft: '4px solid #EF4444', borderRadius: 8, padding: '0.7rem 0.75rem', marginBottom: 12 },
+  cancelamentoTitulo: { display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#DC2626', marginBottom: 2 },
+  cancelamentoMotivo: { display: 'block', fontSize: '0.83rem', color: '#991B1B', lineHeight: 1.35 },
+  histItens: { display: 'flex', flexDirection: 'column', borderTop: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0' },
+  histItemLinha: { display: 'flex', alignItems: 'center', gap: 10, padding: '0.65rem 0', minWidth: 0 },
+  histItemFoto: { width: 40, height: 40, borderRadius: 9, background: '#E8F0FB', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  histItemTexto: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1, overflowWrap: 'anywhere', color: '#0F172A', fontSize: '0.82rem' },
+  histItemSubtotal: { color: '#003D7C', fontSize: '0.82rem', whiteSpace: 'nowrap' },
   pedidoId: { display: 'block', fontSize: '1rem', color: '#1A202C' },
   horario: { display: 'block', fontSize: '0.82rem', color: '#64748B', marginTop: 2 },
   badge: { padding: '0.3rem 0.9rem', borderRadius: 20, fontWeight: 700, fontSize: '0.8rem', whiteSpace: 'nowrap' },
@@ -432,6 +554,9 @@ const s = {
   qrTitulo: { fontWeight: 600, color: '#475569', fontSize: '0.85rem', marginBottom: '0.75rem' },
   qrWrap: { display: 'inline-block', padding: 12, background: '#fff', borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' },
   qrId: { marginTop: 8, fontFamily: 'monospace', color: '#94A3B8', fontSize: '0.78rem' },
+  matriculaRetirada: { marginTop: 12, paddingTop: 12, borderTop: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 },
+  matriculaRetiradaTitulo: { color: '#475569', fontSize: '0.82rem', fontWeight: 700 },
+  matriculaRetiradaNumero: { color: '#003D7C', fontFamily: 'monospace', fontSize: '1.15rem', letterSpacing: 0 },
   avaliacaoBox: { display: 'flex', flexDirection: 'column', gap: 7, flex: 1, minWidth: 220 },
   avaliacaoTitulo: { fontSize: '0.82rem', color: '#475569', fontWeight: 800 },
   estrelas: { display: 'flex', gap: 3 },

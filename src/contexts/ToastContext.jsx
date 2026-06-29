@@ -1,7 +1,6 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { CheckCircle, AlertCircle, AlertTriangle, Info, X } from 'lucide-react'
-
-const ToastCtx = createContext(null)
+import { ToastCtx } from './ToastContextValue'
 
 const ESTILOS = {
   success: { bg: '#DCFCE7', border: '#86EFAC', cor: '#15803D', icone: '#16A34A', Icon: CheckCircle  },
@@ -71,9 +70,4 @@ export function ToastProvider({ children }) {
       <ToastContainer toasts={toasts} onClose={fechar} />
     </ToastCtx.Provider>
   )
-}
-
-/** useToast() retorna a função: toast(msg, tipo, dur?) */
-export function useToast() {
-  return useContext(ToastCtx)
 }

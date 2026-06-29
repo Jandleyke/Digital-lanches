@@ -5,17 +5,30 @@ import { processarFotoPerfil } from '../utils/image'
 import { DIAS_CARDAPIO, DIAS_LABEL } from '../utils/cardapioDias'
 import { ALERGENOS_PADRAO } from '../utils/produtoForm'
 
-export default function ProdutoFormModal({ titulo, subtitulo, form, setForm, onSalvar, onFechar, salvando, erroSalvar, isMobile, precoDesabilitado }) {
+export default function ProdutoFormModal({
+  titulo, subtitulo, form, setForm, onSalvar, onFechar, salvando, erroSalvar,
+  isMobile, precoDesabilitado, estoqueDesabilitado, minimoDesabilitado, categoriaDesabilitada,
+}) {
   const [abaModal, setAbaModal] = useState('geral')
   const [novaAlergenico, setNovaAlergenico] = useState('')
+  const [processandoFoto, setProcessandoFoto] = useState(false)
+  const [erroFoto, setErroFoto] = useState('')
   const inputFotoRef = useRef()
 
   async function handleFoto(e) {
     const file = e.target.files?.[0]
     if (!file) return
-    const dataUrl = await processarFotoPerfil(file, 900, 650000)
-    setForm(f => ({ ...f, foto: dataUrl }))
-    e.target.value = ''
+    setProcessandoFoto(true)
+    setErroFoto('')
+    try {
+      const dataUrl = await processarFotoPerfil(file, 700, 450000)
+      setForm(f => ({ ...f, foto: dataUrl }))
+    } catch (error) {
+      setErroFoto(error.message || 'Não foi possível processar a foto.')
+    } finally {
+      setProcessandoFoto(false)
+      e.target.value = ''
+    }
   }
 
   function handleNutri(campo, valor) {
@@ -85,7 +98,7 @@ export default function ProdutoFormModal({ titulo, subtitulo, form, setForm, onS
             </div>
             <div>
               <label style={s.label}>Categoria</label>
-              <select style={s.input} value={form.categoria} onChange={e => setForm({ ...form, categoria: e.target.value })}>
+              <select style={s.input} value={form.categoria} onChange={e => setForm({ ...form, categoria: e.target.value })} disabled={categoriaDesabilitada}>
                 {categorias.filter(c => c !== 'Todos').map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
@@ -101,11 +114,12 @@ export default function ProdutoFormModal({ titulo, subtitulo, form, setForm, onS
             </div>
             <div>
               <label style={s.label}>Estoque</label>
-              <input style={s.input} type="number" value={form.estoque} onChange={e => setForm({ ...form, estoque: e.target.value })} placeholder="0" />
+              <input style={s.input} type="number" min="0" value={form.estoque} onChange={e => setForm({ ...form, estoque: e.target.value })} placeholder="0" disabled={estoqueDesabilitado} />
+              {estoqueDesabilitado && <p style={{ ...s.label, fontWeight: 500, marginTop: 4 }}>O vendedor altera estoque somente para bebidas.</p>}
             </div>
             <div>
               <label style={s.label}>Alertar abaixo de (un)</label>
-              <input style={s.input} type="number" value={form.estoqueBaixo} onChange={e => setForm({ ...form, estoqueBaixo: e.target.value })} placeholder="Ex: 5" />
+              <input style={s.input} type="number" min="0" value={form.estoqueBaixo} onChange={e => setForm({ ...form, estoqueBaixo: e.target.value })} placeholder="Ex: 5" disabled={minimoDesabilitado} />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 20 }}>
               <input type="checkbox" id="prod-disp" checked={form.disponivel} onChange={e => setForm({ ...form, disponivel: e.target.checked })} />
@@ -140,11 +154,12 @@ export default function ProdutoFormModal({ titulo, subtitulo, form, setForm, onS
               }
             </div>
             <input ref={inputFotoRef} type="file" accept="image/*" onChange={handleFoto} style={{ display: 'none' }} />
-            <button type="button" style={s.btnUpload} onClick={() => inputFotoRef.current.click()}><ImagePlus size={15} /> Escolher foto</button>
+            <button type="button" style={s.btnUpload} onClick={() => inputFotoRef.current.click()} disabled={processandoFoto}><ImagePlus size={15} /> {processandoFoto ? 'Processando foto...' : 'Escolher foto'}</button>
             {form.foto && (
               <button type="button" style={s.btnRemoverFoto} onClick={() => setForm(f => ({ ...f, foto: '' }))}>Remover foto</button>
             )}
             <p style={{ color: '#94A3B8', fontSize: '0.8rem', textAlign: 'center' }}>A foto é comprimida automaticamente.</p>
+            {erroFoto && <p role="alert" style={{ color: '#B91C1C', fontSize: '0.8rem', margin: 0 }}>{erroFoto}</p>}
           </div>
         )}
 
@@ -211,8 +226,8 @@ export default function ProdutoFormModal({ titulo, subtitulo, form, setForm, onS
         {erroSalvar && <p style={{ color: '#EF4444', fontSize: '0.82rem', marginBottom: 8 }}>{erroSalvar}</p>}
         <div style={s.modalBtns}>
           <button type="button" style={s.btnCancelar} onClick={onFechar}>Cancelar</button>
-          <button type="submit" style={{ ...s.btnSalvar, opacity: salvando ? 0.7 : 1 }} disabled={salvando}>
-            {salvando ? 'Salvando...' : 'Salvar produto'}
+          <button type="submit" style={{ ...s.btnSalvar, opacity: salvando || processandoFoto ? 0.7 : 1 }} disabled={salvando || processandoFoto}>
+            {processandoFoto ? 'Processando foto...' : salvando ? 'Salvando...' : 'Salvar produto'}
           </button>
         </div>
       </form>

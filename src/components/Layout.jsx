@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useApp } from '../contexts/AppContext'
 import { useIsMobile } from '../utils/useIsMobile'
@@ -7,14 +7,14 @@ import {
   Utensils, ShoppingCart, Package, Heart,
   ClipboardList, LayoutDashboard, ChefHat,
   ArchiveRestore, TrendingUp, Megaphone, Users,
-  LogOut, ExternalLink, Download, PanelLeftClose, PanelLeftOpen, X, Bell, ArrowRight, UserCircle,
+  LogOut, ExternalLink, Download, PanelLeftClose, PanelLeftOpen, X, Bell, UserCircle, ShoppingBasket, MoreHorizontal, MessageCircle,
 } from 'lucide-react'
 import { ehOperacional, normalizarPerfil } from '../utils/perfis'
 import { suportaNotificacao, permissaoNotificacao, solicitarPermissaoNotificacao } from '../utils/notifications'
 import { suportaPush, inscreverPush } from '../utils/push'
 
 export default function Layout({ children, titulo }) {
-  const { usuarioLogado, logout, qtdCarrinho, totalCarrinho, carregando } = useApp()
+  const { usuarioLogado, logout, qtdCarrinho, totalCarrinho, carregando, avisos } = useApp()
   const navigate = useNavigate()
   const location = useLocation()
   const isMobile = useIsMobile()
@@ -26,7 +26,15 @@ export default function Layout({ children, titulo }) {
   })
   const [installInfo, setInstallInfo] = useState('')
   const [menuAberto, setMenuAberto] = useState(true)
+  const [menuMobileAberto, setMenuMobileAberto] = useState(false)
   const [notifDismissed, setNotifDismissed] = useState(() => localStorage.getItem('senac-notif-banner-dismissed') === '1')
+
+  useEffect(() => {
+    if (!isMobile || !menuMobileAberto) return undefined
+    const overflowAnterior = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = overflowAnterior }
+  }, [isMobile, menuMobileAberto])
 
   useEffect(() => {
     function handler(e) {
@@ -50,12 +58,12 @@ export default function Layout({ children, titulo }) {
   useEffect(() => {
     if (!usuarioLogado || !suportaNotificacao() || !suportaPush()) return
     const perfil = normalizarPerfil(usuarioLogado.perfil)
-    if (!['aluno', 'professor', 'admin', 'vendedor', 'cozinha'].includes(perfil)) return
+    if (!['aluno', 'professor', 'admin', 'gerente', 'vendedor', 'cozinha'].includes(perfil)) return
     if (permissaoNotificacao() === 'granted') inscreverPush(usuarioLogado)
   }, [usuarioLogado])
 
   const podeMostrarNotifBanner = !notifDismissed && usuarioLogado && suportaNotificacao() && suportaPush()
-    && ['aluno', 'professor', 'admin', 'vendedor', 'cozinha'].includes(normalizarPerfil(usuarioLogado.perfil))
+    && ['aluno', 'professor', 'admin', 'gerente', 'vendedor', 'cozinha'].includes(normalizarPerfil(usuarioLogado.perfil))
     && permissaoNotificacao() === 'default'
 
   async function ativarNotificacoes() {
@@ -106,8 +114,9 @@ export default function Layout({ children, titulo }) {
     { icon: Utensils, labelFull: 'Cardápio', path: '/aluno/cardapio' },
     { icon: ShoppingCart, labelFull: 'Carrinho', path: '/aluno/carrinho', badge: qtdCarrinho },
     { icon: Package, labelFull: 'Pedidos', path: '/aluno/pedidos' },
-    { icon: Heart, labelFull: 'Favoritos', path: '/aluno/favoritos' },
     { icon: Megaphone, labelFull: 'Avisos', path: '/professor/avisos' },
+    { icon: Heart, labelFull: 'Favoritos', path: '/aluno/favoritos' },
+    { icon: UserCircle, labelFull: 'Perfil', path: '/aluno/perfil' },
   ]
 
   const navCozinha = [
@@ -121,7 +130,9 @@ export default function Layout({ children, titulo }) {
 
   const navVendedor = [
     { icon: LayoutDashboard, labelFull: 'Dashboard', path: '/vendedor' },
+    { icon: ShoppingBasket, labelFull: 'Pedido Balcão', path: '/vendedor/balcao' },
     { icon: ClipboardList, labelFull: 'Pedidos', path: '/vendedor/pedidos' },
+    { icon: MessageCircle, labelFull: 'Atendimento', path: '/vendedor/atendimento' },
     { icon: ChefHat, labelFull: 'Produtos', path: '/vendedor/produtos' },
     { icon: ArchiveRestore, labelFull: 'Estoque', path: '/vendedor/estoque' },
     { icon: TrendingUp, labelFull: 'Vendas', path: '/vendedor/vendas' },
@@ -144,24 +155,54 @@ export default function Layout({ children, titulo }) {
     { icon: TrendingUp,      labelFull: 'Relatórios', path: '/admin/relatorios' },
     { icon: Megaphone,       labelFull: 'Avisos',     path: '/admin/avisos' },
     { icon: Users,           labelFull: 'Usuários',   path: '/admin/usuarios' },
+    { icon: UserCircle,      labelFull: 'Perfil',     path: '/admin/perfil' },
   ]
 
   const perfilAtual = normalizarPerfil(usuarioLogado?.perfil)
+  const leitorId = usuarioLogado?.uid || usuarioLogado?.matricula
+  const avisosNaoLidos = useMemo(() => {
+    function destinoAviso(aviso) {
+      const destino = aviso.destino || aviso.destinatario || 'todos'
+      if (destino === 'alunos') return 'aluno'
+      if (destino === 'vendedora') return 'vendedor'
+      return destino
+    }
+    function avisoVisivel(aviso) {
+      const destino = destinoAviso(aviso)
+      if (perfilAtual === 'admin' || perfilAtual === 'gerente' || perfilAtual === 'professor') return true
+      if (perfilAtual === 'aluno') return ['todos', 'aluno'].includes(destino)
+      return destino === 'todos' || destino === perfilAtual
+    }
+    if (!leitorId) return 0
+    return (avisos || []).filter(aviso => {
+      const lidoPor = Array.isArray(aviso.lidoPor) ? aviso.lidoPor : []
+      return avisoVisivel(aviso) && aviso.status !== 'inativo' && !lidoPor.includes(leitorId)
+    }).length
+  }, [avisos, leitorId, perfilAtual])
   const navMap = { aluno: navAluno, professor: navProfessor, cozinha: navCozinha, vendedor: navVendedor, admin: navAdmin, gerente: navGerente }
-  const navItems = navMap[perfilAtual] || []
+  const navItems = (navMap[perfilAtual] || []).map(item => item.labelFull === 'Avisos' ? { ...item, badge: avisosNaoLidos, alertBadge: true } : item)
+  const navPrincipal = navItems.length > 5 ? navItems.slice(0, 4) : navItems
+  const navAdicional = navItems.length > 5 ? navItems.slice(4) : []
+  const badgeMais = navAdicional.reduce((total, item) => total + Number(item.badge || 0), 0)
+
+  function navegarPara(item) {
+    setMenuMobileAberto(false)
+    if (item.externo) window.open(item.path, '_blank', 'noopener,noreferrer')
+    else navigate(item.path)
+  }
 
   const mostrarCartBar = isMobile && qtdCarrinho > 0 && ['aluno', 'professor'].includes(perfilAtual)
 
-  const avatarSize = isMobile ? 34 : 40
+  const avatarSize = isMobile ? 32 : 40
   const primeiroNome = usuarioLogado?.nome?.split(' ')[0] || ''
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <div style={s.appShell}>
       {podeMostrarNotifBanner && (
         <div style={{ background: '#0B1E45', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 1rem', gap: 12, zIndex: 999 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
             <Bell size={18} color="#F47920" style={{ flexShrink: 0 }} />
-            <span style={{ fontSize: '0.88rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Ativar notificacoes de promocoes e novidades?</span>
+            <span style={{ fontSize: isMobile ? '0.76rem' : '0.88rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isMobile ? 'normal' : 'nowrap', lineHeight: 1.25 }}>Ativar notificacoes de promocoes e novidades?</span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <button onClick={ativarNotificacoes} style={{ background: '#F47920', color: '#fff', border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>Ativar</button>
@@ -173,7 +214,7 @@ export default function Layout({ children, titulo }) {
         <div style={{ background: '#003D7C', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 1rem', gap: 12, zIndex: 999 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
             <Download size={18} color="#F47920" style={{ flexShrink: 0 }} />
-            <span style={{ fontSize: '0.88rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{installInfo || 'Instale o app para acesso rapido!'}</span>
+            <span style={{ fontSize: isMobile ? '0.76rem' : '0.88rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isMobile ? 'normal' : 'nowrap', lineHeight: 1.25 }}>{installInfo || 'Instale o app para acesso rapido!'}</span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             <button onClick={handleInstall} style={{ background: '#F47920', color: '#fff', border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>Instalar</button>
@@ -181,12 +222,12 @@ export default function Layout({ children, titulo }) {
           </div>
         </div>
       )}
-      <header style={{ ...s.header, padding: isMobile ?'0.75rem 1rem' : '1rem 1.75rem' }}>
+      <header style={{ ...s.header, padding: isMobile ? '0.62rem 0.75rem' : '1rem 1.75rem' }}>
 
         {/* ── Brand ── */}
         <div style={s.brand}>
           <div>
-            <div style={{ ...s.brandName, fontSize: isMobile ?'1.25rem' : '1.6rem' }}>
+            <div style={{ ...s.brandName, fontSize: isMobile ? '1.12rem' : '1.6rem' }}>
               Senac <span style={s.brandOrange}>Lanches</span>
             </div>
             {!isMobile && <div style={s.brandTagline}>Sua cantina digital</div>}
@@ -212,14 +253,14 @@ export default function Layout({ children, titulo }) {
                 : <span style={{ fontWeight: 800, fontSize: isMobile ?'0.85rem' : '0.95rem', color: '#fff' }}>{usuarioLogado.nome?.[0]?.toUpperCase()}</span>
               }
             </button>
-            <button onClick={handleLogout} style={{ ...s.sairBtn, padding: isMobile ?'6px 10px' : '7px 14px', fontSize: isMobile ?'0.78rem' : '0.83rem' }} aria-label="Sair da conta" title="Sair">
-              {isMobile ?<LogOut size={15} /> : <><LogOut size={14} style={{ marginRight: 5 }} /> Sair</>}
+            <button onClick={handleLogout} style={{ ...s.sairBtn, padding: isMobile ? '5px 8px' : '7px 14px', fontSize: isMobile ? '0.74rem' : '0.83rem' }} aria-label="Sair da conta" title="Sair">
+              {isMobile ? <LogOut size={14} /> : <><LogOut size={14} style={{ marginRight: 5 }} /> Sair</>}
             </button>
           </div>
         )}
       </header>
 
-      <div style={{ display: 'flex', flex: 1 }}>
+      <div style={s.appBody}>
         {!isMobile && (
           <nav style={{ ...s.sidebar, ...(menuAberto ?{} : s.sidebarFechada) }}>
             <div style={{ ...s.sidebarTop, justifyContent: menuAberto ?'space-between' : 'center' }}>
@@ -248,7 +289,7 @@ export default function Layout({ children, titulo }) {
                     {menuAberto && <span>{item.labelFull}</span>}
                   </div>
                   {menuAberto && <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    {item.badge > 0 && <span style={s.badge}>{item.badge}</span>}
+                    {item.badge > 0 && <span style={item.alertBadge ? s.alertBadge : s.badge}>{item.badge}</span>}
                     {item.externo && <ExternalLink size={11} style={{ color: '#CBD5E1' }} />}
                   </div>}
                 </button>
@@ -257,8 +298,8 @@ export default function Layout({ children, titulo }) {
           </nav>
         )}
 
-        <main style={{ ...s.main, padding: isMobile ? '0.6rem 0.65rem' : '1rem', paddingBottom: isMobile ? (mostrarCartBar ? 'calc(9rem + env(safe-area-inset-bottom, 0px))' : 'calc(5.2rem + env(safe-area-inset-bottom, 0px))') : '1.5rem' }}>
-          {titulo && <h2 style={{ ...s.paginaTitulo, fontSize: isMobile ?'1.15rem' : '1.4rem' }}>{titulo}</h2>}
+        <main style={{ ...s.main, padding: isMobile ? '0.5rem 0.55rem' : '1rem', paddingBottom: isMobile ? (mostrarCartBar ? 'calc(9rem + env(safe-area-inset-bottom, 0px))' : 'calc(5.2rem + env(safe-area-inset-bottom, 0px))') : '1.5rem' }}>
+          {titulo && <h2 style={{ ...s.paginaTitulo, fontSize: isMobile ? '1.05rem' : '1.4rem', marginBottom: isMobile ? '0.7rem' : '1rem' }}>{titulo}</h2>}
 
           {carregando ?(
             <div style={s.spinner}>
@@ -284,30 +325,71 @@ export default function Layout({ children, titulo }) {
       )}
 
       {isMobile && (
-        <nav style={s.bottomNav}>
-          {navItems.map(item => {
+        <>
+          {menuMobileAberto && (
+            <>
+              <button type="button" style={s.mobileMenuBackdrop} onClick={() => setMenuMobileAberto(false)} aria-label="Fechar mais opções" />
+              <section style={s.mobileMenuSheet} role="dialog" aria-modal="true" aria-label="Mais opções do menu">
+                <div style={s.mobileMenuHeader}>
+                  <div>
+                    <strong style={s.mobileMenuTitle}>Mais opções</strong>
+                    <span style={s.mobileMenuSubtitle}>Acesse outras áreas do aplicativo</span>
+                  </div>
+                  <button type="button" style={s.mobileMenuClose} onClick={() => setMenuMobileAberto(false)} aria-label="Fechar menu"><X size={20} /></button>
+                </div>
+                <div style={s.mobileMenuGrid}>
+                  {navAdicional.map(item => {
+                    const ativo = location.pathname === item.path
+                    const Icon = item.icon
+                    return (
+                      <button key={item.path} type="button" onClick={() => navegarPara(item)} style={{ ...s.mobileMenuItem, ...(ativo ? s.mobileMenuItemAtivo : {}) }}>
+                        <span style={{ ...s.mobileMenuIcon, ...(ativo ? s.mobileMenuIconAtivo : {}) }}>
+                          <Icon size={21} strokeWidth={ativo ? 2.5 : 1.9} />
+                          {item.badge > 0 && <span style={item.alertBadge ? s.bottomAlertBadge : s.bottomBadge}>{item.badge}</span>}
+                        </span>
+                        <span>{item.labelFull}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+            </>
+          )}
+          <nav style={s.bottomNav} aria-label="Navegação principal">
+          {navPrincipal.map(item => {
             const ativo = location.pathname === item.path
             const Icon = item.icon
-            const semLabel = navItems.length > 5
             return (
               <button key={item.path}
-                onClick={() => item.externo ? window.open(item.path, '_blank', 'noopener,noreferrer') : navigate(item.path)}
+                onClick={() => navegarPara(item)}
                 aria-label={item.labelFull}
                 style={s.bottomItem}>
-                <div style={{ ...s.bottomIconBox, ...(ativo ? s.bottomIconBoxAtivo : {}), height: semLabel ? 38 : 32, width: semLabel ? 38 : 46, borderRadius: semLabel ? '50%' : 10, position: 'relative' }}>
+                <div style={{ ...s.bottomIconBox, ...(ativo ? s.bottomIconBoxAtivo : {}) }}>
                   {ativo && <span style={s.bottomIndicator} />}
-                  <Icon size={20} strokeWidth={ativo ? 2.5 : 1.7} color={ativo ? '#003D7C' : '#94A3B8'} />
-                  {item.badge > 0 && <span style={s.bottomBadge}>{item.badge}</span>}
+                  <Icon size={19} strokeWidth={ativo ? 2.5 : 1.7} color={ativo ? '#003D7C' : '#94A3B8'} />
+                  {item.badge > 0 && <span style={item.alertBadge ? s.bottomAlertBadge : s.bottomBadge}>{item.badge}</span>}
                 </div>
-                {!semLabel && (
-                  <span style={{ ...s.bottomLabel, color: ativo ? '#003D7C' : '#94A3B8', fontWeight: ativo ? 700 : 400 }}>
-                    {item.labelFull}
-                  </span>
-                )}
+                <span style={{ ...s.bottomLabel, color: ativo ? '#003D7C' : '#64748B', fontWeight: ativo ? 800 : 600 }}>
+                  {item.labelFull}
+                </span>
               </button>
             )
           })}
-        </nav>
+          {navAdicional.length > 0 && (() => {
+            const ativo = navAdicional.some(item => location.pathname === item.path)
+            return (
+              <button type="button" onClick={() => setMenuMobileAberto(true)} aria-label="Abrir mais opções" aria-expanded={menuMobileAberto} style={s.bottomItem}>
+                <div style={{ ...s.bottomIconBox, ...(ativo || menuMobileAberto ? s.bottomIconBoxAtivo : {}) }}>
+                  {(ativo || menuMobileAberto) && <span style={s.bottomIndicator} />}
+                  <MoreHorizontal size={20} strokeWidth={ativo ? 2.5 : 1.9} color={ativo || menuMobileAberto ? '#003D7C' : '#94A3B8'} />
+                  {badgeMais > 0 && <span style={s.bottomAlertBadge}>{badgeMais}</span>}
+                </div>
+                <span style={{ ...s.bottomLabel, color: ativo || menuMobileAberto ? '#003D7C' : '#64748B', fontWeight: ativo || menuMobileAberto ? 800 : 600 }}>Mais</span>
+              </button>
+            )
+          })()}
+          </nav>
+        </>
       )}
 
       {usuarioLogado && <ChatAssistente />}
@@ -317,12 +399,20 @@ export default function Layout({ children, titulo }) {
 
 const s = {
   /* ── Header ── */
+  appShell: {
+    display: 'flex', flexDirection: 'column',
+    width: '100%', height: '100dvh',
+    minHeight: 0, overflow: 'hidden',
+  },
+  appBody: {
+    display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden',
+  },
   header: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     background: 'linear-gradient(135deg, #0B1E45 0%, #003D7C 55%, #004F9E 100%)',
     borderBottom: '3px solid #F47920',
     boxShadow: '0 4px 24px rgba(0,0,0,0.28)',
-    position: 'sticky', top: 0, zIndex: 100, color: '#fff',
+    position: 'relative', zIndex: 100, color: '#fff', flexShrink: 0,
   },
   brand: { display: 'flex', alignItems: 'center', gap: 12 },
   brandIconBox: {
@@ -385,9 +475,19 @@ const s = {
     background: '#003D7C', color: '#fff', borderRadius: 999,
     padding: '0.15rem 0.6rem', fontSize: '0.7rem', fontWeight: 700,
   },
+  alertBadge: {
+    background: '#DC2626', color: '#fff', borderRadius: 999,
+    minWidth: 20, height: 20, padding: '0 0.4rem', fontSize: '0.68rem', fontWeight: 900,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    boxShadow: '0 0 0 2px #fff',
+  },
 
   /* ── Main ── */
-  main: { flex: 1, padding: '1rem', overflowY: 'auto', minWidth: 0 },
+  main: {
+    flex: 1, padding: '1rem', minWidth: 0, minHeight: 0,
+    overflowX: 'hidden', overflowY: 'auto',
+    overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch',
+  },
   paginaTitulo: { fontWeight: 800, color: '#1A202C', marginBottom: '1rem' },
   spinner: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 1rem', gap: 12 },
   spinnerCircle: { width: 36, height: 36, border: '4px solid #E2E8F0', borderTop: '4px solid #003D7C', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
@@ -404,10 +504,10 @@ const s = {
     flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
     justifyContent: 'flex-start', gap: 3,
     background: 'transparent', border: 'none', cursor: 'pointer',
-    padding: '4px 2px 0', fontFamily: 'inherit',
+    padding: '3px 2px 0', minWidth: 0, minHeight: 52, fontFamily: 'inherit',
   },
   bottomIconBox: {
-    width: 46, height: 32, borderRadius: 10,
+    width: 44, height: 30, borderRadius: 9,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     position: 'relative', transition: 'background 0.2s',
   },
@@ -420,13 +520,40 @@ const s = {
     width: 24, height: 3, borderRadius: 2,
     background: 'linear-gradient(90deg, #F47920, #FF9A4D)',
   },
-  bottomLabel: { fontSize: '0.63rem', letterSpacing: '0.01em' },
+  bottomLabel: { width: '100%', padding: '0 2px', fontSize: '0.62rem', letterSpacing: 0, lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' },
   bottomBadge: {
     position: 'absolute', top: -5, right: -7,
     background: '#F47920', color: '#fff', borderRadius: 999,
     padding: '1px 5px', fontSize: '0.58rem', fontWeight: 700,
     border: '2px solid #fff', lineHeight: 1.4,
   },
+  bottomAlertBadge: {
+    position: 'absolute', top: -5, right: -7,
+    minWidth: 18, height: 18, padding: '0 5px',
+    background: '#DC2626', color: '#fff', borderRadius: 999,
+    fontSize: '0.58rem', fontWeight: 900, border: '2px solid #fff',
+    lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  },
+  mobileMenuBackdrop: {
+    position: 'fixed', inset: 0, zIndex: 190, border: 'none',
+    background: 'rgba(15, 23, 42, 0.5)', backdropFilter: 'blur(2px)',
+  },
+  mobileMenuSheet: {
+    position: 'fixed', left: 8, right: 8,
+    bottom: 'calc(65px + env(safe-area-inset-bottom, 0px))', zIndex: 200,
+    maxHeight: 'min(68vh, 520px)', overflowY: 'auto',
+    background: '#fff', borderRadius: '14px 14px 10px 10px', padding: '12px',
+    boxShadow: '0 -12px 40px rgba(15, 23, 42, 0.22)', border: '1px solid #E2E8F0',
+  },
+  mobileMenuHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, padding: '2px 2px 12px' },
+  mobileMenuTitle: { display: 'block', color: '#0F172A', fontSize: '1rem', fontWeight: 900 },
+  mobileMenuSubtitle: { display: 'block', color: '#64748B', fontSize: '0.75rem', marginTop: 2 },
+  mobileMenuClose: { width: 40, height: 40, flexShrink: 0, borderRadius: 10, background: '#F1F5F9', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  mobileMenuGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 },
+  mobileMenuItem: { minHeight: 54, minWidth: 0, padding: '7px 9px', border: '1px solid #E2E8F0', borderRadius: 10, background: '#fff', color: '#475569', display: 'flex', alignItems: 'center', gap: 9, textAlign: 'left', fontSize: '0.8rem', fontWeight: 800 },
+  mobileMenuItemAtivo: { borderColor: '#9AB9E3', background: '#EEF5FF', color: '#003D7C' },
+  mobileMenuIcon: { width: 38, height: 38, flexShrink: 0, position: 'relative', borderRadius: 9, background: '#F1F5F9', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  mobileMenuIconAtivo: { background: '#DCEAFF', color: '#003D7C' },
 
   /* ── Cart bar (mobile, above bottom nav) ── */
   cartBar: {

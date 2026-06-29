@@ -43,6 +43,7 @@ const PerfilStaff = lazyComRecarga(() => import('./pages/PerfilStaff'))
 const ResetPassword = lazyComRecarga(() => import('./pages/ResetPassword'))
 const NotFound = lazyComRecarga(() => import('./pages/NotFound'))
 const AvisosProfessor = lazyComRecarga(() => import('./pages/professor/AvisosProfessor'))
+const EscolherAcesso = lazyComRecarga(() => import('./pages/EscolherAcesso'))
 
 function CarregandoRota() {
   return (
@@ -52,16 +53,25 @@ function CarregandoRota() {
   )
 }
 
-function Protegida({ children, perfil }) {
+function Protegida({ children, perfil, permitirSelecao = false }) {
   const { usuarioLogado, carregandoAuth } = useApp()
   if (carregandoAuth) return <CarregandoRota />
   if (!usuarioLogado) return <Navigate to="/" />
+  if (usuarioLogado.selecaoAcessoPendente && !permitirSelecao) return <Navigate to="/escolher-acesso" replace />
 
   if (perfil) {
     const perfisPermitidos = Array.isArray(perfil) ? perfil : [perfil]
     const perfilAtual = normalizarPerfil(usuarioLogado.perfil)
     if (!perfisPermitidos.map(normalizarPerfil).includes(perfilAtual)) {
-      return <Navigate to={caminhoInicialPorPerfil(usuarioLogado.role || usuarioLogado.perfil)} replace />
+      return (
+        <div style={{ minHeight: '100vh', background: '#F1F5F9', display: 'grid', placeItems: 'center', padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 8, padding: 24, maxWidth: 420, textAlign: 'center', boxShadow: '0 12px 32px rgba(15,23,42,0.1)' }}>
+            <h1 style={{ color: '#0F172A', fontSize: '1.15rem' }}>Acesso não permitido</h1>
+            <p style={{ color: '#64748B' }}>Você não tem permissão para acessar esta área.</p>
+            <a href={caminhoInicialPorPerfil(usuarioLogado.perfil)} style={{ color: '#fff', background: '#003D7C', borderRadius: 8, padding: '10px 14px', display: 'inline-block', textDecoration: 'none', fontWeight: 800 }}>Voltar ao meu painel</a>
+          </div>
+        </div>
+      )
     }
   }
 
@@ -70,7 +80,7 @@ function Protegida({ children, perfil }) {
 
 function WelcomeRoute() {
   const { usuarioLogado, carregandoAuth } = useApp()
-  if (!carregandoAuth && usuarioLogado) return <Navigate to={caminhoInicialPorPerfil(usuarioLogado.perfil)} replace />
+  if (!carregandoAuth && usuarioLogado) return <Navigate to={usuarioLogado.selecaoAcessoPendente ? '/escolher-acesso' : caminhoInicialPorPerfil(usuarioLogado.perfil)} replace />
   return <Welcome />
 }
 
@@ -83,6 +93,7 @@ function AppRoutes() {
         <Route path="/login-gerencial" element={<Login gerencial />} />
         <Route path="/cadastro" element={<Cadastro />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/escolher-acesso" element={<Protegida permitirSelecao><EscolherAcesso /></Protegida>} />
 
         <Route path="/aluno/cardapio"  element={<Protegida perfil={['aluno', 'professor']}><Cardapio /></Protegida>} />
         <Route path="/aluno/carrinho"  element={<Protegida perfil={['aluno', 'professor']}><Carrinho /></Protegida>} />
@@ -100,7 +111,9 @@ function AppRoutes() {
         <Route path="/cozinha/avisos"    element={<Protegida perfil="cozinha"><Cozinha /></Protegida>} />
         <Route path="/cozinha/perfil"    element={<Protegida perfil="cozinha"><PerfilStaff /></Protegida>} />
         <Route path="/vendedor"          element={<Protegida perfil="vendedor"><Vendedor /></Protegida>} />
+        <Route path="/vendedor/balcao"   element={<Protegida perfil="vendedor"><Vendedor /></Protegida>} />
         <Route path="/vendedor/pedidos"  element={<Protegida perfil="vendedor"><Vendedor /></Protegida>} />
+        <Route path="/vendedor/atendimento" element={<Protegida perfil="vendedor"><Vendedor /></Protegida>} />
         <Route path="/vendedor/produtos" element={<Protegida perfil="vendedor"><Produtos /></Protegida>} />
         <Route path="/vendedor/estoque"  element={<Protegida perfil="vendedor"><Vendedor /></Protegida>} />
         <Route path="/vendedor/vendas"   element={<Protegida perfil="vendedor"><Vendedor /></Protegida>} />
@@ -113,14 +126,14 @@ function AppRoutes() {
         <Route path="/cozinheiro"        element={<Navigate to="/cozinha" replace />} />
         <Route path="/producao"          element={<Navigate to="/cozinha" replace />} />
 
-        <Route path="/admin"            element={<Protegida perfil="admin"><Dashboard /></Protegida>} />
-        <Route path="/admin/produtos"   element={<Protegida perfil="admin"><Produtos /></Protegida>} />
-        <Route path="/admin/estoque"    element={<Protegida perfil="admin"><Estoque /></Protegida>} />
+        <Route path="/admin"            element={<Protegida perfil={['admin', 'gerente']}><Dashboard /></Protegida>} />
+        <Route path="/admin/produtos"   element={<Protegida perfil={['admin', 'gerente']}><Produtos /></Protegida>} />
+        <Route path="/admin/estoque"    element={<Protegida perfil={['admin', 'gerente']}><Estoque /></Protegida>} />
         <Route path="/admin/lanchonete" element={<Navigate to="/admin/perfil" replace />} />
-        <Route path="/admin/relatorios" element={<Protegida perfil="admin"><Relatorios /></Protegida>} />
-        <Route path="/admin/avisos"     element={<Protegida perfil="admin"><Avisos /></Protegida>} />
-        <Route path="/admin/usuarios"   element={<Protegida perfil="admin"><Usuarios /></Protegida>} />
-        <Route path="/admin/perfil"     element={<Protegida perfil="admin"><PerfilStaff /></Protegida>} />
+        <Route path="/admin/relatorios" element={<Protegida perfil={['admin', 'gerente']}><Relatorios /></Protegida>} />
+        <Route path="/admin/avisos"     element={<Protegida perfil={['admin', 'gerente']}><Avisos /></Protegida>} />
+        <Route path="/admin/usuarios"   element={<Protegida perfil={['admin', 'gerente']}><Usuarios /></Protegida>} />
+        <Route path="/admin/perfil"     element={<Protegida perfil={['admin', 'gerente']}><PerfilStaff /></Protegida>} />
         <Route path="/404" element={<NotFound />} />
         <Route path="*" element={<Navigate to="/404" replace />} />
       </Routes>

@@ -51,7 +51,7 @@ describe('notifications', () => {
     notificarPedidoPronto({ id: 'P123456789' })
     expect(mock).toHaveBeenCalledTimes(1)
     expect(mock.mock.calls[0][0]).toContain('pronto')
-    expect(mock.mock.calls[0][1].body).toContain('23456789')
+    expect(mock.mock.calls[0][1].body).toContain('6789')
   })
 
   it('não cria notificação quando a permissão não foi concedida', () => {

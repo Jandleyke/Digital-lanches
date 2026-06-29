@@ -1,0 +1,1008 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 5971
+>>
+stream
+0.5670000000000001 w
+0 G
+0. 0.24 0.49 rg
+0. 841.8899999999999864 595.2755905511811534 -170.0787401574803255 re
+f
+BT
+/F2 26 Tf
+29.8999999999999986 TL
+1. g
+51.0236220472441033 756.8506299212598378 Td
+(Senac Lanches) Tj
+ET
+BT
+/F1 13 Tf
+14.9499999999999993 TL
+1. g
+51.0236220472441033 722.8348818897637784 Td
+(Manual do Sistema - Como funciona e como usar) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 629.291574803149615 Td
+(Este manual explica, de forma simples, o que é o sistema Senac Lanches, como ele foi construído e como) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 614.5514173228345953 Td
+(cada perfil de usuário deve utilizá-lo no dia a dia.) Tj
+ET
+BT
+/F2 16 Tf
+18.3999999999999986 TL
+0. 0.239 0.486 rg
+51.0236220472441033 582.8033858267715459 Td
+(1. Sobre o Projeto) Tj
+ET
+0. 0.24 0.49 RG
+51.0236220472441033 560.1262204724408775 m
+544.2519685039370643 560.1262204724408775 l
+S
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 543.1183464566928478 Td
+(O Senac Lanches é um sistema web \(PWA - Progressive Web App\) para gerenciamento de uma) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 528.3781889763779418 Td
+(lanchonete escolar. Ele permite que alunos façam pedidos pelo celular ou computador, que a cozinha) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 513.6380314960629221 Td
+(controle a produção dos lanches, que o vendedor acompanhe as vendas no balcão e que a administração) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 498.8978740157479592 Td
+(tenha uma visão completa de tudo: estoque, produtos, relatórios, usuários e avisos.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 478.4884251968503008 Td
+(Por ser um PWA, o app pode ser instalado na tela inicial do celular, funciona em modo "app" \(tela cheia,) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 463.748267716535338 Td
+(sem barra de navegador\) e envia notificações push \(avisos\) mesmo com o app fechado.) Tj
+ET
+BT
+/F2 16 Tf
+18.3999999999999986 TL
+0. 0.239 0.486 rg
+51.0236220472441033 443.3388188976377364 Td
+(2. Como o Sistema Foi Feito \(Tecnologias\)) Tj
+ET
+0. 0.24 0.49 RG
+51.0236220472441033 420.6616535433070112 m
+544.2519685039370643 420.6616535433070112 l
+S
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 403.6537795275590383 Td
+(• React + Vite: framework usado para construir toda a interface \(telas, botões, listas\) de forma rápida e) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 388.9136220472440755 Td
+(  organizada.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 374.1734645669291695 Td
+(• Firebase \(Firestore + Authentication\): banco de dados em tempo real \(onde ficam salvos produtos,) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 359.4333070866142066 Td
+(  pedidos, usuários, produção, avisos\) e sistema de login.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 344.6931496062993006 Td
+(• Vercel: serviço de hospedagem que coloca o site no ar, com endereço público acessível pela internet.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 329.9529921259843377 Td
+(• Recharts: biblioteca usada para gerar os gráficos do painel administrativo \(vendas, pedidos por) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 315.2128346456694317 Td
+(  horário, avaliações etc.\).) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 300.4726771653545256 Td
+(• jsPDF: biblioteca usada para gerar relatórios e documentos em PDF dentro do próprio sistema.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 285.7325196850396196 Td
+(• Lucide Icons: ícones usados em toda a interface.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 270.9923622047245999 Td
+(O código fica organizado em "páginas" \(uma para cada tela\) e "componentes" \(pedaços de tela) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 256.2522047244096939 Td
+(reutilizados, como modais e formulários\). Cada tipo de usuário \(aluno, vendedor, cozinha, administrador,) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 241.5120472440947879 Td
+(professor\) tem seu próprio conjunto de telas, mas todos compartilham o mesmo banco de dados em) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 226.7718897637798818 Td
+(tempo real - ou seja, quando algo muda em uma tela \(ex: estoque do produto\), as outras telas são) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 212.0317322834649758 Td
+(atualizadas automaticamente, sem precisar recarregar a página.) Tj
+ET
+BT
+/F2 16 Tf
+18.3999999999999986 TL
+0. 0.239 0.486 rg
+51.0236220472441033 191.6222834645673174 Td
+(3. Perfis de Usuário) Tj
+ET
+0. 0.24 0.49 RG
+51.0236220472441033 168.9451181102365922 m
+544.2519685039370643 168.9451181102365922 l
+S
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.957 0.475 0.125 rg
+51.0236220472441033 151.9372440944886193 Td
+(3.1 Aluno) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 134.9293700787405896 Td
+(É quem compra os lanches.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 114.5199212598430449 Td
+(• Cardápio: vê os produtos disponíveis no dia, com fotos, preços, informações nutricionais e) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 99.7797637795280252 Td
+(  alergênicos.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 85.0396062992131192 Td
+(• Carrinho: adiciona os itens desejados e finaliza o pedido.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 70.2994488188982132 Td
+(• Pedidos: acompanha o status do pedido em tempo real \(recebido, em preparo, pronto, entregue\).) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 7536
+>>
+stream
+0.5670000000000001 w
+0. 0.24 0.49 RG
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 785.1970866141732586 Td
+(• Histórico: consulta pedidos anteriores.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 770.4569291338582389 Td
+(• Favoritos: marca produtos preferidos para acesso rápido.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 755.7167716535433328 Td
+(• Perfil: edita dados pessoais e preferências \(ex: alergias\).) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.957 0.475 0.125 rg
+51.0236220472441033 740.9766141732283131 Td
+(3.2 Vendedor \(Balcão\)) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 723.9687401574802834 Td
+(Atende o aluno presencialmente e acompanha a produção do dia.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 703.559291338582625 Td
+(• Painel de vendas: registra pedidos feitos no balcão.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 688.8191338582676053 Td
+(• Acompanhamento de produção: vê quais produtos estão prontos, em produção ou esgotados.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 674.0789763779526993 Td
+(• Pode ajustar quantidades disponíveis quando recebe novos lotes da cozinha.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 659.3388188976377933 Td
+(• Cadastro rápido de novos produtos \(com foto, preço, informações nutricionais e dias da semana em) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 644.5986614173227736 Td
+(  que aparece no cardápio\).) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.957 0.475 0.125 rg
+51.0236220472441033 629.8585039370077538 Td
+(3.3 Cozinha) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 612.8506299212597241 Td
+(Controla a produção dos lanches do dia.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 592.4411811023621794 Td
+(• Dashboard: visão geral do dia \(planejados, em produção, prontos, esgotados, total produzido\).) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 577.7010236220471597 Td
+(• Produção: cadastra o que será produzido \(planejado, quantidade, horário previsto\), atualiza o status) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 562.96086614173214 Td
+(  conforme o preparo avança \(Em produção, Pronto para venda\) e pode cancelar itens.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 548.220708661417234 Td
+(• Registro de desperdício: registra perdas \(queimou, venceu, caiu no chão etc.\), individualmente ou em) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 533.480551181102328 Td
+(  lote, com motivo e observação.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 518.7403937007873083 Td
+(• Avisar vendedor: notifica o vendedor quando um produto fica pronto.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 504.0002362204722886 Td
+(• Cardápio: cadastra e edita produtos \(preço, estoque, foto, composição, informações nutricionais,) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 489.2600787401573257 Td
+(  alergênicos e dias em que o produto aparece no cardápio\).) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 474.5199212598424197 Td
+(• Avisos: envia comunicados para outros setores.) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.957 0.475 0.125 rg
+51.0236220472441033 459.7797637795274568 Td
+(3.4 Administrador) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 442.7718897637794271 Td
+(Tem acesso a tudo: visão financeira, operacional e de gestão.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 422.3624409448818255 Td
+(• Dashboard: cards com Total de Vendas, Total de Pedidos, Pedidos Ativos, Ticket Médio, Nota Média e) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 407.6222834645669195 Td
+(  Estoque Crítico \(todos clicáveis, mostrando detalhes ao clicar\). Também mostra a produção da) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 392.8821259842519567 Td
+(  cozinha em tempo real, gráficos de vendas/pedidos por horário, status dos pedidos, produtos mais) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 378.1419685039370506 Td
+(  vendidos, estoque crítico e avaliações dos clientes. As seções podem ser minimizadas para deixar o) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 363.4018110236220878 Td
+(  painel mais limpo.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 348.6616535433071817 Td
+(• Produtos: cadastro completo de produtos \(geral, foto, nutricional, alergênicos, dias de produção\).) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 333.9214960629922757 Td
+(• Estoque: controle de quantidades disponíveis de cada produto.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 319.1813385826773128 Td
+(• Usuários: gerenciamento de contas \(alunos, vendedores, cozinha, professores, administradores\).) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 304.4411811023624068 Td
+(• Avisos: envio de comunicados/notificações para os perfis do sistema.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 289.7010236220475008 Td
+(• Relatórios: geração de relatórios em PDF \(vendas, desperdício, produção etc.\).) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 274.9608661417324811 Td
+(• Lanchonete: configurações gerais do estabelecimento.) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.957 0.475 0.125 rg
+51.0236220472441033 260.2207086614175751 Td
+(3.5 Professor) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 243.2128346456695454 Td
+(Acesso restrito para envio e acompanhamento de avisos relacionados aos alunos.) Tj
+ET
+BT
+/F2 16 Tf
+18.3999999999999986 TL
+0. 0.239 0.486 rg
+51.0236220472441033 222.8033858267720007 Td
+(4. Como Usar - Passo a Passo) Tj
+ET
+0. 0.24 0.49 RG
+51.0236220472441033 200.126220472441247 m
+544.2519685039370643 200.126220472441247 l
+S
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.957 0.475 0.125 rg
+51.0236220472441033 183.1183464566931889 Td
+(4.1 Acesso) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 166.1104724409451592 Td
+(Acesse o endereço do site, faça login com seu usuário e senha \(ou cadastre-se, no caso de alunos\). O) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 151.3703149606302532 Td
+(sistema identifica automaticamente o seu perfil e direciona para o painel correto.) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.957 0.475 0.125 rg
+51.0236220472441033 130.9608661417325948 Td
+(4.2 Fluxo do Aluno) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 113.9529921259845651 Td
+(• 1. Abrir o Cardápio e escolher os produtos disponíveis no dia.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 99.212834645669659 Td
+(• 2. Adicionar itens ao Carrinho e finalizar o pedido.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 84.472677165354753 Td
+(• 3. Acompanhar o status na aba Pedidos até a retirada.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 69.732519685039847 Td
+(• 4. Avaliar o pedido após a entrega \(alimenta as estatísticas do admin\).) Tj
+ET
+endstream
+endobj
+7 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 8 0 R
+>>
+endobj
+8 0 obj
+<<
+/Length 4015
+>>
+stream
+0.5670000000000001 w
+0. 0.24 0.49 RG
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.957 0.475 0.125 rg
+51.0236220472441033 785.1970866141732586 Td
+(4.3 Fluxo da Cozinha) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 768.1892125984252289 Td
+(• 1. Na aba Produção, cadastrar os itens que serão feitos no dia \(quantidade planejada e horário) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 753.4490551181102092 Td
+(  previsto\).) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 738.7088976377953031 Td
+(• 2. Conforme o preparo avança, mudar o status para "Em produção" e depois "Pronto para venda".) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 723.9687401574802834 Td
+(• 3. Se houver perdas, usar "Registrar desperdício" informando quantidade e motivo.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 709.2285826771653774 Td
+(• 4. Usar "Avisar vendedor" para informar que o produto está disponível.) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.957 0.475 0.125 rg
+51.0236220472441033 694.4884251968503577 Td
+(4.4 Fluxo do Vendedor) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 677.480551181102328 Td
+(• 1. Acompanhar os produtos disponíveis \(atualizados automaticamente pela cozinha\).) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 662.7403937007873083 Td
+(• 2. Registrar as vendas feitas no balcão.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 648.0002362204724022 Td
+(• 3. Ajustar quantidades quando necessário, informando o motivo.) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.957 0.475 0.125 rg
+51.0236220472441033 633.2600787401573825 Td
+(4.5 Fluxo do Administrador) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 616.2522047244093528 Td
+(• 1. Verificar o Dashboard diariamente para acompanhar vendas, produção e estoque crítico.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 601.5120472440944468 Td
+(• 2. Cadastrar/editar produtos em Produtos.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 586.7718897637794271 Td
+(• 3. Gerenciar usuários em Usuários.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 572.0317322834644074 Td
+(• 4. Enviar comunicados em Avisos.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+56.6929133858267775 557.2915748031495013 Td
+(• 5. Gerar relatórios periódicos em Relatórios.) Tj
+ET
+BT
+/F2 16 Tf
+18.3999999999999986 TL
+0. 0.239 0.486 rg
+51.0236220472441033 542.5514173228345953 Td
+(5. Publicação e Atualizações) Tj
+ET
+0. 0.24 0.49 RG
+51.0236220472441033 519.8742519685038133 m
+544.2519685039370643 519.8742519685038133 l
+S
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 502.8663779527557836 Td
+(O código-fonte do projeto fica versionado no GitHub. Sempre que uma alteração é feita, ela é enviada) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 488.1262204724408207 Td
+(\(commit/push\) para o repositório e, em seguida, publicada automaticamente em produção através da) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 473.3860629921258578 Td
+(Vercel, que gera um novo endereço/versão do site no ar.) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 452.9766141732282563 Td
+(O banco de dados \(Firebase\) é independente da hospedagem do site: todos os dados \(produtos, pedidos,) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 438.2364566929132934 Td
+(usuários, produção, avisos\) ficam salvos na nuvem do Firebase em tempo real, então nada é perdido) Tj
+ET
+BT
+/F1 10.5 Tf
+12.0749999999999993 TL
+0.157 g
+51.0236220472441033 423.4962992125983874 Td
+(quando o site é atualizado.) Tj
+ET
+BT
+/F3 9 Tf
+10.3499999999999996 TL
+0.471 g
+51.0236220472441033 380.4096850393700606 Td
+(Documento gerado automaticamente como manual de referência do projeto Senac Lanches.) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R 7 0 R ]
+/Count 3
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+21 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+22 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 9 0 R
+/F2 10 0 R
+/F3 11 0 R
+/F4 12 0 R
+/F5 13 0 R
+/F6 14 0 R
+/F7 15 0 R
+/F8 16 0 R
+/F9 17 0 R
+/F10 18 0 R
+/F11 19 0 R
+/F12 20 0 R
+/F13 21 0 R
+/F14 22 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+23 0 obj
+<<
+/Producer (jsPDF 4.2.1)
+/CreationDate (D:20260610145316-03'00')
+>>
+endobj
+24 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 25
+0000000000 65535 f 
+0000018104 00000 n 
+0000019937 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000006175 00000 n 
+0000006312 00000 n 
+0000013900 00000 n 
+0000014037 00000 n 
+0000018173 00000 n 
+0000018298 00000 n 
+0000018429 00000 n 
+0000018563 00000 n 
+0000018701 00000 n 
+0000018825 00000 n 
+0000018954 00000 n 
+0000019086 00000 n 
+0000019222 00000 n 
+0000019350 00000 n 
+0000019477 00000 n 
+0000019606 00000 n 
+0000019739 00000 n 
+0000019841 00000 n 
+0000020189 00000 n 
+0000020275 00000 n 
+trailer
+<<
+/Size 25
+/Root 24 0 R
+/Info 23 0 R
+/ID [ <1A6FEDD23DA8A4E0CC468D66D7E17860> <1A6FEDD23DA8A4E0CC468D66D7E17860> ]
+>>
+startxref
+20379
+%%EOF

@@ -1,7 +1,7 @@
 import admin from 'firebase-admin'
 import webpush from 'web-push'
 
-const ROLES_VALIDOS = ['aluno', 'professor', 'admin', 'vendedor', 'cozinha']
+const ROLES_VALIDOS = ['aluno', 'professor', 'admin', 'gerente', 'vendedor', 'cozinha']
 
 function privateKey() {
   return process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')

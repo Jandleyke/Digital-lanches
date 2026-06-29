@@ -1,11 +1,13 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
 import { categorias } from '../../data/mockData'
 import { useIsMobile } from '../../utils/useIsMobile'
-import { UtensilsCrossed, Flame, Search, RefreshCw, Trophy, Tags, Heart } from 'lucide-react'
+import { idsCompradosEmPedidosConcluidos, quantidadesVendidasPorProduto } from '../../utils/pedidos'
+import { UtensilsCrossed, Flame, Search, RefreshCw, Trophy, Tags, Heart, Clock3 } from 'lucide-react'
 import AvisosBanner from '../../components/AvisosBanner'
-import { produtoDisponivelNoDia } from '../../utils/cardapioDias'
+import { produtoDisponivelParaCardapioDia } from '../../utils/producao'
+import { calcularStatusLanchonete } from '../../utils/lanchonete'
 
 const GRADIENTS = [
   'linear-gradient(135deg,#FF6B35,#F7C59F)',
@@ -16,10 +18,10 @@ const GRADIENTS = [
   'linear-gradient(135deg,#F59E0B,#FDE68A)',
 ]
 
-function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disabled, alergiasUsuario, onClick, destaque, avaliacao }) {
+function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disabled, indisponivelPorFechamento, alergiasUsuario, onClick, destaque, avaliacao }) {
   const [hover, setHover] = useState(false)
   const isAdded = adicionado === produto.id
-  const isOutOfStock = !produto.disponivel || produto.estoque <= 0
+  const isOutOfStock = !produto.disponivel || produto.estoque <= 0 || indisponivelPorFechamento
   const grad = GRADIENTS[produto.id % GRADIENTS.length]
   const imgHeight = isMobile ?120 : 170
 
@@ -32,8 +34,8 @@ function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disab
     <div
       style={{
         ...s.card,
-        transform: hover && produto.disponivel ?'translateY(-4px)' : 'none',
-        boxShadow: hover && produto.disponivel ?'0 12px 32px rgba(0,0,0,0.15)' : '0 2px 12px rgba(0,0,0,0.08)',
+        transform: hover && !disabled ?'translateY(-4px)' : 'none',
+        boxShadow: hover && !disabled ?'0 12px 32px rgba(0,0,0,0.15)' : '0 2px 12px rgba(0,0,0,0.08)',
         filter: isOutOfStock ?'grayscale(0.6)' : 'none',
         border: temAlergia ?'2px solid #FCA5A5' : estoqueBaixo ?'2px solid #FCD34D' : '2px solid transparent',
         cursor: 'pointer',
@@ -70,7 +72,9 @@ function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disab
           onClick={e => { e.stopPropagation(); onFav(produto.id) }}
         ><Heart size={isMobile ? 14 : 16} fill={isFav ? '#fff' : 'none'} color={isFav ? '#fff' : '#111'} strokeWidth={2.2} /></button>
         {!temAlergia && !estoqueBaixo && !destaque && !isMobile && <div style={s.catPill}>{produto.categoria}</div>}
-        {!produto.disponivel && <div style={s.tagIndispBadge}>Indisponível</div>}
+        {(!produto.disponivel || produto.estoque <= 0 || indisponivelPorFechamento) && (
+          <div style={s.tagIndispBadge}>{indisponivelPorFechamento ? 'Fechado no momento' : produto.estoque <= 0 ? 'Sem estoque' : 'Indisponível'}</div>
+        )}
       </div>
       <div style={{ ...s.cardBody, padding: isMobile ?'0.6rem 0.7rem 0.7rem' : '0.9rem 1rem 1rem' }}>
         <h3 style={{ ...s.nomeProduto, fontSize: isMobile ?'0.88rem' : '0.97rem', marginBottom: 2 }}>{produto.nome}</h3>
@@ -128,7 +132,7 @@ function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disab
           onClick={e => { e.stopPropagation(); onAdd(produto) }}
           disabled={disabled}
         >
-          {produto.estoque <= 0 ?'Sem estoque' : isAdded ?'✓ Adicionado!' : produto.disponivel ?'+ Adicionar' : 'Indisponível'}
+          {indisponivelPorFechamento ? 'Lanchonete fechada' : produto.estoque <= 0 ?'Sem estoque' : isAdded ?'✓ Adicionado!' : produto.disponivel ?'+ Adicionar' : 'Indisponível'}
         </button>
       </div>
     </div>
@@ -137,17 +141,31 @@ function ProdutoCard({ produto, onAdd, isFav, onFav, adicionado, isMobile, disab
 
 
 export default function Cardapio() {
-  const { produtos, pedidos, avisos, adicionarAoCarrinho, favoritos, toggleFavorito, usuarioLogado, carrinho, resumoAvaliacoesPorProduto } = useApp()
+  const { produtos, producaoHoje, pedidos, avisos, adicionarAoCarrinho, favoritos, toggleFavorito, usuarioLogado, carrinho, resumoAvaliacoesPorProduto, lanchoneteConfig } = useApp()
   const isMobile = useIsMobile()
   const [categoriaAtiva, setCategoriaAtiva] = useState('Todos')
   const [busca, setBusca] = useState('')
   const [adicionado, setAdicionado] = useState(null)
   const [alertaProduto, setAlertaProduto] = useState(null)
   const [detalhe, setDetalhe] = useState(null)
+  const [agora, setAgora] = useState(() => new Date())
+
+  useEffect(() => {
+    const timer = setInterval(() => setAgora(new Date()), 10000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const statusLanchonete = useMemo(
+    () => calcularStatusLanchonete(lanchoneteConfig || {}, agora),
+    [lanchoneteConfig, agora]
+  )
+  const lanchoneteFechada = statusLanchonete?.aberta === false
 
   const disponiveisOrdenados = useMemo(
-    () => produtos.filter(p => p.disponivel && p.estoque > 0 && produtoDisponivelNoDia(p)),
-    [produtos]
+    () => produtos
+      .map(produto => produtoDisponivelParaCardapioDia(produto, producaoHoje))
+      .filter(Boolean),
+    [produtos, producaoHoje]
   )
 
   const confirmarAdicionar = useCallback((produto) => {
@@ -159,7 +177,7 @@ export default function Cardapio() {
 
   const handleAdicionar = useCallback((produto) => {
     const itemNoCarrinho = carrinho.find(i => i.id === produto.id)
-    if (!produto.disponivel || produto.estoque <= 0) return
+    if (lanchoneteFechada || !produto.disponivel || produto.estoque <= 0) return
     if (itemNoCarrinho?.quantidade >= produto.estoque) {
       alert('Quantidade máxima em estoque atingida.')
       return
@@ -171,30 +189,25 @@ export default function Cardapio() {
       return
     }
     confirmarAdicionar(produto)
-  }, [carrinho, confirmarAdicionar, usuarioLogado])
+  }, [carrinho, confirmarAdicionar, usuarioLogado, lanchoneteFechada])
 
   const estaIndisponivel = useCallback((produto) => {
     const itemNoCarrinho = carrinho.find(i => i.id === produto.id)
-    return !produto.disponivel || produto.estoque <= 0 || itemNoCarrinho?.quantidade >= produto.estoque
-  }, [carrinho])
-
-  const pedidosPorAluno = useMemo(() => pedidos.filter(p => p.matricula === usuarioLogado?.matricula), [pedidos, usuarioLogado])
+    return lanchoneteFechada || !produto.disponivel || produto.estoque <= 0 || itemNoCarrinho?.quantidade >= produto.estoque
+  }, [carrinho, lanchoneteFechada])
 
   const jaCompradosIds = useMemo(
-    () => [...new Set(pedidosPorAluno.flatMap(p => p.itens?.map(i => i.produtoId) || []))],
-    [pedidosPorAluno]
+    () => idsCompradosEmPedidosConcluidos(pedidos, usuarioLogado?.matricula),
+    [pedidos, usuarioLogado?.matricula]
   )
 
   const maisVendidos = useMemo(() => {
-    const contagem = {}
-    pedidos.forEach(p => p.itens?.forEach(i => {
-      contagem[i.produtoId] = (contagem[i.produtoId] || 0) + i.quantidade
-    }))
+    const contagem = quantidadesVendidasPorProduto(pedidos)
     return Object.entries(contagem)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
       .map(([id, qtd]) => {
-        const produto = disponiveisOrdenados.find(p => p.id === Number(id))
+        const produto = disponiveisOrdenados.find(p => String(p.id) === String(id))
         return produto ?{ ...produto, qtd } : null
       })
       .filter(Boolean)
@@ -202,7 +215,7 @@ export default function Cardapio() {
 
   const comprarNovamente = useMemo(
     () => jaCompradosIds
-      .map(id => disponiveisOrdenados.find(p => p.id === id))
+      .map(id => disponiveisOrdenados.find(p => String(p.id) === String(id)))
       .filter(Boolean)
       .slice(0, 6),
     [jaCompradosIds, disponiveisOrdenados]
@@ -242,6 +255,15 @@ export default function Cardapio() {
   return (
     <Layout titulo="Cardápio de Hoje">
       <AvisosBanner perfil="alunos" />
+      {lanchoneteFechada && (
+        <div style={s.fechadaAviso} role="status">
+          <Clock3 size={18} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <strong>{statusLanchonete?.texto || 'Lanchonete fechada'}</strong>
+            <span>O cardápio está disponível para consulta. As compras serão liberadas quando a lanchonete abrir.</span>
+          </div>
+        </div>
+      )}
       <div style={{ marginBottom: isMobile ?'0.5rem' : '1rem' }}>
         <input
           style={{ ...s.inputBusca, width: '100%', maxWidth: '100%', boxSizing: 'border-box', padding: isMobile ?'0.6rem 0.9rem' : '0.75rem 1.1rem', fontSize: isMobile ?'0.88rem' : '0.95rem' }}
@@ -260,6 +282,7 @@ export default function Cardapio() {
               <ProdutoCard key={p.id} produto={p} onAdd={handleAdicionar}
                 isFav={favoritos.includes(p.id)} onFav={toggleFavorito}
                 adicionado={adicionado} isMobile={isMobile} disabled={estaIndisponivel(p)}
+                indisponivelPorFechamento={lanchoneteFechada}
                 alergiasUsuario={usuarioLogado?.alergias || []}
                 avaliacao={resumoAvaliacoesPorProduto?.[String(p.id)]}
                 onClick={() => setDetalhe(p)} />
@@ -277,6 +300,7 @@ export default function Cardapio() {
               <ProdutoCard key={p.id} produto={p} onAdd={handleAdicionar}
                 isFav={favoritos.includes(p.id)} onFav={toggleFavorito}
                 adicionado={adicionado} isMobile={isMobile} disabled={estaIndisponivel(p)}
+                indisponivelPorFechamento={lanchoneteFechada}
                 alergiasUsuario={usuarioLogado?.alergias || []}
                 avaliacao={resumoAvaliacoesPorProduto?.[String(p.id)]}
                 onClick={() => setDetalhe(p)} />
@@ -293,6 +317,7 @@ export default function Cardapio() {
               <ProdutoCard key={p.id} produto={p} onAdd={handleAdicionar}
                 isFav={favoritos.includes(p.id)} onFav={toggleFavorito}
                 adicionado={adicionado} isMobile={isMobile} disabled={estaIndisponivel(p)}
+                indisponivelPorFechamento={lanchoneteFechada}
                 alergiasUsuario={usuarioLogado?.alergias || []}
                 destaque={p.promoMensagem || p.promoTitulo}
                 avaliacao={resumoAvaliacoesPorProduto?.[String(p.id)]}
@@ -317,6 +342,7 @@ export default function Cardapio() {
           <ProdutoCard key={p.id} produto={p} onAdd={handleAdicionar}
             isFav={favoritos.includes(p.id)} onFav={toggleFavorito}
             adicionado={adicionado} isMobile={isMobile} disabled={estaIndisponivel(p)}
+            indisponivelPorFechamento={lanchoneteFechada}
             alergiasUsuario={usuarioLogado?.alergias || []}
             avaliacao={resumoAvaliacoesPorProduto?.[String(p.id)]}
             onClick={() => setDetalhe(p)} />
@@ -379,6 +405,9 @@ export default function Cardapio() {
                 )}
                 {!detalhe.disponivel && (
                   <span style={s.detBadgeSem}>Indisponível</span>
+                )}
+                {lanchoneteFechada && (
+                  <span style={s.detBadgeSem}>Lanchonete fechada</span>
                 )}
                 {(detalhe.alergenios || []).some(a => (usuarioLogado?.alergias || []).includes(a)) && (
                   <span style={s.detBadgeAlergia}>⚠️ Contém sua alergia</span>
@@ -468,7 +497,7 @@ export default function Cardapio() {
                   handleAdicionar(detalhe)
                 }}
               >
-                {detalhe.estoque <= 0 ?'Sem estoque' : !detalhe.disponivel ?'Indisponível' : '+ Adicionar ao carrinho'}
+                {lanchoneteFechada ? 'Lanchonete fechada' : detalhe.estoque <= 0 ?'Sem estoque' : !detalhe.disponivel ?'Indisponível' : '+ Adicionar ao carrinho'}
               </button>
             </div>
           </div>
@@ -505,6 +534,7 @@ export default function Cardapio() {
 }
 
 const s = {
+  fechadaAviso: { marginBottom: '0.75rem', padding: '0.7rem 0.8rem', borderRadius: 8, border: '1px solid #FCD34D', background: '#FFFBEB', color: '#92400E', display: 'flex', alignItems: 'flex-start', gap: 9, fontSize: '0.78rem', lineHeight: 1.4 },
   busca: { marginBottom: '1rem' },
   registerRow: { display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' },
   registerBtn: { padding: '0.5rem 0.95rem', borderRadius: 999, background: '#F47920', color: '#fff', fontWeight: 800, border: 'none', cursor: 'pointer' },

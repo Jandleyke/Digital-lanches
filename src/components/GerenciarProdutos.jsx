@@ -1,11 +1,13 @@
-import { useState } from 'react'
-import { ChevronDown, ChevronUp, Leaf, AlertTriangle, FileText, Camera, Image } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { CheckCircle2, ChevronDown, ChevronUp, EyeOff, Leaf, AlertTriangle, FileText, Camera, Image, Trash2 } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
 import { categorias } from '../data/mockData'
 import { estoqueNivel } from '../utils/statusColors'
 import { formatPrice } from '../utils/formatters'
 import { useIsMobile } from '../utils/useIsMobile'
 import { DIAS_CARDAPIO, DIAS_LABEL, resumoDiasProduto } from '../utils/cardapioDias'
+import { ehGestao, normalizarPerfil } from '../utils/perfis'
+import { processarFotoPerfil } from '../utils/image'
 
 const vazioNutri = { calorias: '', proteinas: '', carboidratos: '', gorduras: '', sodio: '' }
 const DIAS_PRODUCAO = DIAS_CARDAPIO
@@ -14,6 +16,7 @@ const vazio = { nome: '', categoria: 'Lanches', preco: '', descricao: '', compos
 const vazioLote = { nome: '', categoria: 'Lanches', preco: '', estoque: '', estoqueBaixo: '', diasProducao: [], disponivel: true, descricao: '', composicao: '', emoji: '🍔', foto: '', nutricional: { ...vazioNutri }, alergenios: [], _expandido: false, _novoAlerg: '' }
 
 const ALERGENOS_PADRAO = ['gluten', 'lactose', 'amendoim', 'ovo', 'soja', 'frutos-do-mar']
+const CATEGORIAS_RAPIDAS = ['Bebidas', 'Lanches', 'Salgados', 'Doces']
 
 const GRADIENTS = [
   'linear-gradient(135deg,#FF6B35,#F7C59F)',
@@ -24,35 +27,16 @@ const GRADIENTS = [
   'linear-gradient(135deg,#F59E0B,#FDE68A)',
 ]
 
-function comprimirImagem(base64, maxPx = 400, qualidade = 0.72) {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => {
-      try {
-        let { width, height } = img
-        if (width > maxPx || height > maxPx) {
-          if (width >= height) { height = Math.round(height * maxPx / width); width = maxPx }
-          else { width = Math.round(width * maxPx / height); height = maxPx }
-        }
-        const canvas = document.createElement('canvas')
-        canvas.width = width; canvas.height = height
-        canvas.getContext('2d').drawImage(img, 0, 0, width, height)
-        resolve(canvas.toDataURL('image/jpeg', qualidade))
-      } catch { resolve(base64) }
-    }
-    img.onerror = () => resolve(base64)
-    img.src = base64
-  })
-}
-
 export default function GerenciarProdutos() {
-  const { produtos, atualizarProduto, adicionarProduto, adicionarProdutos, removerProduto, removerProdutos } = useApp()
+  const { produtos, atualizarProduto, adicionarProduto, adicionarProdutos, removerProduto, removerProdutos, atualizarDisponibilidadeProdutos, usuarioLogado } = useApp()
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState(vazio)
   const [loteProdutos, setLoteProdutos] = useState([{ ...vazioLote }])
   const [confirmarExcluir, setConfirmarExcluir] = useState(null)
   const [erroExcluir, setErroExcluir] = useState('')
   const [excluindo, setExcluindo] = useState(false)
+  const [alterandoDisponibilidade, setAlterandoDisponibilidade] = useState(false)
+  const [erroAcaoLote, setErroAcaoLote] = useState('')
   const [detalhe, setDetalhe] = useState(null)
   const [modoSelecao, setModoSelecao] = useState(false)
   const [selecionados, setSelecionados] = useState([])
@@ -61,8 +45,19 @@ export default function GerenciarProdutos() {
   const [salvando, setSalvando] = useState(false)
   const [erroSalvar, setErroSalvar] = useState('')
   const [novaAlergenico, setNovaAlergenico] = useState('')
+  const [processandoFoto, setProcessandoFoto] = useState(false)
+  const [fotosLoteProcessando, setFotosLoteProcessando] = useState([])
+  const [filtroCategoria, setFiltroCategoria] = useState('Todos')
   const isMobile = useIsMobile()
+  const perfil = normalizarPerfil(usuarioLogado?.role || usuarioLogado?.perfil)
+  const podeEditarEstoque = !ehGestao(perfil)
   const alertaEstoque = produtos.filter(p => p.estoqueBaixo > 0 && p.estoque <= p.estoqueBaixo)
+  const produtosFiltrados = useMemo(() => (
+    filtroCategoria === 'Todos'
+      ? produtos
+      : produtos.filter(produto => String(produto.categoria || '') === filtroCategoria)
+  ), [produtos, filtroCategoria])
+  const todosExibidosSelecionados = produtosFiltrados.length > 0 && produtosFiltrados.every(produto => selecionados.includes(produto.id))
 
   function abrirNovo() { setForm(vazio); setLoteProdutos([{ ...vazioLote }]); setAbaModal('geral'); setModal('novo'); setErroSalvar('') }
   function abrirEditar(p) {
@@ -74,10 +69,10 @@ export default function GerenciarProdutos() {
     setSelecionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
   function selecionarTodos() {
-    const ids = produtos.map(p => p.id)
-    setSelecionados(prev => prev.length === ids.length ? [] : ids)
+    const ids = produtosFiltrados.map(p => p.id)
+    setSelecionados(todosExibidosSelecionados ? [] : ids)
   }
-  function cancelarSelecao() { setModoSelecao(false); setSelecionados([]) }
+  function cancelarSelecao() { setModoSelecao(false); setSelecionados([]); setErroAcaoLote('') }
 
   async function excluirSelecionados() {
     setExcluindo(true); setErroExcluir('')
@@ -91,11 +86,36 @@ export default function GerenciarProdutos() {
     } finally { setExcluindo(false) }
   }
 
+  async function alterarDisponibilidadeSelecionados(disponivel) {
+    if (alterandoDisponibilidade) return
+    if (!selecionados.length) {
+      setErroAcaoLote(disponivel ? 'Selecione ao menos um produto para disponibilizar.' : 'Selecione ao menos um produto.')
+      return
+    }
+    setAlterandoDisponibilidade(true)
+    setErroAcaoLote('')
+    try {
+      await atualizarDisponibilidadeProdutos(selecionados, disponivel)
+      setErroAcaoLote(disponivel ? 'Produtos selecionados foram disponibilizados no cardápio do dia.' : '')
+      cancelarSelecao()
+    } catch (error) {
+      setErroAcaoLote(error.message || 'Não foi possível atualizar os produtos selecionados.')
+    } finally {
+      setAlterandoDisponibilidade(false)
+    }
+  }
+
   async function salvar() {
     if (salvando) return
+    if (processandoFoto) {
+      setErroSalvar('Aguarde a foto terminar de processar antes de salvar.')
+      return
+    }
     setSalvando(true); setErroSalvar('')
     try {
-      const prod = { ...form, preco: parseFloat(form.preco) || 0, estoqueInicial: parseInt(form.estoqueInicial) || parseInt(form.estoque) || 0, estoque: parseInt(form.estoque) || 0, estoqueBaixo: parseInt(form.estoqueBaixo) || 0, diasCardapio: form.diasProducao || [] }
+      const original = produtos.find(p => String(p.id) === String(form.id))
+      const estoque = podeEditarEstoque ? Math.max(0, parseInt(form.estoque) || 0) : Math.max(0, Number(original?.estoque || 0))
+      const prod = { ...form, preco: parseFloat(form.preco) || 0, estoqueInicial: podeEditarEstoque ? Math.max(0, parseInt(form.estoqueInicial) || estoque) : Math.max(0, Number(original?.estoqueInicial || estoque)), estoque, estoqueBaixo: Math.max(0, parseInt(form.estoqueBaixo) || 0), diasCardapio: form.diasProducao || [] }
       if (modal === 'novo') await adicionarProduto(prod)
       else await atualizarProduto(prod)
       setModal(null)
@@ -145,22 +165,28 @@ export default function GerenciarProdutos() {
     }))
   }
 
-  function handleFotoLote(e, index) {
+  async function handleFotoLote(e, index) {
     const file = e.target.files?.[0]
     if (!file) return
-    const tempUrl = URL.createObjectURL(file)
-    setLoteProdutos(prev => prev.map((item, i) => i === index ? { ...item, foto: tempUrl } : item))
-    const reader = new FileReader()
-    reader.onload = async (ev) => {
-      const comprimida = await comprimirImagem(ev.target.result)
-      URL.revokeObjectURL(tempUrl)
+    setFotosLoteProcessando(prev => [...new Set([...prev, index])])
+    setErroSalvar('')
+    try {
+      const comprimida = await processarFotoPerfil(file, 700, 450000)
       setLoteProdutos(prev => prev.map((item, i) => i === index ? { ...item, foto: comprimida } : item))
+    } catch (error) {
+      setErroSalvar(error.message || 'Não foi possível processar a foto.')
+    } finally {
+      setFotosLoteProcessando(prev => prev.filter(item => item !== index))
+      e.target.value = ''
     }
-    reader.readAsDataURL(file)
   }
 
   async function salvarLote() {
     if (salvando) return
+    if (fotosLoteProcessando.length > 0) {
+      setErroSalvar('Aguarde todas as fotos terminarem de processar antes de salvar.')
+      return
+    }
     const validos = loteProdutos.filter(item => item.nome.trim())
     if (validos.length === 0) {
       setErroSalvar('Informe pelo menos um produto.')
@@ -173,9 +199,9 @@ export default function GerenciarProdutos() {
         nome: item.nome.trim(),
         categoria: item.categoria || 'Lanches',
         preco: parseFloat(item.preco) || 0,
-        estoqueInicial: parseInt(item.estoque) || 0,
-        estoque: parseInt(item.estoque) || 0,
-        estoqueBaixo: parseInt(item.estoqueBaixo) || 0,
+        estoqueInicial: podeEditarEstoque ? Math.max(0, parseInt(item.estoque) || 0) : 0,
+        estoque: podeEditarEstoque ? Math.max(0, parseInt(item.estoque) || 0) : 0,
+        estoqueBaixo: Math.max(0, parseInt(item.estoqueBaixo) || 0),
         diasCardapio: item.diasProducao || [],
         disponivel: item.disponivel ?? true,
         descricao: item.descricao || '',
@@ -192,18 +218,20 @@ export default function GerenciarProdutos() {
     } finally { setSalvando(false) }
   }
 
-  function handleFoto(e) {
+  async function handleFoto(e) {
     const file = e.target.files?.[0]
     if (!file) return
-    const tempUrl = URL.createObjectURL(file)
-    setForm(f => ({ ...f, foto: tempUrl }))
-    const reader = new FileReader()
-    reader.onload = async (ev) => {
-      const comprimida = await comprimirImagem(ev.target.result)
-      URL.revokeObjectURL(tempUrl)
+    setProcessandoFoto(true)
+    setErroSalvar('')
+    try {
+      const comprimida = await processarFotoPerfil(file, 700, 450000)
       setForm(f => ({ ...f, foto: comprimida }))
+    } catch (error) {
+      setErroSalvar(error.message || 'Não foi possível processar a foto.')
+    } finally {
+      setProcessandoFoto(false)
+      e.target.value = ''
     }
-    reader.readAsDataURL(file)
   }
 
   function handleNutri(campo, valor) {
@@ -247,7 +275,7 @@ export default function GerenciarProdutos() {
             <div style={{ ...s.toolbar, background: '#EFF6FF', borderRadius: 12, padding: '0.65rem 0.85rem', marginBottom: '0.75rem' }}>
               <button style={{ ...s.btnCancelar, fontSize: '0.82rem', padding: '0.45rem 0.9rem' }} onClick={cancelarSelecao}>← Cancelar</button>
               <button style={{ padding: '0.45rem 0.9rem', borderRadius: 8, background: '#fff', border: '1.5px solid #CBD5E1', color: '#475569', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }} onClick={selecionarTodos}>
-                {selecionados.length === produtos.length ? 'Desmarcar todos' : 'Selecionar todos'}
+                {todosExibidosSelecionados ? 'Desmarcar exibidos' : 'Selecionar exibidos'}
               </button>
               <span style={{ color: '#1D4ED8', fontWeight: 700, fontSize: '0.85rem', marginLeft: 'auto' }}>
                 {selecionados.length} selecionado{selecionados.length !== 1 ? 's' : ''}
@@ -259,13 +287,29 @@ export default function GerenciarProdutos() {
               <button style={{ padding: '0.5rem 1rem', borderRadius: 8, background: '#F1F5F9', border: '1.5px solid #E2E8F0', color: '#475569', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }} onClick={() => setModoSelecao(true)}>
                 ☑ Selecionar
               </button>
-              <span style={{ color: '#64748B', fontSize: '0.85rem', marginLeft: 'auto' }}>{produtos.length} produto(s)</span>
+              <span style={{ color: '#64748B', fontSize: '0.85rem', marginLeft: 'auto' }}>{produtosFiltrados.length} produto(s)</span>
             </div>
           )}
 
+          <div style={s.categoriaChips}>
+            <button type="button" style={{ ...s.categoriaChip, ...(filtroCategoria === 'Todos' ? s.categoriaChipAtivo : {}) }} onClick={() => setFiltroCategoria('Todos')}>
+              Todos
+            </button>
+            {CATEGORIAS_RAPIDAS.map(categoria => (
+              <button
+                key={categoria}
+                type="button"
+                style={{ ...s.categoriaChip, ...(filtroCategoria === categoria ? s.categoriaChipAtivo : {}) }}
+                onClick={() => setFiltroCategoria(categoria)}
+              >
+                {categoria}
+              </button>
+            ))}
+          </div>
+
           {isMobile ? (
             <div style={s.tabela}>
-              {produtos.map(p => {
+              {produtosFiltrados.map(p => {
                 const nivel = estoqueNivel(p.estoque, p.estoqueBaixo)
                 const sel = selecionados.includes(p.id)
                 return (
@@ -303,14 +347,14 @@ export default function GerenciarProdutos() {
                   </div>
                 )
               })}
-              {produtos.length === 0 && <div style={{ textAlign: 'center', padding: '2rem', color: '#94A3B8' }}>Nenhum produto cadastrado.</div>}
+              {produtosFiltrados.length === 0 && <div style={{ textAlign: 'center', padding: '2rem', color: '#94A3B8' }}>Nenhum produto encontrado.</div>}
             </div>
           ) : (
             <div style={{ ...s.tabela, overflowX: 'auto' }}>
               <div style={s.thead}>
                 {modoSelecao ? (
-                  <div onClick={selecionarTodos} style={selecionados.length === produtos.length ? s.checkOn : s.checkOff}>
-                    {selecionados.length === produtos.length && <span style={{ color: '#fff', fontSize: '0.7rem', fontWeight: 900 }}>✓</span>}
+                  <div onClick={selecionarTodos} style={todosExibidosSelecionados ? s.checkOn : s.checkOff}>
+                    {todosExibidosSelecionados && <span style={{ color: '#fff', fontSize: '0.7rem', fontWeight: 900 }}>✓</span>}
                   </div>
                 ) : (
                   <span style={{ width: 50 }}>Foto</span>
@@ -322,7 +366,7 @@ export default function GerenciarProdutos() {
                 <span style={{ flex: 1 }}>Status</span>
                 <span style={{ width: 80 }}></span>
               </div>
-              {produtos.map(p => {
+              {produtosFiltrados.map(p => {
                 const nivel = estoqueNivel(p.estoque, p.estoqueBaixo)
                 const sel = selecionados.includes(p.id)
                 return (
@@ -461,7 +505,7 @@ export default function GerenciarProdutos() {
       {/* Modal produto */}
       {modal && (
         <div style={s.overlay}>
-          <div style={s.modalBox}>
+          <div style={{ ...s.modalBox, padding: isMobile ? '1rem' : '1.75rem', borderRadius: isMobile ? 10 : 16 }}>
             <h3 style={s.modalTitulo}>{modal === 'novo' ? 'Novo Produto' : 'Editar Produto'}</h3>
 
             <div style={s.abasMod}>
@@ -482,11 +526,12 @@ export default function GerenciarProdutos() {
             </div>
 
             {abaModal === 'geral' && (
-              <div style={s.formGrid}>
+              <div style={{ ...s.formGrid, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' }}>
                 {[['nome','Nome','text'],['emoji','Emoji','text'],['preco','Preço (R$)','number'],['estoqueInicial','Estoque inicial','number'],['estoque','Estoque atual','number'],['estoqueBaixo','Alertar abaixo de (un)','number']].map(([key, label, tipo]) => (
                   <div key={key}>
                     <label style={s.label}>{label}</label>
-                    <input style={s.input} type={tipo} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} placeholder={key === 'estoqueBaixo' ? 'Ex: 5' : ''} />
+                    <input style={s.input} type={tipo} min={tipo === 'number' ? '0' : undefined} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} placeholder={key === 'estoqueBaixo' ? 'Ex: 5' : ''} disabled={!podeEditarEstoque && (key === 'estoque' || key === 'estoqueInicial')} />
+                    {!podeEditarEstoque && (key === 'estoque' || key === 'estoqueInicial') && <p style={{ ...s.label, fontWeight: 500, marginTop: 4 }}>Somente leitura para o administrador.</p>}
                   </div>
                 ))}
                 <div style={{ gridColumn: '1 / -1' }}>
@@ -537,7 +582,7 @@ export default function GerenciarProdutos() {
                 </div>
                 <label style={{ ...s.btnUpload, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
                   <Camera size={15} color="#fff" />
-                  Escolher foto
+                  {processandoFoto ? 'Processando foto...' : 'Escolher foto'}
                   <input type="file" accept="image/*" onChange={handleFoto} style={{ display: 'none' }} />
                 </label>
                 {form.foto && (
@@ -548,7 +593,7 @@ export default function GerenciarProdutos() {
             )}
 
             {abaModal === 'nutricional' && (
-              <div style={s.formGrid}>
+              <div style={{ ...s.formGrid, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' }}>
                 {[
                   ['calorias','Calorias (kcal)'],['proteinas','Proteínas (g)'],
                   ['carboidratos','Carboidratos (g)'],['gorduras','Gorduras totais (g)'],['sodio','Sódio (mg)'],
@@ -639,14 +684,14 @@ export default function GerenciarProdutos() {
                       </div>
 
                       {/* Campos básicos */}
-                      <div style={s.loteGrid}>
+                      <div style={{ ...s.loteGrid, gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : '2fr 1fr 1fr 1fr' }}>
                         <input style={{ ...s.input, gridColumn: 'span 2' }} value={item.nome} onChange={e => atualizarLinhaLote(index, 'nome', e.target.value)} placeholder="Nome do produto *" />
                         <select style={s.input} value={item.categoria} onChange={e => atualizarLinhaLote(index, 'categoria', e.target.value)}>
                           {categorias.filter(c => c !== 'Todos').map(c => <option key={c}>{c}</option>)}
                         </select>
                         <input style={s.input} type="number" step="0.01" value={item.preco} onChange={e => atualizarLinhaLote(index, 'preco', e.target.value)} placeholder="Preço (R$)" />
-                        <input style={s.input} type="number" value={item.estoque} onChange={e => atualizarLinhaLote(index, 'estoque', e.target.value)} placeholder="Estoque" />
-                        <input style={s.input} type="number" value={item.estoqueBaixo} onChange={e => atualizarLinhaLote(index, 'estoqueBaixo', e.target.value)} placeholder="Mínimo" />
+                        <input style={s.input} type="number" min="0" value={item.estoque} onChange={e => atualizarLinhaLote(index, 'estoque', e.target.value)} placeholder="Estoque" disabled={!podeEditarEstoque} />
+                        <input style={s.input} type="number" min="0" value={item.estoqueBaixo} onChange={e => atualizarLinhaLote(index, 'estoqueBaixo', e.target.value)} placeholder="Mínimo" />
                       </div>
 
                       {/* Dias */}
@@ -799,18 +844,18 @@ export default function GerenciarProdutos() {
             )}
 
             {erroSalvar && <p style={{ color: '#EF4444', fontSize: '0.82rem', marginBottom: 8 }}>{erroSalvar}</p>}
-            <div style={s.modalBtns}>
+            <div style={{ ...s.modalBtns, flexDirection: isMobile ? 'column-reverse' : 'row' }}>
               <button style={s.btnCancelar} onClick={() => setModal(null)}>Cancelar</button>
               {abaModal === 'lote' ? (
                 <>
                   <button style={s.btnLote} onClick={adicionarLinhaLote}>+ Linha</button>
-                  <button style={{ ...s.btnSalvar, opacity: salvando ? 0.7 : 1 }} onClick={salvarLote} disabled={salvando}>
-                    {salvando ? 'Salvando...' : `Salvar ${loteProdutos.filter(i => i.nome.trim()).length} produto(s)`}
+                  <button style={{ ...s.btnSalvar, opacity: salvando || fotosLoteProcessando.length ? 0.7 : 1 }} onClick={salvarLote} disabled={salvando || fotosLoteProcessando.length > 0}>
+                    {fotosLoteProcessando.length ? 'Processando fotos...' : salvando ? 'Salvando...' : `Salvar ${loteProdutos.filter(i => i.nome.trim()).length} produto(s)`}
                   </button>
                 </>
               ) : (
-                <button style={{ ...s.btnSalvar, opacity: salvando ? 0.7 : 1 }} onClick={salvar} disabled={salvando}>
-                  {salvando ? 'Salvando...' : 'Salvar produto'}
+                <button style={{ ...s.btnSalvar, opacity: salvando || processandoFoto ? 0.7 : 1 }} onClick={salvar} disabled={salvando || processandoFoto}>
+                  {processandoFoto ? 'Processando foto...' : salvando ? 'Salvando...' : 'Salvar produto'}
                 </button>
               )}
             </div>
@@ -864,13 +909,26 @@ export default function GerenciarProdutos() {
         </div>
       )}
 
+      {modoSelecao && selecionados.length > 0 && !confirmandoLote && <div aria-hidden="true" style={{ height: isMobile ? 154 : 76 }} />}
+
       {/* Barra flutuante de seleção */}
       {modoSelecao && selecionados.length > 0 && !confirmandoLote && (
-        <div style={{ position: 'fixed', bottom: isMobile ? 80 : 24, left: '50%', transform: 'translateX(-50%)', background: '#1A202C', color: '#fff', borderRadius: 16, padding: '0.8rem 1.25rem', display: 'flex', alignItems: 'center', gap: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.28)', zIndex: 250, whiteSpace: 'nowrap' }}>
-          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{selecionados.length} selecionado{selecionados.length !== 1 ? 's' : ''}</span>
-          <button onClick={() => { setErroExcluir(''); setConfirmandoLote(true) }} style={{ background: '#EF4444', color: '#fff', padding: '0.5rem 1.1rem', borderRadius: 10, fontWeight: 700, border: 'none', cursor: 'pointer', fontSize: '0.88rem' }}>
-            🗑️ Excluir selecionados
-          </button>
+        <div style={{ ...s.selectionBar, bottom: isMobile ? 'calc(64px + env(safe-area-inset-bottom, 0px))' : 24, left: isMobile ? 8 : '50%', right: isMobile ? 8 : 'auto', transform: isMobile ? 'none' : 'translateX(-50%)', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center' }}>
+          <div style={s.selectionInfo}>
+            <strong>{selecionados.length} selecionado{selecionados.length !== 1 ? 's' : ''}</strong>
+            {erroAcaoLote && <span style={s.selectionError}>{erroAcaoLote}</span>}
+          </div>
+          <div style={{ ...s.selectionActions, display: isMobile ? 'grid' : 'flex', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : undefined }}>
+            <button disabled={alterandoDisponibilidade} onClick={() => alterarDisponibilidadeSelecionados(true)} style={s.btnLoteAtivar}>
+              <CheckCircle2 size={15} /> Disponibilizar no cardápio
+            </button>
+            <button disabled={alterandoDisponibilidade} onClick={() => alterarDisponibilidadeSelecionados(false)} style={s.btnLotePausar}>
+              <EyeOff size={15} /> Pausar venda
+            </button>
+            <button disabled={alterandoDisponibilidade} onClick={() => { setErroExcluir(''); setConfirmandoLote(true) }} style={{ ...s.btnLoteExcluir, gridColumn: isMobile ? '1 / -1' : undefined }}>
+              <Trash2 size={15} /> Excluir
+            </button>
+          </div>
         </div>
       )}
     </>
@@ -881,12 +939,22 @@ const s = {
   alertas: { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: '1rem' },
   alertaVermelho: { background: '#FEE2E2', color: '#DC2626', padding: '0.75rem 1rem', borderRadius: 10, fontSize: '0.88rem' },
   alertaAmarelo: { background: '#FEF3C7', color: '#D97706', padding: '0.75rem 1rem', borderRadius: 10, fontSize: '0.88rem' },
+  selectionBar: { position: 'fixed', background: '#0F172A', color: '#fff', borderRadius: 10, padding: '0.65rem', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 10px 36px rgba(0,0,0,0.3)', zIndex: 250, maxWidth: 'calc(100vw - 16px)' },
+  selectionInfo: { display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0, fontSize: '0.78rem' },
+  selectionError: { color: '#FCA5A5', fontSize: '0.66rem', maxWidth: 220, whiteSpace: 'normal' },
+  selectionActions: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  btnLoteAtivar: { minHeight: 38, padding: '0 0.7rem', borderRadius: 8, background: '#15803D', color: '#fff', fontWeight: 800, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, whiteSpace: 'nowrap' },
+  btnLotePausar: { minHeight: 38, padding: '0 0.7rem', borderRadius: 8, background: '#F59E0B', color: '#fff', fontWeight: 800, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, whiteSpace: 'nowrap' },
+  btnLoteExcluir: { minHeight: 38, padding: '0 0.7rem', borderRadius: 8, background: '#DC2626', color: '#fff', fontWeight: 800, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, whiteSpace: 'nowrap' },
   abas: { display: 'flex', gap: 0, marginBottom: '1rem', borderBottom: '2px solid #E2E8F0' },
   aba: { padding: '0.6rem 1.4rem', background: 'none', color: '#64748B', fontWeight: 600, fontSize: '0.88rem', borderBottom: '2px solid transparent', marginBottom: -2, display: 'flex', alignItems: 'center' },
   abaAtiva: { color: '#003D7C', borderBottom: '2px solid #003D7C', fontWeight: 700 },
   toolbar: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: '0.75rem' },
   btnNovo: { background: '#F47920', color: '#fff', padding: '0.6rem 1.4rem', borderRadius: 10, fontWeight: 700 },
   btnLote: { background: '#003D7C', color: '#fff', padding: '0.6rem 1.1rem', borderRadius: 10, fontWeight: 800 },
+  categoriaChips: { display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center', margin: '0 0 0.85rem' },
+  categoriaChip: { border: '1px solid #CBD5E1', background: '#fff', color: '#475569', borderRadius: 999, padding: '0.45rem 0.85rem', fontSize: '0.78rem', fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' },
+  categoriaChipAtivo: { background: '#003D7C', borderColor: '#003D7C', color: '#fff', boxShadow: '0 5px 14px rgba(0,61,124,0.16)' },
   tabela: { background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' },
   mCard: { display: 'flex', alignItems: 'center', padding: '0.75rem', borderBottom: '1px solid #F1F5F9', gap: 10 },
   mThumb: { width: 44, height: 44, borderRadius: 10, overflow: 'hidden', flexShrink: 0, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center' },

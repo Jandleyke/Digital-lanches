@@ -17,7 +17,8 @@ export function useAvaliacoes(usuarioLogado) {
   }, [usuarioLogado])
 
   useEffect(() => {
-    buscarAvaliacoes()
+    const timer = window.setTimeout(buscarAvaliacoes, 0)
+    return () => window.clearTimeout(timer)
   }, [buscarAvaliacoes])
 
   const resumoPorProduto = useMemo(() => {

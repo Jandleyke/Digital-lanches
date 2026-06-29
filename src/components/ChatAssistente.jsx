@@ -4,16 +4,11 @@ import { useApp } from '../contexts/AppContext'
 import { useIsMobile } from '../utils/useIsMobile'
 import { buildContextoAluno, buildContextoAdmin } from '../utils/aiContext'
 import { Send, Bot, RefreshCcw, MessageCircle, X } from 'lucide-react'
+import { codigoPedido } from '../utils/pedidos'
+import { calcularStatusLanchonete } from '../utils/lanchonete'
 
 const ERRO_REDE = 'Não consegui responder agora. Tente novamente em instantes.'
 const ERRO_ACAO = '\n\n(Não consegui concluir essa ação — confira se o item ou pedido ainda está disponível.)'
-const DIA_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
-
-function toMin(str) {
-  if (!str) return null
-  const [h, m] = str.split(':').map(Number)
-  return h * 60 + m
-}
 
 function responderLocalmente(texto, contexto, lanchoneteConfig, perfil) {
   const t = texto.toLowerCase()
@@ -21,24 +16,19 @@ function responderLocalmente(texto, contexto, lanchoneteConfig, perfil) {
 
   if (/hor[aá]rio|que hora|abre|fecha|aberto|fechado|funciona|t[aá] abri/i.test(t)) {
     const { horarioAbertura: ha, horarioFechamento: hf, diasFuncionamento: dias = [] } = cfg
-    const agora = new Date()
-    const hoje = DIA_SEMANA[agora.getDay()]
-    const funcionaHoje = dias.length === 0 || dias.includes(hoje)
-    const agoraMin = agora.getHours() * 60 + agora.getMinutes()
-    const abertura = toMin(ha)
-    const fechamento = toMin(hf)
+    const status = calcularStatusLanchonete(cfg, new Date())
     if (ha && hf) {
-      const aberto = funcionaHoje && abertura !== null && fechamento !== null && agoraMin >= abertura && agoraMin < fechamento
-      return `A cantina ${funcionaHoje ? 'funciona hoje' : 'não funciona hoje'}. Horário: ${ha} às ${hf}.\nAgora está ${aberto ? 'ABERTA ✅' : 'FECHADA ❌'}.`
+      return `Horário da cantina: ${ha} às ${hf}.\nAgora: ${status?.texto || 'horário não disponível'}.`
     }
     if (ha || hf) return `Horário: ${ha ? 'abre às ' + ha : ''}${hf ? ' fecha às ' + hf : ''}.`
+    if (dias.length > 0 && status) return `Funcionamento de hoje: ${status.texto}.`
     return 'O horário ainda não foi cadastrado pelo administrador.'
   }
 
   if (perfil === 'aluno' && /meu pedido|como t[aá]|status do pedido|pedido ativo/i.test(t)) {
     const ativos = (contexto.meusPedidos || []).filter(p => p.status !== 'Entregue' && p.status !== 'Cancelado')
     if (!ativos.length) return 'Você não tem pedidos ativos no momento. Que tal pedir agora? 🍔'
-    return ativos.map(p => `📦 Pedido #${p.id.slice(-8)}\nStatus: ${p.status}\nRetirada: ${p.horarioRetirada}`).join('\n\n')
+    return ativos.map(p => `📦 Pedido ${codigoPedido(p)}\nStatus: ${p.status}\nRetirada: ${p.horarioRetirada}`).join('\n\n')
   }
 
   if (perfil === 'aluno' && /carrinho|o que t[eê]m no meu carrinho|meu carrinho/i.test(t)) {
@@ -77,23 +67,28 @@ function responderLocalmente(texto, contexto, lanchoneteConfig, perfil) {
 function statusCantina(cfg) {
   if (!cfg) return null
   const { horarioAbertura: ha, horarioFechamento: hf, diasFuncionamento: dias = [] } = cfg
-  const agora = new Date()
-  const hoje = DIA_SEMANA[agora.getDay()]
-  const funcionaHoje = dias.length === 0 || dias.includes(hoje)
-  if (dias.length > 0 && !funcionaHoje) {
-    const diasLabel = { segunda: 'segunda', terca: 'terça', quarta: 'quarta', quinta: 'quinta', sexta: 'sexta', sabado: 'sábado', domingo: 'domingo' }
-    const listaFuncionamento = dias.map(d => diasLabel[d] || d).join(', ')
-    return { aberta: false, msg: `⚠️ A cantina está fechada hoje (${diasLabel[hoje] || hoje}).\nFunciona: ${listaFuncionamento}${ha && hf ? `, das ${ha} às ${hf}` : ''}.` }
+  const status = calcularStatusLanchonete(cfg, new Date())
+  if (!status || status.aberta) return status ? { aberta: true, msg: null } : null
+
+  const horario = ha && hf ? `\nHorário cadastrado: ${ha} às ${hf}.` : ''
+  const diasInfo = dias.length > 0 && status.texto === 'Fechada hoje'
+    ? '\nHoje não está marcado como dia de funcionamento.'
+    : ''
+  return { aberta: false, msg: `⚠️ ${status.texto}.${diasInfo}${horario}` }
+}
+
+function limitarPosicao(posicao) {
+  if (!posicao || typeof window === 'undefined') return null
+  const x = Number(posicao.x)
+  const y = Number(posicao.y)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+
+  const limiteX = Math.max(4, window.innerWidth - 56)
+  const limiteY = Math.max(4, window.innerHeight - 56)
+  return {
+    x: Math.max(4, Math.min(limiteX, x)),
+    y: Math.max(4, Math.min(limiteY, y)),
   }
-  const abertura = toMin(ha)
-  const fechamento = toMin(hf)
-  const agoraMin = agora.getHours() * 60 + agora.getMinutes()
-  if (abertura !== null && fechamento !== null) {
-    if (agoraMin >= abertura && agoraMin < fechamento) return { aberta: true, msg: null }
-    if (agoraMin < abertura) return { aberta: false, msg: `⚠️ A cantina ainda está fechada. Abre às ${ha} hoje.` }
-    return { aberta: false, msg: `⚠️ A cantina já fechou por hoje. Volta amanhã às ${ha}!` }
-  }
-  return null
 }
 
 function saudacaoInicial(usuario, cfg) {
@@ -101,7 +96,7 @@ function saudacaoInicial(usuario, cfg) {
   const primeiroNome = usuario?.nome?.split(' ')[0] || 'você'
   const hora = new Date().getHours()
 
-  if (perfil === 'admin') {
+  if (perfil === 'admin' || perfil === 'gerente') {
     const frases = [
       `Fala, ${primeiroNome}! 👋 Tudo sob controle por aqui. Quer ver as vendas, estoque ou algum relatório?`,
       `Oi, ${primeiroNome}! 🚀 Pronto pra dominar o dia. O que você quer checar primeiro?`,
@@ -172,7 +167,7 @@ export default function ChatAssistente() {
   const [enviando, setEnviando] = useState(false)
   const [visivel, setVisivel] = useState(() => localStorage.getItem('chat-btn-visible') !== 'false')
   const [pos, setPos] = useState(() => {
-    try { const s = localStorage.getItem('chat-btn-pos'); if (s) return JSON.parse(s) } catch {}
+    try { const s = localStorage.getItem('chat-btn-pos'); if (s) return JSON.parse(s) } catch { return null }
     return null
   })
 
@@ -196,9 +191,38 @@ export default function ChatAssistente() {
 
   // Ouve evento para mostrar/esconder (disparado pelo perfil)
   useEffect(() => {
-    function handler(e) { setVisivel(e.detail) }
+    function handler(e) { setVisivel(Boolean(e.detail)) }
+    function storage(e) {
+      if (e.key === 'chat-btn-visible') setVisivel(e.newValue !== 'false')
+    }
     window.addEventListener('chat-visivel-change', handler)
-    return () => window.removeEventListener('chat-visivel-change', handler)
+    window.addEventListener('storage', storage)
+    return () => {
+      window.removeEventListener('chat-visivel-change', handler)
+      window.removeEventListener('storage', storage)
+    }
+  }, [])
+
+  useEffect(() => {
+    function ajustarPosicao() {
+      setPos(atual => {
+        if (!atual) return null
+        const ajustada = limitarPosicao(atual)
+        if (!ajustada) {
+          localStorage.removeItem('chat-btn-pos')
+          return null
+        }
+        if (ajustada.x !== atual.x || ajustada.y !== atual.y) {
+          localStorage.setItem('chat-btn-pos', JSON.stringify(ajustada))
+          return ajustada
+        }
+        return atual
+      })
+    }
+
+    ajustarPosicao()
+    window.addEventListener('resize', ajustarPosicao)
+    return () => window.removeEventListener('resize', ajustarPosicao)
   }, [])
 
   // Drag global listeners
@@ -400,14 +424,14 @@ export default function ChatAssistente() {
 
 const s = {
   botaoFlutuante: {
-    position: 'fixed', zIndex: 150,
+    position: 'fixed', zIndex: 180,
     width: 52, height: 52, borderRadius: '50%', border: 'none',
     background: '#F47920', boxShadow: '0 6px 20px rgba(244,121,32,0.45)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none',
   },
   painel: {
-    position: 'fixed', right: 16, zIndex: 200,
+    position: 'fixed', right: 16, zIndex: 220,
     background: '#fff', borderRadius: 16, overflow: 'hidden',
     boxShadow: '0 12px 40px rgba(15,23,42,0.25)',
     display: 'flex', flexDirection: 'column',

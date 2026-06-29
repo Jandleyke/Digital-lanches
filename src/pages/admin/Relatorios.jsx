@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
 import { useIsMobile } from '../../utils/useIsMobile'
+import { codigoPedido } from '../../utils/pedidos'
 
 const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado']
 const DIAS_CORES = ['#94A3B8', '#003D7C', '#003D7C', '#003D7C', '#003D7C', '#003D7C', '#94A3B8']
@@ -44,6 +45,14 @@ function isPedidoCancelado(pedido) {
     'cancelado_admin',
     'cancelled',
   ].includes(normalizeStatus(pedido?.status))
+}
+
+function origemPedido(pedido) {
+  return pedido?.origem === 'balcao' ? 'balcao' : 'app'
+}
+
+function origemLabel(pedido) {
+  return origemPedido(pedido) === 'balcao' ? 'Balcão' : 'App'
 }
 
 function getTotalPedido(pedido) {
@@ -222,6 +231,7 @@ export default function Relatorios() {
   const [filtroTipo, setFiltroTipo] = useState('dia')
   const [filtroDia, setFiltroDia] = useState(hojeInput())
   const [filtroMes, setFiltroMes] = useState(mesInput())
+  const [filtroOrigem, setFiltroOrigem] = useState('todos')
   const [pedidoCanceladoSelecionado, setPedidoCanceladoSelecionado] = useState(null)
 
   const periodoRelatorio = filtroTipo === 'dia'
@@ -237,7 +247,9 @@ export default function Relatorios() {
       : 'todos'
 
   const relatorio = useMemo(() => {
-    const pedidosPeriodo = pedidos.filter(pedido => pedidoNoPeriodo(pedido, filtroTipo, filtroDia, filtroMes))
+    const pedidosPeriodo = pedidos
+      .filter(pedido => pedidoNoPeriodo(pedido, filtroTipo, filtroDia, filtroMes))
+      .filter(pedido => filtroOrigem === 'todos' || origemPedido(pedido) === filtroOrigem)
     const pedidosValidos = pedidosPeriodo.filter(pedido => !isPedidoCancelado(pedido))
     const pedidosCancelados = pedidosPeriodo.filter(isPedidoCancelado)
     const totalPedidos = pedidosValidos.length
@@ -295,7 +307,7 @@ export default function Relatorios() {
         total: Math.round(vendasPorDiaSemana[i] * 100) / 100,
       })),
     }
-  }, [pedidos, filtroTipo, filtroDia, filtroMes])
+  }, [pedidos, filtroTipo, filtroDia, filtroMes, filtroOrigem])
 
   const producaoResumo = useMemo(() => {
     const lista = producaoHoje || []
@@ -304,29 +316,29 @@ export default function Relatorios() {
     const totalProduzido = lista.reduce((acc, item) => acc + Number(item.quantidadePronta || 0), 0)
     const totalDisponivel = lista.reduce((acc, item) => acc + Number(item.quantidadeRestante || 0), 0)
     const totalVendido = lista.reduce((acc, item) => acc + Number(item.quantidadeVendida || 0), 0)
-    const totalDesperdicado = lista.reduce((acc, item) => acc + Number(item.quantidadeDesperdicada || 0), 0)
+    const totalDescartado = lista.reduce((acc, item) => acc + Number(item.quantidadeDesperdicada || 0), 0)
     const produtosEsgotados = lista.filter(item => normalizeStatus(item.status) === 'esgotado' || Number(item.quantidadeRestante || 0) <= 0).length
-    const diferenca = totalProduzido - totalDisponivel - totalVendido - totalDesperdicado
+    const diferenca = totalProduzido - totalDisponivel - totalVendido - totalDescartado
 
-    const historicoDesperdicio = []
+    const historicoDescarte = []
     const ajustesVendedor = []
     lista.forEach(item => {
-      ;(item.historicoDesperdicio || []).forEach(h => historicoDesperdicio.push({ ...h, produtoNome: h.produtoNome || item.produtoNome }))
+      ;(item.historicoDesperdicio || []).forEach(h => historicoDescarte.push({ ...h, produtoNome: h.produtoNome || item.produtoNome }))
       ;(item.historico || []).forEach(h => {
         if (h.acao === 'Ajuste de producao recebida') ajustesVendedor.push({ ...h, produtoNome: h.produtoNome || item.produtoNome })
       })
     })
-    historicoDesperdicio.sort((a, b) => (b.dataHora || 0) - (a.dataHora || 0))
+    historicoDescarte.sort((a, b) => (b.dataHora || 0) - (a.dataHora || 0))
     ajustesVendedor.sort((a, b) => (b.dataHora || b.data || 0) - (a.dataHora || a.data || 0))
 
-    return { totalProduzido, totalDisponivel, totalVendido, totalDesperdicado, produtosEsgotados, diferenca, historicoDesperdicio, ajustesVendedor }
+    return { totalProduzido, totalDisponivel, totalVendido, totalDescartado, produtosEsgotados, diferenca, historicoDescarte, ajustesVendedor }
   }, [producaoHoje])
 
   const resumo = [
     ['Periodo', periodoRelatorio],
     ['Total de pedidos', formatNumber(relatorio.totalPedidos)],
     ['Total arrecadado', formatCurrency(relatorio.totalArrecadado)],
-    ['Ticket medio', formatCurrency(relatorio.ticketMedio)],
+    ['Media por pedido', formatCurrency(relatorio.ticketMedio)],
     ['Horario de pico', relatorio.horarioPico],
     ['Avaliacao media', relatorio.totalAvaliacoes > 0 ? `${formatAvaliacao(relatorio.avaliacaoMedia)} (${relatorio.totalAvaliacoes})` : 'Sem avaliacoes'],
     ['Cancelados', formatNumber(relatorio.pedidosCancelados.length)],
@@ -337,6 +349,7 @@ export default function Relatorios() {
   async function exportarPDF() {
     if (gerandoPDF) return
     setGerandoPDF(true)
+
     let jsPDF, autoTable
     try {
       [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
@@ -346,62 +359,238 @@ export default function Relatorios() {
       return
     }
 
-    const doc = new jsPDF({ orientation: 'landscape' })
-    doc.setFontSize(18)
-    doc.setTextColor(0, 61, 124)
-    doc.text('Senac Lanches - Relatorio de Pedidos', 14, 18)
-    doc.setFontSize(10)
-    doc.setTextColor(100)
-    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 25)
-    doc.text(`Periodo: ${periodoRelatorio}`, 14, 30)
+    try {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      const marginX = 10
+      const azul = [0, 61, 124]
+      const laranja = [244, 121, 32]
+      const cinzaTexto = [85, 94, 112]
+      const cinzaClaro = [248, 250, 252]
 
-    autoTable(doc, {
-      startY: 36,
-      head: [['Resumo', 'Valor']],
-      body: resumo,
-      headStyles: { fillColor: [0, 61, 124] },
-      styles: { fontSize: 9 },
-    })
+      const origemTexto = filtroOrigem === 'todos'
+        ? 'Todas as origens'
+        : filtroOrigem === 'balcao'
+          ? 'Balcão'
+          : 'App'
 
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      head: [['Pedido', 'Aluno', 'Itens', 'Total', 'Pagamento', 'Status', 'Data/Hora']],
-      body: relatorio.pedidosValidos.map(p => [
-        p.id || p.numero || 'Não informado',
-        p.alunoNome || p.nomeAluno || p.aluno || p.nome || 'Não informado',
+      function desenharCabecalho() {
+        doc.setFillColor(255, 255, 255)
+        doc.rect(0, 0, pageWidth, 26, 'F')
+        doc.setFillColor(...azul)
+        doc.rect(0, 0, pageWidth, 4, 'F')
+        doc.setFillColor(...laranja)
+        doc.rect(0, 4, pageWidth, 1.2, 'F')
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(14)
+        doc.setTextColor(...azul)
+        doc.text('Senac Lanches - Relatório de Pedidos', marginX, 13)
+
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.setTextColor(...cinzaTexto)
+        doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, marginX, 19)
+        doc.text(`Período: ${periodoRelatorio} | Origem: ${origemTexto}`, marginX + 78, 19)
+      }
+
+      function desenharRodape() {
+        const paginaAtual = doc.internal.getNumberOfPages()
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7)
+        doc.setTextColor(130, 140, 155)
+        doc.text(`Página ${paginaAtual}`, pageWidth - marginX, pageHeight - 6, { align: 'right' })
+        doc.text('Senac Lanches', marginX, pageHeight - 6)
+      }
+
+      function proximaPosicaoY(espacoNecessario = 34) {
+        const yAtual = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 8 : 30
+        if (yAtual + espacoNecessario > pageHeight - 14) {
+          doc.addPage()
+          return 30
+        }
+        return yAtual
+      }
+
+      function tabela(titulo, head, body, options = {}) {
+        const startY = options.startY ?? proximaPosicaoY(options.espaco || 34)
+
+        if (titulo) {
+          doc.setFont('helvetica', 'bold')
+          doc.setFontSize(10)
+          doc.setTextColor(...(options.corTitulo || azul))
+          doc.text(titulo, marginX, startY - 3)
+        }
+
+        autoTable(doc, {
+          startY,
+          head: [head],
+          body: body.length ? body : [[{ content: options.emptyText || 'Nenhum registro encontrado.', colSpan: head.length, styles: { halign: 'center', textColor: [100, 116, 139], fontStyle: 'bold' } }]],
+          margin: { left: marginX, right: marginX, top: 30, bottom: 14 },
+          tableWidth: 'auto',
+          theme: 'grid',
+          pageBreak: 'auto',
+          rowPageBreak: 'avoid',
+          headStyles: {
+            fillColor: options.headColor || azul,
+            textColor: [255, 255, 255],
+            fontStyle: 'bold',
+            fontSize: options.headFontSize || 7.4,
+            cellPadding: 1.6,
+            overflow: 'linebreak',
+          },
+          bodyStyles: {
+            fontSize: options.bodyFontSize || 7.1,
+            cellPadding: 1.5,
+            textColor: [71, 85, 105],
+            overflow: 'linebreak',
+            valign: 'top',
+          },
+          alternateRowStyles: { fillColor: cinzaClaro },
+          styles: {
+            font: 'helvetica',
+            lineColor: [226, 232, 240],
+            lineWidth: 0.1,
+            minCellHeight: 5,
+          },
+          columnStyles: options.columnStyles || {},
+          didDrawPage: () => {
+            desenharCabecalho()
+            desenharRodape()
+          },
+        })
+      }
+
+      desenharCabecalho()
+      desenharRodape()
+
+      tabela('Resumo geral', ['Resumo', 'Valor'], resumo, {
+        startY: 32,
+        headColor: azul,
+        bodyFontSize: 8,
+        headFontSize: 8,
+        columnStyles: {
+          0: { cellWidth: 68, fontStyle: 'bold' },
+          1: { cellWidth: pageWidth - marginX * 2 - 68 },
+        },
+      })
+
+      tabela('Pedidos válidos', ['Pedido', 'Aluno', 'Origem', 'Itens', 'Total', 'Pagamento', 'Status', 'Data/Hora'], relatorio.pedidosValidos.map(p => [
+        codigoPedido(p),
+        alunoNome(p),
+        origemLabel(p),
         getItensTexto(p),
         formatCurrency(getTotalPedido(p)),
         getFormaPagamento(p),
         p.status || 'Não informado',
         formatDateTime(getPedidoDate(p) || p.criadoEm || p.createdAt || p.dataPedido || p.data),
-      ]),
-      headStyles: { fillColor: [0, 61, 124] },
-      alternateRowStyles: { fillColor: [245, 247, 250] },
-      styles: { fontSize: 8, overflow: 'linebreak', cellPadding: 2 },
-      columnStyles: {
-        0: { cellWidth: 38 },
-        1: { cellWidth: 42 },
-        2: { cellWidth: 78 },
-        3: { cellWidth: 28 },
-        4: { cellWidth: 32 },
-        5: { cellWidth: 28 },
-        6: { cellWidth: 36 },
-      },
-    })
-
-    if (relatorio.produtosMaisVendidos.length > 0) {
-      autoTable(doc, {
-        startY: doc.lastAutoTable.finalY + 8,
-        head: [['Produto', 'Quantidade', 'Total']],
-        body: relatorio.produtosMaisVendidos.map(produto => [produto.nome, produto.quantidade, formatCurrency(produto.total)]),
-        headStyles: { fillColor: [244, 121, 32] },
-        styles: { fontSize: 9 },
+      ]), {
+        emptyText: 'Nenhum pedido válido encontrado no período.',
+        columnStyles: {
+          0: { cellWidth: 18, halign: 'center' },
+          1: { cellWidth: 42 },
+          2: { cellWidth: 24 },
+          3: { cellWidth: 78 },
+          4: { cellWidth: 24, halign: 'right' },
+          5: { cellWidth: 30 },
+          6: { cellWidth: 28 },
+          7: { cellWidth: 33 },
+        },
       })
-    }
 
-    doc.save(`relatorio-senac-${sufixoArquivo}.pdf`)
-    setGerandoPDF(false)
+      if (relatorio.pedidosCancelados.length > 0) {
+        tabela('Pedidos cancelados', ['Pedido', 'Aluno', 'Origem', 'Itens', 'Total', 'Motivo', 'Pedido em', 'Cancelado em'], relatorio.pedidosCancelados.map(p => [
+          codigoPedido(p),
+          alunoNome(p),
+          origemLabel(p),
+          getItensTexto(p),
+          formatCurrency(getTotalPedido(p)),
+          motivoCancelamento(p),
+          formatDateTime(getPedidoDate(p) || p.criadoEm || p.createdAt || p.dataPedido || p.data),
+          formatDateTime(p.canceladoEm || p.dataCancelamento),
+        ]), {
+          headColor: [220, 38, 38],
+          corTitulo: [185, 28, 28],
+          columnStyles: {
+            0: { cellWidth: 18, halign: 'center' },
+            1: { cellWidth: 40 },
+            2: { cellWidth: 22 },
+            3: { cellWidth: 58 },
+            4: { cellWidth: 22, halign: 'right' },
+            5: { cellWidth: 60 },
+            6: { cellWidth: 28 },
+            7: { cellWidth: 29 },
+          },
+        })
+      }
+
+      tabela('Produtos mais vendidos', ['Produto', 'Quantidade', 'Total'], relatorio.produtosMaisVendidos.map(produto => [
+        produto.nome,
+        formatNumber(produto.quantidade),
+        formatCurrency(produto.total),
+      ]), {
+        emptyText: 'Nenhum produto vendido no período.',
+        headColor: laranja,
+        corTitulo: laranja,
+        columnStyles: {
+          0: { cellWidth: 150 },
+          1: { cellWidth: 55, halign: 'center' },
+          2: { cellWidth: 72, halign: 'right' },
+        },
+      })
+
+      tabela('Formas de pagamento', ['Forma de pagamento', 'Quantidade', 'Total'], relatorio.formasPagamento.map(forma => [
+        forma.nome,
+        formatNumber(forma.quantidade),
+        formatCurrency(forma.total),
+      ]), {
+        emptyText: 'Nenhuma forma de pagamento encontrada.',
+        headColor: [0, 148, 94],
+        corTitulo: [0, 120, 78],
+        columnStyles: {
+          0: { cellWidth: 150 },
+          1: { cellWidth: 55, halign: 'center' },
+          2: { cellWidth: 72, halign: 'right' },
+        },
+      })
+
+      if (producaoResumo) {
+        tabela('Produção do dia', ['Indicador', 'Valor'], [
+          ['Total produzido', formatNumber(producaoResumo.totalProduzido)],
+          ['Disponível', formatNumber(producaoResumo.totalDisponivel)],
+          ['Vendido', formatNumber(producaoResumo.totalVendido)],
+          ['Descartado', formatNumber(producaoResumo.totalDescartado)],
+          ['Produtos esgotados', formatNumber(producaoResumo.produtosEsgotados)],
+          ['Diferença', formatNumber(producaoResumo.diferenca)],
+        ], {
+          headColor: [15, 118, 110],
+          corTitulo: [15, 118, 110],
+          columnStyles: {
+            0: { cellWidth: 120, fontStyle: 'bold' },
+            1: { cellWidth: 157 },
+          },
+        })
+      }
+
+      const totalPaginas = doc.internal.getNumberOfPages()
+      for (let i = 1; i <= totalPaginas; i += 1) {
+        doc.setPage(i)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7)
+        doc.setTextColor(130, 140, 155)
+        doc.text(`Página ${i} de ${totalPaginas}`, pageWidth - marginX, pageHeight - 6, { align: 'right' })
+      }
+
+      doc.save(`relatorio-senac-${sufixoArquivo}.pdf`)
+    } catch (error) {
+      console.error('Erro ao gerar PDF:', error)
+      alert('Não foi possível gerar o PDF. Tente novamente.')
+    } finally {
+      setGerandoPDF(false)
+    }
   }
+
 
   function exportarExcel() {
     const geradoEm = new Date().toLocaleString('pt-BR')
@@ -409,9 +598,10 @@ export default function Relatorios() {
     const horarioPico = relatorio.totalPedidos > 0 ? relatorio.horarioPico : 'Sem dados suficientes para exibir o horario de pico'
 
     const pedidosValidosRows = relatorio.pedidosValidos.map(p => excelRow([
-      p.id || p.numero || 'Não informado',
+      codigoPedido(p),
       alunoNome(p),
       alunoContato(p),
+      origemLabel(p),
       getItensTexto(p),
       formatCurrency(getTotalPedido(p)),
       getFormaPagamento(p),
@@ -420,9 +610,10 @@ export default function Relatorios() {
     ]))
 
     const pedidosCanceladosRows = relatorio.pedidosCancelados.map(p => excelRow([
-      p.id || p.numero || 'Não informado',
+      codigoPedido(p),
       alunoNome(p),
       alunoContato(p),
+      origemLabel(p),
       getItensTexto(p),
       formatCurrency(getTotalPedido(p)),
       motivoCancelamento(p),
@@ -454,7 +645,7 @@ export default function Relatorios() {
         { value: 'Pedidos cancelados', style: 'CardRed', mergeAcross: 1 },
         { value: 'Total geral registrado', style: 'CardOrange', mergeAcross: 1 },
         { value: 'Total arrecadado', style: 'CardGreen', mergeAcross: 1 },
-        { value: 'Ticket medio', style: 'CardPurple', mergeAcross: 1 },
+        { value: 'Media por pedido', style: 'CardPurple', mergeAcross: 1 },
         { value: 'Horario de pico', style: 'CardTeal', mergeAcross: 1 },
         { value: 'Avaliacao media', style: 'CardPink', mergeAcross: 1 },
       ], 28),
@@ -469,7 +660,7 @@ export default function Relatorios() {
       ], 36),
       excelRow([]),
       excelRow([{ value: 'PEDIDOS', style: 'BoxTitle', mergeAcross: 3 }, { value: 'DESEMPENHO FINANCEIRO (APENAS PEDIDOS VALIDOS)', style: 'BoxTitle', mergeAcross: 4 }, { value: 'RESUMO DE FORMAS DE PAGAMENTO (APENAS VALIDOS)', style: 'BoxTitle', mergeAcross: 4 }], 24),
-      excelRow([{ value: 'Tipo', style: 'Header' }, { value: 'Quantidade', style: 'Header', mergeAcross: 2 }, { value: 'Total arrecadado', style: 'SubBox' }, { value: 'Ticket medio', style: 'SubBox' }, { value: 'Total de pedidos', style: 'SubBox', mergeAcross: 2 }, { value: 'Forma de pagamento', style: 'Header' }, { value: 'Qtd. pedidos', style: 'Header' }, { value: 'Total arrecadado', style: 'Header', mergeAcross: 2 }]),
+      excelRow([{ value: 'Tipo', style: 'Header' }, { value: 'Quantidade', style: 'Header', mergeAcross: 2 }, { value: 'Total arrecadado', style: 'SubBox' }, { value: 'Media por pedido', style: 'SubBox' }, { value: 'Total de pedidos', style: 'SubBox', mergeAcross: 2 }, { value: 'Forma de pagamento', style: 'Header' }, { value: 'Qtd. pedidos', style: 'Header' }, { value: 'Total arrecadado', style: 'Header', mergeAcross: 2 }]),
       excelRow(['Pedidos validos', { value: relatorio.totalPedidos, type: 'Number', mergeAcross: 2 }, { value: formatCurrency(relatorio.totalArrecadado), style: 'CardValueGreen' }, { value: formatCurrency(relatorio.ticketMedio), style: 'CardValuePurple' }, { value: relatorio.totalPedidos, style: 'CardValueBlue', type: 'Number', mergeAcross: 2 }, ...(pagamentosRows[0]?.cells || [{ value: 'Nenhuma venda registrada no periodo.', style: 'Muted', mergeAcross: 4 }])]),
       excelRow(['Pedidos cancelados', { value: relatorio.pedidosCancelados.length, type: 'Number', style: 'StatusCancelado', mergeAcross: 2 }, { value: 'Pedidos cancelados não são considerados no cálculo dos valores acima.', style: 'InfoBox', mergeAcross: 4 }, ...(pagamentosRows[1]?.cells || [{ value: '', mergeAcross: 4 }])]),
       excelRow(['Total geral registrado', { value: totalGeral, type: 'Number', style: 'CardValueGray', mergeAcross: 2 }, { value: '', mergeAcross: 4 }, ...(pagamentosRows[2]?.cells || [{ value: '', mergeAcross: 4 }])]),
@@ -487,17 +678,17 @@ export default function Relatorios() {
         : [excelRow([{ value: 'Nenhum produto vendido no periodo.', style: 'Muted', mergeAcross: 6 }, { value: 'E necessario ter pedidos validos no periodo.', style: 'Muted', mergeAcross: 6 }], 42)]),
       excelRow([]),
       excelRow([{ value: 'ULTIMOS PEDIDOS VALIDOS', style: 'BoxTitle', mergeAcross: 13 }], 24),
-      excelRow(['Pedido', 'Aluno', 'Matricula / E-mail', 'Itens', 'Valor total', 'Pagamento', 'Status', 'Data/Hora'].map((value, index) => ({ value, style: 'Header', mergeAcross: index === 3 ? 4 : 0 }))),
+      excelRow(['Pedido', 'Aluno', 'Matricula / E-mail', 'Origem', 'Itens', 'Valor total', 'Pagamento', 'Status', 'Data/Hora'].map((value, index) => ({ value, style: 'Header', mergeAcross: index === 4 ? 3 : 0 }))),
       ...(pedidosValidosRows.length ? pedidosValidosRows.slice(0, 8) : [excelEmptyRow('Nenhum pedido valido encontrado no periodo.', 14)]),
     ]
 
     const detalheValidos = [
-      excelRow(['Pedido', 'Aluno', 'Matricula / E-mail', 'Itens', 'Valor Total', 'Pagamento', 'Status', 'Data/Hora'].map(value => ({ value, style: 'Header' }))),
-      ...(pedidosValidosRows.length ? pedidosValidosRows : [excelEmptyRow('Nenhum pedido valido encontrado no periodo.', 8)]),
+      excelRow(['Pedido', 'Aluno', 'Matricula / E-mail', 'Origem', 'Itens', 'Valor Total', 'Pagamento', 'Status', 'Data/Hora'].map(value => ({ value, style: 'Header' }))),
+      ...(pedidosValidosRows.length ? pedidosValidosRows : [excelEmptyRow('Nenhum pedido valido encontrado no periodo.', 9)]),
     ]
     const detalheCancelados = [
-      excelRow(['Pedido', 'Aluno', 'Matricula / E-mail', 'Itens', 'Valor Total', 'Motivo do Cancelamento', 'Data/Hora do Pedido', 'Data/Hora do Cancelamento', 'Status'].map(value => ({ value, style: 'Header' }))),
-      ...(pedidosCanceladosRows.length ? pedidosCanceladosRows : [excelEmptyRow('Nenhum pedido cancelado encontrado no periodo.', 9)]),
+      excelRow(['Pedido', 'Aluno', 'Matricula / E-mail', 'Origem', 'Itens', 'Valor Total', 'Motivo do Cancelamento', 'Data/Hora do Pedido', 'Data/Hora do Cancelamento', 'Status'].map(value => ({ value, style: 'Header' }))),
+      ...(pedidosCanceladosRows.length ? pedidosCanceladosRows : [excelEmptyRow('Nenhum pedido cancelado encontrado no periodo.', 10)]),
     ]
     const detalheProdutos = [
       excelRow(['Ranking', 'Produto', 'Quantidade Vendida', 'Total Arrecadado'].map(value => ({ value, style: 'Header' }))),
@@ -549,8 +740,8 @@ export default function Relatorios() {
   <Style ss:ID="CardValueGray" ss:Parent="Cell"><Font ss:Bold="1" ss:Size="14" ss:Color="#475569"/><Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/></Style>
  </Styles>
  ${excelSheet('Resumo', [84, 84, 110, 110, 112, 112, 112, 112, 112, 112, 112, 112, 112, 112], resumoRows)}
- ${excelSheet('Pedidos Validos', [95, 160, 150, 260, 95, 120, 100, 140], detalheValidos, { freeze: true, autoFilter: true })}
- ${excelSheet('Pedidos Cancelados', [95, 160, 150, 250, 95, 220, 140, 150, 100], detalheCancelados, { freeze: true, autoFilter: true })}
+ ${excelSheet('Pedidos Validos', [95, 160, 150, 110, 260, 95, 120, 100, 140], detalheValidos, { freeze: true, autoFilter: true })}
+ ${excelSheet('Pedidos Cancelados', [95, 160, 150, 110, 250, 95, 220, 140, 150, 100], detalheCancelados, { freeze: true, autoFilter: true })}
  ${excelSheet('Produtos Mais Vendidos', [90, 240, 135, 135], detalheProdutos, { freeze: true, autoFilter: true })}
  ${excelSheet('Formas de Pagamento', [190, 150, 150], detalhePagamentos, { freeze: true, autoFilter: true })}
 </Workbook>`
@@ -598,6 +789,11 @@ export default function Relatorios() {
               {filtroTipo === 'mes' && (
                 <input type="month" value={filtroMes} onChange={e => setFiltroMes(e.target.value)} style={s.filtroInput} />
               )}
+              <select value={filtroOrigem} onChange={e => setFiltroOrigem(e.target.value)} style={s.filtroInput} aria-label="Filtrar por origem">
+                <option value="todos">Todas as origens</option>
+                <option value="app">App</option>
+                <option value="balcao">Balcão</option>
+              </select>
             </div>
             <div style={{ ...s.exportButtons, flexDirection: isMobile ? 'column' : 'row', width: isMobile ? '100%' : 'auto' }}>
               <button style={{ ...s.exportBtn, ...s.pdfBtn, width: isMobile ? '100%' : 'auto', opacity: gerandoPDF ? 0.7 : 1 }} onClick={exportarPDF} disabled={gerandoPDF}>
@@ -642,8 +838,8 @@ export default function Relatorios() {
                   <strong style={{ ...s.resumoValue, fontSize: '1.2rem' }}>{formatNumber(producaoResumo.totalVendido)}</strong>
                 </div>
                 <div style={s.resumoItem}>
-                  <span style={s.resumoLabel}>Desperdicado</span>
-                  <strong style={{ ...s.resumoValue, fontSize: '1.2rem', color: '#EF4444' }}>{formatNumber(producaoResumo.totalDesperdicado)}</strong>
+                  <span style={s.resumoLabel}>Descartado</span>
+                  <strong style={{ ...s.resumoValue, fontSize: '1.2rem', color: '#EF4444' }}>{formatNumber(producaoResumo.totalDescartado)}</strong>
                 </div>
                 <div style={s.resumoItem}>
                   <span style={s.resumoLabel}>Produtos esgotados</span>
@@ -651,7 +847,7 @@ export default function Relatorios() {
                 </div>
               </div>
               {producaoResumo.diferenca !== 0 && (
-                <p style={s.sectionSub}>Diferenca entre produzido e (disponivel + vendido + desperdicado): <strong>{formatNumber(producaoResumo.diferenca)}</strong> un.</p>
+                <p style={s.sectionSub}>Diferenca entre produzido e (disponivel + vendido + descartado): <strong>{formatNumber(producaoResumo.diferenca)}</strong> un.</p>
               )}
             </>
           )}
@@ -659,12 +855,12 @@ export default function Relatorios() {
 
         <div style={{ ...s.grid, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' }}>
           <section style={{ ...s.section, padding: isMobile ? 18 : 24 }}>
-            <h3 style={s.sectionTitle}>Historico de Desperdicio (hoje)</h3>
-            {!producaoResumo || producaoResumo.historicoDesperdicio.length === 0 ? (
-              <p style={s.empty}>Nenhum desperdicio registrado hoje.</p>
+            <h3 style={s.sectionTitle}>Historico de Descarte (hoje)</h3>
+            {!producaoResumo || producaoResumo.historicoDescarte.length === 0 ? (
+              <p style={s.empty}>Nenhum descarte registrado hoje.</p>
             ) : (
               <div style={s.produtoList}>
-                {producaoResumo.historicoDesperdicio.map(h => (
+                {producaoResumo.historicoDescarte.map(h => (
                   <div key={h.id} style={s.produtoItem}>
                     <span style={s.produtoNome}>{h.produtoNome || 'Produto'}</span>
                     <span style={s.produtoMeta}>{h.quantidade || 0} un · {h.motivo || 'Outro'}{h.observacao ? ` (${h.observacao})` : ''} · {formatDateTime(h.dataHora)}</span>
@@ -763,7 +959,7 @@ export default function Relatorios() {
               <table style={s.table}>
                 <thead>
                   <tr style={s.theadRow}>
-                    {['Pedido', 'Aluno', 'Itens', 'Total', 'Pagamento', 'Status'].map(col => (
+                    {['Pedido', 'Aluno', 'Origem', 'Itens', 'Total', 'Pagamento', 'Status'].map(col => (
                       <th key={col} style={s.th}>{col}</th>
                     ))}
                   </tr>
@@ -771,8 +967,9 @@ export default function Relatorios() {
                 <tbody>
                   {relatorio.pedidosValidos.map(p => (
                     <tr key={p.id || p.numero} style={s.trow}>
-                      <td style={s.td}>#{p.id || p.numero || 'Não informado'}</td>
+                      <td style={s.td}>#{codigoPedido(p)}</td>
                       <td style={s.td}>{p.alunoNome || p.nomeAluno || p.aluno || p.nome || 'Não informado'}</td>
+                      <td style={s.td}>{origemLabel(p)}</td>
                       <td style={s.td}>{getItensTexto(p)}</td>
                       <td style={{ ...s.td, fontWeight: 700, color: '#003D7C' }}>{formatCurrency(getTotalPedido(p))}</td>
                       <td style={s.td}>{getFormaPagamento(p)}</td>
@@ -788,12 +985,12 @@ export default function Relatorios() {
         {relatorio.pedidosCancelados.length > 0 && (
           <section style={{ ...s.section, padding: isMobile ? 18 : 24 }}>
             <h3 style={s.sectionTitle}>Pedidos Cancelados</h3>
-            <p style={s.sectionSub}>Pedidos cancelados nao contam como vendas, faturamento ou ticket medio. Clique em um pedido para ver detalhes.</p>
+            <p style={s.sectionSub}>Pedidos cancelados não contam como vendas, faturamento ou média por pedido. Clique em um pedido para ver detalhes.</p>
             <div style={{ overflowX: 'auto' }}>
               <table style={s.table}>
                 <thead>
                   <tr style={s.theadRow}>
-                    {['Pedido', 'Aluno', 'Itens', 'Total', 'Cancelado em', 'Status'].map(col => (
+                    {['Pedido', 'Aluno', 'Origem', 'Itens', 'Total', 'Cancelado em', 'Status'].map(col => (
                       <th key={col} style={s.th}>{col}</th>
                     ))}
                   </tr>
@@ -801,8 +998,9 @@ export default function Relatorios() {
                 <tbody>
                   {relatorio.pedidosCancelados.map(p => (
                     <tr key={p.id || p.numero} style={{ ...s.trow, cursor: 'pointer' }} onClick={() => setPedidoCanceladoSelecionado(p)}>
-                      <td style={s.td}>#{p.id || p.numero || 'Não informado'}</td>
+                      <td style={s.td}>#{codigoPedido(p)}</td>
                       <td style={s.td}>{alunoNome(p)}</td>
+                      <td style={s.td}>{origemLabel(p)}</td>
                       <td style={s.td}>{getItensTexto(p)}</td>
                       <td style={{ ...s.td, fontWeight: 700, color: '#EF4444' }}>{formatCurrency(getTotalPedido(p))}</td>
                       <td style={s.td}>{formatDateTime(p.canceladoEm || p.dataCancelamento)}</td>
@@ -820,12 +1018,13 @@ export default function Relatorios() {
         <div style={s.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="pedido-cancelado-title">
           <div style={{ ...s.modal, padding: isMobile ? 18 : 24 }}>
             <div style={s.modalHeader}>
-              <h3 id="pedido-cancelado-title" style={s.sectionTitle}>Pedido Cancelado #{pedidoCanceladoSelecionado.id || pedidoCanceladoSelecionado.numero || 'Não informado'}</h3>
+              <h3 id="pedido-cancelado-title" style={s.sectionTitle}>Pedido Cancelado #{codigoPedido(pedidoCanceladoSelecionado)}</h3>
               <button type="button" style={s.closeBtn} onClick={() => setPedidoCanceladoSelecionado(null)}>Fechar</button>
             </div>
             <div style={s.modalBody}>
               <p style={s.td}><strong>Aluno:</strong> {alunoNome(pedidoCanceladoSelecionado)}</p>
               <p style={s.td}><strong>Matricula / E-mail:</strong> {alunoContato(pedidoCanceladoSelecionado)}</p>
+              <p style={s.td}><strong>Origem:</strong> {origemLabel(pedidoCanceladoSelecionado)}</p>
               <p style={s.td}><strong>Itens:</strong> {getItensTexto(pedidoCanceladoSelecionado)}</p>
               <p style={s.td}><strong>Valor:</strong> {formatCurrency(getTotalPedido(pedidoCanceladoSelecionado))}</p>
               <p style={s.td}><strong>Horario do pedido:</strong> {formatDateTime(getPedidoDate(pedidoCanceladoSelecionado) || pedidoCanceladoSelecionado.criadoEm || pedidoCanceladoSelecionado.createdAt || pedidoCanceladoSelecionado.dataPedido || pedidoCanceladoSelecionado.data)}</p>

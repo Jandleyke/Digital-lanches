@@ -19,8 +19,15 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+html, body, #root {
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
 html, body {
   touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -35,6 +42,42 @@ body {
 button { cursor: pointer; border: none; font-family: inherit; }
 a { text-decoration: none; color: inherit; }
 input, select, textarea { font-family: inherit; }
+img { max-width: 100%; }
+
+@media (max-width: 768px) {
+  html {
+    font-size: 15px;
+  }
+
+  body {
+    font-size: 14px;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+
+  .recharts-responsive-container,
+  .recharts-wrapper {
+    max-width: 100% !important;
+  }
+}
+
+@media (max-width: 380px) {
+  html {
+    font-size: 14.5px;
+  }
+}
 
 button:focus-visible,
 a:focus-visible,

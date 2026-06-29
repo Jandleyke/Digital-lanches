@@ -49,6 +49,7 @@ export function buildContextoAluno(usuarioLogado, produtos, pedidos, extras = {}
     .slice(0, 5)
     .map(p => ({
       id: p.id,
+      numero: p.numero,
       status: p.status,
       total: p.total,
       horarioRetirada: p.horarioRetirada,

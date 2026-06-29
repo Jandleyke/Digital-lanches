@@ -1,7 +1,7 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, LineChart, Line,
+  Tooltip, LineChart, Line,
 } from 'recharts'
 import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
@@ -9,6 +9,8 @@ import { useIsMobile } from '../../utils/useIsMobile'
 import { formatPrice } from '../../utils/formatters'
 import AvisosBanner from '../../components/AvisosBanner'
 import { DollarSign, Package, Flame, Target, AlertTriangle, Star, PackageCheck, Clock, RefreshCcw, ChevronDown, ChevronUp } from 'lucide-react'
+import { useTempoAtual } from '../../utils/useTempoAtual'
+import { codigoPedido as codigoPedidoDashboard } from '../../utils/pedidos'
 
 const PIE_CORES = ['#003D7C','#F47920','#22C55E','#EF4444','#A855F7','#F59E0B','#06B6D4']
 
@@ -22,10 +24,10 @@ const PERIODOS = [
 const STATUS_PRODUCAO = ['todos', 'Planejado', 'Em producao', 'Pronto para venda', 'Cancelado']
 const PRODUCAO_OCULTOS = ['parcialmente pronto', 'esgotado']
 
-function inicioPeriodo(val) {
-  const agora = Date.now()
+function inicioPeriodo(val, referencia = Date.now()) {
+  const agora = Number(referencia || Date.now())
   if (val === 'hoje') {
-    const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime()
+    const d = new Date(agora); d.setHours(0, 0, 0, 0); return d.getTime()
   }
   if (val === '7dias')  return agora - 7  * 86400000
   if (val === '30dias') return agora - 30 * 86400000
@@ -49,6 +51,23 @@ function getPedidoDate(pedido) {
     return Number.isNaN(date.getTime()) ? null : date
   } catch {
     return null
+  }
+}
+
+function getTimeValue(value) {
+  if (!value) return 0
+
+  try {
+    if (typeof value === 'number') return value
+    if (value?.toMillis) return value.toMillis()
+    if (value?.toDate) return value.toDate().getTime()
+
+    const date = value instanceof Date ? value : new Date(value)
+    const time = date.getTime()
+
+    return Number.isNaN(time) ? 0 : time
+  } catch {
+    return 0
   }
 }
 
@@ -126,9 +145,10 @@ function producaoVisual(status) {
 }
 
 function horaCurta(valor) {
-  if (!valor) return '--:--'
-  const data = new Date(valor)
-  if (Number.isNaN(data.getTime())) return '--:--'
+  const time = getTimeValue(valor)
+  if (!time) return '--:--'
+
+  const data = new Date(time)
   return data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
@@ -140,9 +160,46 @@ function CollapseToggle({ aberto, onClick }) {
   )
 }
 
+function ChartBox({ height = 220, children }) {
+  const boxRef = useRef(null)
+  const [size, setSize] = useState({ width: 320, height })
+
+  useEffect(() => {
+    function updateSize() {
+      const el = boxRef.current
+      if (!el) return
+
+      const larguraReal = el.getBoundingClientRect().width || el.clientWidth || el.offsetWidth || 0
+      const larguraTela = typeof window !== 'undefined' ? window.innerWidth - 32 : 320
+      const width = Math.max(260, Math.floor(larguraReal || larguraTela || 320))
+
+      setSize({ width, height })
+    }
+
+    updateSize()
+
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateSize) : null
+    if (observer && boxRef.current) observer.observe(boxRef.current)
+
+    if (typeof window !== 'undefined') window.addEventListener('resize', updateSize)
+
+    return () => {
+      if (observer) observer.disconnect()
+      if (typeof window !== 'undefined') window.removeEventListener('resize', updateSize)
+    }
+  }, [height])
+
+  return (
+    <div ref={boxRef} style={{ ...s.chartBox, height, minHeight: height }}>
+      {typeof children === 'function' ? children(size.width, size.height) : children}
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { pedidos, produtos, producaoHoje } = useApp()
   const isMobile = useIsMobile()
+  const tempoAtual = useTempoAtual(60000)
   const [periodo, setPeriodo] = useState('hoje')
   const [statusSelecionado, setStatusSelecionado] = useState(null)
   const [pedidosDoStatus, setPedidosDoStatus] = useState([])
@@ -155,13 +212,13 @@ export default function Dashboard() {
   }, [])
 
   const pedidosFiltrados = useMemo(() => {
-    const inicio = inicioPeriodo(periodo)
+    const inicio = inicioPeriodo(periodo, tempoAtual)
     return pedidos.filter(p => {
       const date = getPedidoDate(p)
-      const time = date ? date.getTime() : Number(p.criadoEm || 0)
+      const time = date ? date.getTime() : getTimeValue(p.criadoEm || p.createdAt || p.dataPedido || p.data || p.timestamp)
       return time >= inicio
     })
-  }, [pedidos, periodo])
+  }, [pedidos, periodo, tempoAtual])
 
   const pedidosValidos = useMemo(() => pedidosFiltrados.filter(p => !isPedidoCancelado(p)), [pedidosFiltrados])
   const pedidosCancelados = useMemo(() => pedidosFiltrados.filter(isPedidoCancelado), [pedidosFiltrados])
@@ -177,7 +234,7 @@ export default function Dashboard() {
     .filter(item => item.visivelParaAdmin !== false)
     .filter(item => !PRODUCAO_OCULTOS.includes(normalizeStatus(item.status)))
     .filter(item => filtroProducao === 'todos' || normalizeStatus(item.status) === normalizeStatus(filtroProducao))
-    .sort((a, b) => (b.atualizadoEm || b.criadoEm || 0) - (a.atualizadoEm || a.criadoEm || 0)), [producaoHoje, filtroProducao])
+    .sort((a, b) => getTimeValue(b.atualizadoEm || b.criadoEm) - getTimeValue(a.atualizadoEm || a.criadoEm)), [producaoHoje, filtroProducao])
 
   const maisVendidos = useMemo(() => {
     const cont = {}
@@ -191,18 +248,27 @@ export default function Dashboard() {
   const dadosTempo = useMemo(() => {
     if (periodo === 'hoje') {
       const porHora = {}
+
       pedidosVendidos.forEach(p => {
-        if (!p.criadoEm) return
-        const h = new Date(p.criadoEm).getHours()
+        const d = getPedidoDate(p)
+        if (!d) return
+
+        const h = d.getHours()
         porHora[h] = (porHora[h] || 0) + 1
       })
-      return Array.from({ length: 13 }, (_, i) => ({ hora: `${i + 7}h`, pedidos: porHora[i + 7] || 0 }))
+
+      return Array.from({ length: 13 }, (_, i) => ({
+        hora: `${i + 7}h`,
+        pedidos: porHora[i + 7] || 0,
+      }))
     }
 
     const porDia = {}
+
     pedidosVendidos.forEach(p => {
-      if (!p.criadoEm) return
-      const d = new Date(p.criadoEm)
+      const d = getPedidoDate(p)
+      if (!d) return
+
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       porDia[key] = (porDia[key] || 0) + getTotalPedido(p)
     })
@@ -227,7 +293,7 @@ export default function Dashboard() {
         value,
         cor: status === 'Recebido' ? '#F59E0B'
           : status === 'Pronto' ? '#22C55E'
-          : status === 'Entregue' ? '#94A3B8'
+          : status === 'Entregue' ? '#22C55E'
           : '#EF4444'
       }))
   }, [pedidosFiltrados])
@@ -279,7 +345,7 @@ export default function Dashboard() {
         if (h.acao === 'Ajuste de producao recebida') lista.push({ ...h, produtoNome: h.produtoNome || item.produtoNome })
       })
     })
-    return lista.sort((a, b) => (b.dataHora || b.data || 0) - (a.dataHora || a.data || 0)).slice(0, 5)
+    return lista.sort((a, b) => getTimeValue(b.dataHora || b.data) - getTimeValue(a.dataHora || a.data)).slice(0, 5)
   }, [producaoHoje])
 
   const abrirDetalheEstoque = useCallback(() => {
@@ -287,13 +353,13 @@ export default function Dashboard() {
   }, [estoqueBaixo])
 
   const cards = useMemo(() => [
-    { icon: DollarSign,    label: 'Total Vendas',   valor: formatPrice(totalVendas),       cor: '#003D7C', onClick: () => abrirListaPedidos('Vendas pagas', pedidosVendidos), title: 'Ver pedidos pagos do período' },
-    { icon: Package,       label: 'Total Pedidos',  valor: totalPedidos,                   cor: '#F47920', onClick: () => abrirListaPedidos('Pedidos válidos', pedidosValidos), title: 'Ver pedidos válidos do período' },
-    { icon: Flame,         label: 'Pedidos Ativos', valor: pedidosAtivos,                  cor: '#22C55E', onClick: () => abrirListaPedidos('Pedidos ativos', listaPedidosAtivos), title: 'Ver pedidos ativos do período' },
-    { icon: Target,        label: 'Ticket Médio',   valor: formatPrice(ticketMedio),       cor: '#A855F7', onClick: () => abrirListaPedidos('Pedidos pagos', pedidosPagos), title: 'Ver pedidos que compõem o ticket médio' },
+    { icon: DollarSign,    label: periodo === 'hoje' ? 'Vendas hoje' : 'Total Vendas',   valor: formatPrice(totalVendas),       cor: '#003D7C', onClick: () => abrirListaPedidos('Vendas pagas', pedidosVendidos), title: 'Ver pedidos pagos do período' },
+    { icon: Package,       label: periodo === 'hoje' ? 'Pedidos hoje' : 'Total Pedidos', valor: totalPedidos,                   cor: '#F47920', onClick: () => abrirListaPedidos('Pedidos válidos', pedidosValidos), title: 'Ver pedidos válidos do período' },
+    { icon: Flame,         label: periodo === 'hoje' ? 'Ativos hoje' : 'Pedidos Ativos', valor: pedidosAtivos,                  cor: '#22C55E', onClick: () => abrirListaPedidos('Pedidos ativos', listaPedidosAtivos), title: 'Ver pedidos ativos do período' },
+    { icon: Target,        label: 'Média', valor: formatPrice(ticketMedio), cor: '#A855F7', onClick: () => abrirListaPedidos('Pedidos pagos', pedidosPagos), title: 'Ver pedidos usados no cálculo da média' },
     { icon: Star,          label: 'Nota Média',     valor: notaMedia !== null ? `${notaMedia.toFixed(1)} ⭐` : '—', cor: '#F59E0B', onClick: () => abrirListaPedidos('Pedidos avaliados', avaliados), title: 'Ver pedidos avaliados' },
     { icon: AlertTriangle, label: 'Est. Crítico',   valor: `${estoqueBaixo.length} itens`, cor: '#EF4444', onClick: abrirDetalheEstoque, title: 'Ver produtos com estoque crítico' },
-  ], [totalVendas, totalPedidos, pedidosAtivos, pedidosValidos, listaPedidosAtivos, pedidosVendidos, pedidosPagos, abrirListaPedidos, ticketMedio, notaMedia, avaliados, estoqueBaixo.length, abrirDetalheEstoque])
+  ], [periodo, totalVendas, totalPedidos, pedidosAtivos, pedidosValidos, listaPedidosAtivos, pedidosVendidos, pedidosPagos, abrirListaPedidos, ticketMedio, notaMedia, avaliados, estoqueBaixo.length, abrirDetalheEstoque])
 
   return (
     <Layout titulo="Dashboard">
@@ -441,23 +507,23 @@ export default function Dashboard() {
           </div>
           {!secoesFechadas.tempo && (
             dadosTempo.some(d => (periodo === 'hoje' ? d.pedidos > 0 : d.total > 0)) ? (
-              <ResponsiveContainer width="100%" height={200}>
-                {periodo === 'hoje' ? (
-                  <BarChart data={dadosTempo} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+              <ChartBox height={isMobile ? 190 : 200}>
+                {(chartWidth, chartHeight) => periodo === 'hoje' ? (
+                  <BarChart width={chartWidth} height={chartHeight} data={dadosTempo} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                     <XAxis dataKey="hora" tick={{ fontSize: 11 }} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                     <Tooltip />
                     <Bar dataKey="pedidos" fill="#003D7C" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 ) : (
-                  <LineChart data={dadosTempo} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                  <LineChart width={chartWidth} height={chartHeight} data={dadosTempo} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                     <XAxis dataKey="dia" tick={{ fontSize: 11 }} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                     <Tooltip />
                     <Line type="monotone" dataKey="total" stroke="#003D7C" strokeWidth={2} dot={{ r: 3 }} />
                   </LineChart>
                 )}
-              </ResponsiveContainer>
+              </ChartBox>
             ) : <p style={s.semDados}>Nenhum pedido neste período.</p>
           )}
         </div>
@@ -470,25 +536,27 @@ export default function Dashboard() {
           {!secoesFechadas.statusPedidos && (
             statusData.length > 0 ? (
               <>
-                <ResponsiveContainer width="100%" height={180}>
-                  <PieChart>
-                    <Pie
-                      data={statusData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
-                      paddingAngle={3}
-                      dataKey="value"
-                      nameKey="status"
-                      onClick={(data) => abrirPedidosPorStatus(data.status)}
-                      cursor="pointer"
-                    >
-                      {statusData.map((d, i) => <Cell key={i} fill={d.cor} />)}
-                    </Pie>
-                    <Tooltip formatter={(v, n) => [v, n]} />
-                  </PieChart>
-                </ResponsiveContainer>
+                <ChartBox height={isMobile ? 190 : 180}>
+                  {(chartWidth, chartHeight) => (
+                    <PieChart width={chartWidth} height={chartHeight}>
+                      <Pie
+                        data={statusData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={isMobile ? 42 : 50}
+                        outerRadius={isMobile ? 68 : 80}
+                        paddingAngle={3}
+                        dataKey="value"
+                        nameKey="status"
+                        onClick={(data) => abrirPedidosPorStatus(data.status)}
+                        cursor="pointer"
+                      >
+                        {statusData.map((d, i) => <Cell key={i} fill={d.cor} />)}
+                      </Pie>
+                      <Tooltip formatter={(v, n) => [v, n]} />
+                    </PieChart>
+                  )}
+                </ChartBox>
                 <div style={s.statusLegend}>
                   {statusData.map(d => (
                     <button key={d.status} type="button" style={s.statusLegendItem} onClick={() => abrirPedidosPorStatus(d.status)} title={`Ver pedidos: ${d.status}`}>
@@ -513,16 +581,18 @@ export default function Dashboard() {
           </div>
           {!secoesFechadas.maisVendidos && (
             maisVendidos.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={maisVendidos} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                  <YAxis dataKey="nome" type="category" tick={{ fontSize: 11 }} width={100} />
-                  <Tooltip />
-                  <Bar dataKey="qtd" fill="#F47920" radius={[0, 4, 4, 0]}>
-                    {maisVendidos.map((_, i) => <Cell key={i} fill={PIE_CORES[i % PIE_CORES.length]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <ChartBox height={isMobile ? 230 : 220}>
+                {(chartWidth, chartHeight) => (
+                  <BarChart width={chartWidth} height={chartHeight} data={maisVendidos} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <YAxis dataKey="nome" type="category" tick={{ fontSize: 11 }} width={isMobile ? 78 : 100} />
+                    <Tooltip />
+                    <Bar dataKey="qtd" fill="#F47920" radius={[0, 4, 4, 0]}>
+                      {maisVendidos.map((_, i) => <Cell key={i} fill={PIE_CORES[i % PIE_CORES.length]} />)}
+                    </Bar>
+                  </BarChart>
+                )}
+              </ChartBox>
             ) : <p style={s.semDados}>Nenhum produto vendido neste período.</p>
           )}
         </div>
@@ -571,14 +641,16 @@ export default function Dashboard() {
           </div>
           {!secoesFechadas.distribuicaoNotas && (
             avaliados.length > 0 ? (
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={distribuicaoNotas} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                  <YAxis dataKey="nota" type="category" tick={{ fontSize: 11 }} width={36} />
-                  <Tooltip />
-                  <Bar dataKey="qtd" fill="#F59E0B" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <ChartBox height={isMobile ? 210 : 200}>
+                {(chartWidth, chartHeight) => (
+                  <BarChart width={chartWidth} height={chartHeight} data={distribuicaoNotas} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <YAxis dataKey="nota" type="category" tick={{ fontSize: 11 }} width={36} />
+                    <Tooltip />
+                    <Bar dataKey="qtd" fill="#F59E0B" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                )}
+              </ChartBox>
             ) : <p style={s.semDados}>Nenhuma avaliação neste período.</p>
           )}
         </div>
@@ -630,9 +702,9 @@ export default function Dashboard() {
                   const dataPedido = getPedidoDate(pedido)
 
                   return (
-                    <div key={pedido.id || pedido.numero} style={s.pedidoStatusCard}>
+                    <div key={pedido.id || codigoPedidoDashboard(pedido)} style={s.pedidoStatusCard}>
                       <div style={s.pedidoStatusTop}>
-                        <h3 style={s.pedidoStatusTitle}>Pedido #{pedido.numero || pedido.id || 'Não informado'}</h3>
+                        <h3 style={s.pedidoStatusTitle}>Pedido #{codigoPedidoDashboard(pedido)}</h3>
                         <span style={s.statusBadge}>{pedido.status || 'Não informado'}</span>
                       </div>
                       <div style={s.pedidoInfoGrid}>
@@ -719,7 +791,7 @@ export default function Dashboard() {
                     <p style={s.pedidoInfo}><strong>Pronto:</strong> {item.quantidadePronta || 0} un</p>
                     <p style={s.pedidoInfo}><strong>Restante:</strong> {item.quantidadeRestante || 0} un</p>
                     <p style={s.pedidoInfo}><strong>Vendido:</strong> {item.quantidadeVendida || 0} un</p>
-                    <p style={s.pedidoInfo}><strong>Desperdiçado:</strong> {item.quantidadeDesperdicada || 0} un</p>
+                    <p style={s.pedidoInfo}><strong>Descartado:</strong> {item.quantidadeDesperdicada || 0} un</p>
                     <p style={s.pedidoInfo}><strong>Previsão:</strong> {item.horarioPrevisto || '--:--'}</p>
                   </div>
                   {item.observacao && <p style={s.pedidoInfo}><strong>Observação:</strong> {item.observacao}</p>}
@@ -727,7 +799,7 @@ export default function Dashboard() {
 
                   {Array.isArray(item.historicoDesperdicio) && item.historicoDesperdicio.length > 0 && (
                     <div style={s.itensBox}>
-                      <strong style={s.itensTitle}>Histórico de desperdício</strong>
+                      <strong style={s.itensTitle}>Histórico de descarte</strong>
                       <ul style={s.itensList}>
                         {item.historicoDesperdicio.slice(-5).reverse().map(h => (
                           <li key={h.id} style={s.itemLinha}>
@@ -785,14 +857,15 @@ const s = {
   periodoBtnAtivo: { background: '#003D7C', color: '#fff', borderColor: '#003D7C' },
   periodoInfo: { color: '#94A3B8', fontSize: '0.8rem' },
   canceladosBtn: { border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626', borderRadius: 999, padding: '0.3rem 0.65rem', fontSize: '0.78rem', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' },
-  cardsGrid: { display: 'grid', gap: '0.75rem', marginBottom: '1rem' },
-  card: { background: '#fff', border: 'none', borderRadius: 14, padding: '1rem', display: 'flex', flexDirection: 'column', gap: 4, boxShadow: '0 2px 8px rgba(0,0,0,0.06)', textAlign: 'left', fontFamily: 'inherit', opacity: 1, cursor: 'default' },
+  cardsGrid: { display: 'grid', gap: '0.75rem', marginBottom: '1rem', width: '100%', minWidth: 0 },
+  card: { background: '#fff', border: 'none', borderRadius: 14, padding: '1rem', display: 'flex', flexDirection: 'column', gap: 4, boxShadow: '0 2px 8px rgba(0,0,0,0.06)', textAlign: 'left', fontFamily: 'inherit', opacity: 1, cursor: 'default', width: '100%', minWidth: 0, overflow: 'hidden' },
   cardInterativo: { cursor: 'pointer' },
   cardIconBox: { width: 34, height: 34, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
   cardLabel: { color: '#64748B', fontSize: '0.78rem' },
   cardValor: { fontSize: '1.3rem', fontWeight: 800 },
-  row: { display: 'grid', gap: '0.75rem', marginBottom: '0.75rem' },
-  box: { background: '#fff', borderRadius: 14, padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' },
+  row: { display: 'grid', gap: '0.75rem', marginBottom: '0.75rem', minWidth: 0 },
+  box: { background: '#fff', borderRadius: 14, padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', minWidth: 0, overflow: 'hidden' },
+  chartBox: { width: '100%', minWidth: 0, maxWidth: '100%', position: 'relative', overflow: 'hidden', display: 'block' },
   boxTitulo: { fontWeight: 700, marginBottom: '0.75rem', fontSize: '0.92rem', color: '#1A202C', display: 'flex', alignItems: 'center', gap: 6 },
   boxHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: '0.5rem' },
   collapseBtn: { border: '1px solid #E2E8F0', background: '#fff', color: '#64748B', borderRadius: 8, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useApp } from '../contexts/AppContext'
+import { codigoPedido, compararPedidosFila } from '../utils/pedidos'
 
 export default function Painel() {
   const { pedidos } = useApp()
@@ -10,7 +11,7 @@ export default function Painel() {
     return () => clearInterval(t)
   }, [])
 
-  const prontos = pedidos.filter(p => p.status === 'Pronto' && !p.retiradoEm)
+  const prontos = pedidos.filter(p => p.status === 'Pronto' && !p.retiradoEm).sort(compararPedidosFila)
   const recentes = pedidos.filter(p => p.status === 'Entregue').slice(0, 5)
 
   const horaStr = hora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -45,7 +46,7 @@ export default function Painel() {
             <div style={s.cardsGrid}>
               {prontos.map(p => (
                 <div key={p.id} style={s.cardPronto}>
-                  <div style={s.numeroGrande}>#{p.id.slice(-6)}</div>
+                  <div style={s.numeroGrande}>{codigoPedido(p)}</div>
                   <div style={s.alunoNome}>{p.aluno}</div>
                   <div style={s.retiradaInfo}>🕐 Retirada: {p.horarioRetirada}</div>
                   <div style={s.prontoBadge}>PRONTO ✓</div>
@@ -67,7 +68,7 @@ export default function Painel() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {recentes.map(p => (
                 <div key={p.id} style={s.cardEntregue}>
-                  <span style={s.numEntregue}>#{p.id.slice(-6)}</span>
+                  <span style={s.numEntregue}>{codigoPedido(p)}</span>
                   <span style={s.nomeEntregue}>{p.aluno}</span>
                   <span style={s.entregueTag}>✓</span>
                 </div>
@@ -80,7 +81,7 @@ export default function Painel() {
             <p style={{ color: '#64748B', fontSize: '0.82rem', lineHeight: 1.6 }}>
               1. Aguarde seu número aparecer nesta tela<br/>
               2. Dirija-se ao balcão<br/>
-              3. Apresente seu QR Code ou número do pedido
+              3. Informe sua matrícula no balcão
             </p>
           </div>
         </div>
