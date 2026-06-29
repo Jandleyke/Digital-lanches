@@ -10,7 +10,7 @@ import { useToast } from '../contexts/hooks/useToast'
 import { producaoDisponivelParaVenda, produtoDisponivelParaCardapioDia, produtoLiberadoManualHoje } from '../utils/producao'
 import { formatPrice } from '../utils/formatters'
 import { nomeParaVinculo } from '../utils/nomes'
-import { JANELA_PEDIDO_MS, chaveDiariaPedido, codigoPedido } from '../utils/pedidos'
+import { JANELA_PEDIDO_MS, chaveDiariaPedido, codigoPedido, gerarCodigoPedidoAleatorio } from '../utils/pedidos'
 import { perfisDoUsuario } from '../utils/perfis'
 import { useIsMobile } from '../utils/useIsMobile'
 
@@ -296,12 +296,15 @@ export default function PedidoBalcao() {
 
         const numero = Number(contadorSnap.data()?.ultimoNumero || 0) + 1
         if (numero > 9999) throw new Error('O limite diário de pedidos foi atingido.')
+        const codigosUsados = contadorSnap.data()?.codigosUsados || []
+        const codigoPedidoGerado = gerarCodigoPedidoAleatorio(codigosUsados)
         const horario = new Date(criadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
         const perfil = perfisDoUsuario(alunoEncontrado).includes('professor') ? 'professor' : 'aluno'
         const pagamentoPendente = pagamento === 'Conta do Professor'
         const novoPedido = {
           id: pedidoRef.id,
           numero,
+          codigoPedido: codigoPedidoGerado,
           chaveDiaria,
           uid: alunoEncontrado?.uid || '',
           aluno: alunoEncontrado?.nome || nomeAluno.trim(),
@@ -336,7 +339,7 @@ export default function PedidoBalcao() {
           criadoEm,
         }
 
-        transaction.set(contadorRef, { ultimoNumero: numero, chaveDiaria, atualizadoEm: criadoEm })
+        transaction.set(contadorRef, { ultimoNumero: numero, chaveDiaria, atualizadoEm: criadoEm, codigosUsados: [...codigosUsados, codigoPedidoGerado] })
         itens.forEach((item, index) => {
           const novoEstoque = Math.max(0, item.estoqueAtual - item.quantidade)
           const producaoConsumo = itensComRefs[index].producaoRefs.length

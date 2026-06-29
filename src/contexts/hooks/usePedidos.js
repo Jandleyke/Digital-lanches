@@ -12,6 +12,7 @@ import {
   chaveDiariaPedido,
   codigoPedido,
   dadosPagamentoNaEntrega,
+  gerarCodigoPedidoAleatorio,
   encontrarItemSemEstoque,
   estoqueAposCancelamento,
   estoqueAposVenda,
@@ -204,10 +205,13 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
 
         const numero = Number(contadorSnap.data()?.ultimoNumero || 0) + 1
         if (numero > 9999) throw new Error('O limite diário de pedidos foi atingido. Procure o atendimento.')
+        const codigosUsados = contadorSnap.data()?.codigosUsados || []
+        const codigoPedidoGerado = gerarCodigoPedidoAleatorio(codigosUsados)
         const inicioContagemEm = Math.max(criadoEm, horarioRetiradaEm)
         novoPedido = {
           id: firestoreId,
           numero,
+          codigoPedido: codigoPedidoGerado,
           chaveDiaria,
           uid: usuarioLogado.uid || usuarioLogado.matricula,
           aluno: usuarioLogado.nome,
@@ -238,7 +242,7 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
           cancelavelAte: inicioContagemEm + JANELA_PEDIDO_MS,
         }
 
-        transaction.set(contadorRef, { ultimoNumero: numero, chaveDiaria, atualizadoEm: criadoEm })
+        transaction.set(contadorRef, { ultimoNumero: numero, chaveDiaria, atualizadoEm: criadoEm, codigosUsados: [...codigosUsados, codigoPedidoGerado] })
         snapshots.forEach((snap, index) => {
           const { item, ref } = itensComRefs[index]
           const estoqueAtual = Number(snap.data().estoque || 0)

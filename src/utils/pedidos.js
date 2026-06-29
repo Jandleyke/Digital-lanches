@@ -103,7 +103,19 @@ export function calcularEstoqueAposEdicao(estoqueAtual, quantidadeAntes, quantid
   return { valido: calculado >= 0, estoque: Math.max(0, calculado) }
 }
 
+export function gerarCodigoPedidoAleatorio(usados = []) {
+  const usadosSet = new Set(usados)
+  let codigo
+  do {
+    codigo = String(Math.floor(1000 + Math.random() * 9000))
+  } while (usadosSet.has(codigo))
+  return codigo
+}
+
 export function codigoPedido(pedido) {
+  const codigoGerado = String(pedido?.codigoPedido || '')
+  if (/^\d{4}$/.test(codigoGerado)) return codigoGerado
+
   const numero = Number(
     pedido?.numero ||
     pedido?.numeroPedido ||

@@ -10,6 +10,7 @@ import {
   encontrarPedidoPorQr,
   estoqueAposCancelamento,
   estoqueAposVenda,
+  gerarCodigoPedidoAleatorio,
   horarioRetiradaParaTimestamp,
   inicioContagemPedido,
   idsCompradosEmPedidosConcluidos,
@@ -74,13 +75,33 @@ describe('QR Code do pedido', () => {
 })
 
 describe('codigoPedido', () => {
-  it('usa o número sequencial puro, sem zeros à esquerda', () => {
+  it('prioriza o código aleatório de 4 dígitos quando presente', () => {
+    expect(codigoPedido({ codigoPedido: '8417', numero: 4 })).toBe('8417')
+  })
+
+  it('usa o número sequencial puro quando não há código aleatório', () => {
     expect(codigoPedido({ numero: 4 })).toBe('4')
     expect(codigoPedido({ numero: 42 })).toBe('42')
   })
 
   it('mantém compatibilidade com pedidos antigos', () => {
     expect(codigoPedido({ id: 'P1780000012345' })).toBe('2345')
+  })
+})
+
+describe('gerarCodigoPedidoAleatorio', () => {
+  it('sempre gera 4 dígitos', () => {
+    for (let i = 0; i < 50; i++) {
+      const codigo = gerarCodigoPedidoAleatorio()
+      expect(codigo).toMatch(/^\d{4}$/)
+    }
+  })
+
+  it('nunca repete um código já usado no dia', () => {
+    const usados = ['1000', '1001', '1002']
+    for (let i = 0; i < 20; i++) {
+      expect(usados).not.toContain(gerarCodigoPedidoAleatorio(usados))
+    }
   })
 })
 

@@ -280,7 +280,7 @@ service cloud.firestore {
         && request.resource.data.ultimoNumero == 1
         && request.resource.data.chaveDiaria == chaveDiaria;
       allow update: if isSignedIn()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoNumero', 'chaveDiaria', 'atualizadoEm'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoNumero', 'chaveDiaria', 'atualizadoEm', 'codigosUsados'])
         && request.resource.data.ultimoNumero == resource.data.ultimoNumero + 1
         && request.resource.data.ultimoNumero <= 9999
         && request.resource.data.chaveDiaria == chaveDiaria;
