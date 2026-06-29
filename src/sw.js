@@ -30,7 +30,12 @@ self.addEventListener('push', (event) => {
     tag: dados.tag || 'senac-lanches',
   }
 
-  event.waitUntil(self.registration.showNotification(titulo, opcoes))
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(titulo, opcoes),
+      'setAppBadge' in self.registration ? self.registration.setAppBadge().catch(() => {}) : Promise.resolve(),
+    ])
+  )
 })
 
 self.addEventListener('notificationclick', (event) => {
@@ -38,11 +43,14 @@ self.addEventListener('notificationclick', (event) => {
   const url = event.notification.data?.url || '/'
 
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsList) => {
-      for (const client of clientsList) {
-        if (client.url.includes(url) && 'focus' in client) return client.focus()
-      }
-      if (self.clients.openWindow) return self.clients.openWindow(url)
-    })
+    Promise.all([
+      'clearAppBadge' in self.registration ? self.registration.clearAppBadge().catch(() => {}) : Promise.resolve(),
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsList) => {
+        for (const client of clientsList) {
+          if (client.url.includes(url) && 'focus' in client) return client.focus()
+        }
+        if (self.clients.openWindow) return self.clients.openWindow(url)
+      }),
+    ])
   )
 })

@@ -10,7 +10,7 @@ import {
   LogOut, ExternalLink, Download, PanelLeftClose, PanelLeftOpen, X, Bell, UserCircle, ShoppingBasket, MoreHorizontal, MessageCircle,
 } from 'lucide-react'
 import { ehOperacional, normalizarPerfil } from '../utils/perfis'
-import { suportaNotificacao, permissaoNotificacao, solicitarPermissaoNotificacao } from '../utils/notifications'
+import { suportaNotificacao, permissaoNotificacao, solicitarPermissaoNotificacao, atualizarBadgeApp } from '../utils/notifications'
 import { suportaPush, inscreverPush } from '../utils/push'
 
 export default function Layout({ children, titulo }) {
@@ -98,6 +98,7 @@ export default function Layout({ children, titulo }) {
   }
 
   function handleLogout() {
+    atualizarBadgeApp(0)
     logout()
     navigate('/login')
   }
@@ -179,6 +180,11 @@ export default function Layout({ children, titulo }) {
       return avisoVisivel(aviso) && aviso.status !== 'inativo' && !lidoPor.includes(leitorId)
     }).length
   }, [avisos, leitorId, perfilAtual])
+
+  useEffect(() => {
+    atualizarBadgeApp(avisosNaoLidos)
+  }, [avisosNaoLidos])
+
   const navMap = { aluno: navAluno, professor: navProfessor, cozinha: navCozinha, vendedor: navVendedor, admin: navAdmin, gerente: navGerente }
   const navItems = (navMap[perfilAtual] || []).map(item => item.labelFull === 'Avisos' ? { ...item, badge: avisosNaoLidos, alertBadge: true } : item)
   const navPrincipal = navItems.length > 5 ? navItems.slice(0, 4) : navItems

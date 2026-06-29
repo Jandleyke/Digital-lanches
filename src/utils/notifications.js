@@ -28,3 +28,14 @@ export function notificarPedidoPronto(pedido) {
     n.onclick = () => { window.focus(); n.close() }
   } catch { /* alguns navegadores bloqueiam a construção direta de Notification em PWAs instaladas */ }
 }
+
+export function suportaBadgeApp() {
+  return typeof navigator !== 'undefined' && 'setAppBadge' in navigator
+}
+
+export function atualizarBadgeApp(quantidade) {
+  if (!suportaBadgeApp()) return
+  const total = Number(quantidade || 0)
+  if (total > 0) navigator.setAppBadge(total).catch(() => {})
+  else navigator.clearAppBadge().catch(() => {})
+}
