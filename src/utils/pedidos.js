@@ -112,16 +112,16 @@ export function codigoPedido(pedido) {
     pedido?.codigo
   )
   if (Number.isInteger(numero) && numero > 0) {
-    return String(numero).padStart(4, '0')
+    return String(numero)
   }
 
   const codigoSalvo = String(pedido?.pedidoCodigo || '').replace(/\D/g, '')
   if (codigoSalvo.length >= 4) return codigoSalvo.slice(-4)
 
   const digitos = String(pedido?.id || pedido?.pedidoId || '').replace(/\D/g, '')
-  if (digitos) return digitos.slice(-4).padStart(4, '0')
+  if (digitos) return digitos.slice(-4)
 
-  return '0001'
+  return '1'
 }
 
 export function codigoPedidoAntigo(pedido) {

@@ -74,9 +74,9 @@ describe('QR Code do pedido', () => {
 })
 
 describe('codigoPedido', () => {
-  it('formata a sequência com quatro dígitos', () => {
-    expect(codigoPedido({ numero: 4 })).toBe('0004')
-    expect(codigoPedido({ numero: 42 })).toBe('0042')
+  it('usa o número sequencial puro, sem zeros à esquerda', () => {
+    expect(codigoPedido({ numero: 4 })).toBe('4')
+    expect(codigoPedido({ numero: 42 })).toBe('42')
   })
 
   it('mantém compatibilidade com pedidos antigos', () => {
