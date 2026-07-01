@@ -7,6 +7,7 @@ import { useIsMobile } from '../../utils/useIsMobile'
 import { ShoppingCart, CheckCircle, Utensils } from 'lucide-react'
 import { codigoPedido as codigoPedidoBase, validarHorarioRetirada } from '../../utils/pedidos'
 import { normalizarPerfil } from '../../utils/perfis'
+import { produtoDisponivelParaCardapioDia } from '../../utils/producao'
 
 const HORARIOS_SUGERIDOS = ['09:00','09:15','09:30','09:45','10:00','10:15','10:30','11:00','12:00','12:30','13:00','13:30']
 
@@ -50,7 +51,7 @@ function Confetti() {
 export default function Carrinho() {
   const {
     carrinho, adicionarAoCarrinho, removerDoCarrinho, limparCarrinho,
-    totalCarrinho, fazerPedido, produtos, lanchoneteConfig, usuarioLogado,
+    totalCarrinho, fazerPedido, produtos, producaoHoje, lanchoneteConfig, usuarioLogado,
   } = useApp()
   const isMobile = useIsMobile()
   const navigate = useNavigate()
@@ -77,7 +78,8 @@ export default function Carrinho() {
     }
     const itemSemEstoque = carrinho.find(item => {
       const atual = produtos.find(p => String(p.id) === String(item.id))
-      return !atual?.disponivel || Number(atual.estoque || 0) < Number(item.quantidade || 0)
+      const produtoDia = produtoDisponivelParaCardapioDia(atual, producaoHoje)
+      return !produtoDia || Number(produtoDia.estoque || 0) < Number(item.quantidade || 0)
     })
     if (itemSemEstoque) {
       setErro(`Não há quantidade suficiente disponível para ${itemSemEstoque.nome}.`)
@@ -100,16 +102,17 @@ export default function Carrinho() {
 
   function adicionarUnidade(item) {
     const produtoAtual = produtos.find(p => String(p.id) === String(item.id))
-    if (!produtoAtual?.disponivel || Number(produtoAtual.estoque || 0) <= 0) {
+    const produtoDia = produtoDisponivelParaCardapioDia(produtoAtual, producaoHoje)
+    if (!produtoDia || Number(produtoDia.estoque || 0) <= 0) {
       setErro('Produto fora de estoque.')
       return
     }
-    if (Number(item.quantidade || 0) >= Number(produtoAtual.estoque || 0)) {
+    if (Number(item.quantidade || 0) >= Number(produtoDia.estoque || 0)) {
       setErro('Não há quantidade suficiente disponível para este item.')
       return
     }
     setErro('')
-    adicionarAoCarrinho(produtoAtual)
+    adicionarAoCarrinho(produtoDia)
   }
 
   if (pedidoFeito) {

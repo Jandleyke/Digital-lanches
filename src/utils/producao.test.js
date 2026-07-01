@@ -79,7 +79,11 @@ describe('regras auxiliares da produção', () => {
       estoqueProducaoDia: 12,
       producaoDiaIds: ['pd1'],
     })
-    expect(produtoDisponivelParaCardapioDia({ ...produto, disponivel: false }, producaoHoje)).toBeNull()
+    expect(produtoDisponivelParaCardapioDia({ ...produto, disponivel: false }, producaoHoje)).toMatchObject({
+      id: 'coxinha',
+      estoque: 12,
+    })
+    expect(produtoDisponivelParaCardapioDia({ ...produto, arquivado: true }, producaoHoje)).toBeNull()
     expect(produtoDisponivelParaCardapioDia(produto, [{ ...producaoHoje[0], quantidadeRestante: 0 }])).toBeNull()
   })
 
@@ -89,6 +93,7 @@ describe('regras auxiliares da produção', () => {
     const produto = {
       id: 'agua',
       nome: 'Agua',
+      categoria: 'Bebidas',
       disponivel: true,
       estoque: 7,
       cardapioManualHoje: true,

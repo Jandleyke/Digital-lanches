@@ -122,8 +122,15 @@ export default function ProdutoFormModal({
               <input style={s.input} type="number" min="0" value={form.estoqueBaixo} onChange={e => setForm({ ...form, estoqueBaixo: e.target.value })} placeholder="Ex: 5" disabled={minimoDesabilitado} />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 20 }}>
-              <input type="checkbox" id="prod-disp" checked={form.disponivel} onChange={e => setForm({ ...form, disponivel: e.target.checked })} />
-              <label htmlFor="prod-disp" style={s.label}>Disponível para venda</label>
+              <input
+                type="checkbox"
+                id="prod-disp"
+                checked={form.categoria === 'Bebidas' ? !!form.disponivel : form.visivelPlanejamento !== false}
+                onChange={e => setForm(f => ({ ...f, [f.categoria === 'Bebidas' ? 'disponivel' : 'visivelPlanejamento']: e.target.checked }))}
+              />
+              <label htmlFor="prod-disp" style={s.label}>
+                {form.categoria === 'Bebidas' ? 'Disponível para venda manual' : 'Visível para planejamento da cozinha'}
+              </label>
             </div>
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={s.label}>Descrição / composição</label>

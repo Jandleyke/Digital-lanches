@@ -1,14 +1,14 @@
 import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
 import { Heart, Utensils, X, ShoppingCart } from 'lucide-react'
-import { produtoDisponivelNoDia } from '../../utils/cardapioDias'
+import { produtoDisponivelParaCardapioDia } from '../../utils/producao'
 
 export default function Favoritos() {
-  const { produtos, favoritos, toggleFavorito, adicionarAoCarrinho } = useApp()
+  const { produtos, producaoHoje, favoritos, toggleFavorito, adicionarAoCarrinho } = useApp()
   const favoritados = produtos.filter(p => favoritos.includes(p.id))
 
   function podeAdicionar(p) {
-    return p.disponivel && p.estoque > 0 && produtoDisponivelNoDia(p)
+    return produtoDisponivelParaCardapioDia(p, producaoHoje)
   }
 
   return (
@@ -24,7 +24,8 @@ export default function Favoritos() {
         : (
           <div style={s.grid}>
             {favoritados.map(p => {
-              const disponivel = podeAdicionar(p)
+              const produtoDia = podeAdicionar(p)
+              const disponivel = Boolean(produtoDia)
               return (
                 <div key={p.id} style={{ ...s.card, opacity: disponivel ? 1 : 0.7 }}>
                   <div style={s.iconBox}>
@@ -45,7 +46,7 @@ export default function Favoritos() {
                   <div style={s.acoes}>
                     <button
                       style={{ ...s.btnAdd, background: disponivel ? '#F47920' : '#CBD5E1', cursor: disponivel ? 'pointer' : 'not-allowed' }}
-                      onClick={() => disponivel && adicionarAoCarrinho(p)}
+                      onClick={() => produtoDia && adicionarAoCarrinho(produtoDia)}
                       disabled={!disponivel}
                     >
                       <ShoppingCart size={13} color="#fff" style={{ marginRight: 4 }} />

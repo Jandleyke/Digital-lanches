@@ -3,7 +3,7 @@ export const ALERGENOS_PADRAO = ['gluten', 'lactose', 'amendoim', 'ovo', 'soja',
 
 export const PRODUTO_FORM_VAZIO = {
   nome: '', categoria: 'Lanches', preco: '', estoque: '', estoqueBaixo: '',
-  composicao: '', foto: '', emoji: '🍔', disponivel: true,
+  composicao: '', foto: '', emoji: '🍔', disponivel: true, visivelPlanejamento: true,
   nutricional: { ...VAZIO_NUTRICIONAL }, alergenios: [], diasProducao: [],
 }
 
@@ -18,6 +18,7 @@ export function produtoParaForm(produto) {
     foto: produto.foto || '',
     emoji: produto.emoji || '🍔',
     disponivel: produto.disponivel !== false,
+    visivelPlanejamento: produto.visivelPlanejamento !== false,
     nutricional: produto.nutricional || { ...VAZIO_NUTRICIONAL },
     alergenios: produto.alergenios || [],
     diasProducao: produto.diasCardapio || produto.diasProducao || [],
@@ -32,6 +33,7 @@ export function formParaProduto(form) {
     estoque: Math.max(0, Number(form.estoque || 0)),
     estoqueBaixo: Math.max(0, Number(form.estoqueBaixo || 0)),
     disponivel: !!form.disponivel,
+    visivelPlanejamento: form.visivelPlanejamento !== false,
     composicao: (form.composicao || '').trim(),
     descricao: (form.composicao || '').trim(),
     foto: form.foto || '',

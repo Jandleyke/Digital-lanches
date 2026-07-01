@@ -22,7 +22,7 @@ import { DIAS_CARDAPIO, DIAS_LABEL, resumoDiasProduto } from '../../utils/cardap
 import { ehGestao, normalizarPerfil } from '../../utils/perfis'
 import { PRODUTO_FORM_VAZIO, produtoParaForm, formParaProduto } from '../../utils/produtoForm'
 import { useTempoAtual } from '../../utils/useTempoAtual'
-import { maxDesperdicio } from '../../utils/producao'
+import { maxDesperdicio, produtoDisponivelParaCardapioDia } from '../../utils/producao'
 import { MOTIVOS_DESPERDICIO } from '../../contexts/hooks/useProducaoDiaria'
 import {
   JANELA_PEDIDO_MS,
@@ -546,11 +546,10 @@ export default function Vendedor() {
   const produtosParaEdicao = useMemo(() => {
     const termo = buscaProdutoEdicao.trim().toLowerCase()
     return produtosOrdenados.filter(produto => (
-      produto.disponivel !== false
-      && Number(produto.estoque || 0) > 0
+      produtoDisponivelParaCardapioDia(produto, producaoHoje) !== null
       && (!termo || String(produto.nome || '').toLowerCase().includes(termo))
     )).slice(0, 8)
-  }, [produtosOrdenados, buscaProdutoEdicao])
+  }, [produtosOrdenados, buscaProdutoEdicao, producaoHoje])
 
   const estoqueBaixo = useMemo(() => produtos.filter(p => Number(p.estoqueBaixo || 0) > 0 && Number(p.estoque || 0) <= Number(p.estoqueBaixo || 0)), [produtos])
   const producaoCozinha = useMemo(() => (producaoHoje || [])
@@ -665,8 +664,8 @@ export default function Vendedor() {
   }
 
   function adicionarProdutoEdicao(produto) {
-    if (produto.disponivel === false || Number(produto.estoque || 0) <= 0) {
-      setErroEdicao('Produto fora de estoque.')
+    if (!produtoDisponivelParaCardapioDia(produto, producaoHoje)) {
+      setErroEdicao('Produto indisponível no cardápio do dia.')
       return
     }
     setItensEdicao(prev => {
@@ -923,9 +922,10 @@ export default function Vendedor() {
     }
     setAlterandoDisponibilidade(true)
     try {
-      await atualizarDisponibilidadeProdutos(produtosSelecionados, disponivel)
+      const resultado = await atualizarDisponibilidadeProdutos(produtosSelecionados, disponivel)
       cancelarDisponibilidadeLote()
-      toast(disponivel ? 'Produtos selecionados foram disponibilizados no cardápio do dia.' : 'Produtos pausados para venda.')
+      if (resultado?.bebidas) toast(disponivel ? 'Bebida atualizada no card�pio.' : 'Bebida pausada no card�pio.')
+      else toast('A vendedora controla apenas bebidas no card�pio. As comidas s�o liberadas pela Cozinha.', 'info')
     } catch (error) {
       toast(error.message || 'Não foi possível alterar os produtos.')
     } finally {
@@ -1059,7 +1059,7 @@ export default function Vendedor() {
         <span style={{ ...s.badge, background: nivel.bg, color: nivel.color }}>{produto.estoque || 0} un - {nivel.label}</span>
         {modoDisponibilidadeLote ? (
           <span style={{ ...s.badge, alignSelf: 'flex-start', background: produto.disponivel === false ? '#FEE2E2' : '#D1FAE5', color: produto.disponivel === false ? '#B91C1C' : '#166534' }}>
-            {produto.disponivel === false ? 'Venda pausada' : 'Disponível para venda'}
+            {produtoEhBebida(produto) ? (produto.disponivel === false ? 'Bebida pausada' : 'Bebida no card�pio') : 'Comida controlada pela Cozinha'}
           </span>
         ) : (
           <>

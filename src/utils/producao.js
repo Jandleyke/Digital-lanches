@@ -27,6 +27,14 @@ export function producaoDisponivelParaVenda(item = {}) {
     && Number(item.quantidadeRestante || 0) > 0
 }
 
+export function produtoEhBebida(produto = {}) {
+  return String(produto?.categoria || '').trim().toLowerCase() === 'bebidas'
+}
+
+export function produtoArquivado(produto = {}) {
+  return produto?.arquivado === true || produto?.statusCadastro === 'arquivado'
+}
+
 export function producoesDisponiveisDoProduto(producaoHoje = [], produtoId) {
   return (producaoHoje || [])
     .filter(item => String(item.produtoId) === String(produtoId))
@@ -48,13 +56,14 @@ function dataLocalISO(referencia = Date.now()) {
 }
 
 export function produtoLiberadoManualHoje(produto, referencia = Date.now()) {
-  if (!produto || produto.disponivel === false) return false
+  if (!produto || produtoArquivado(produto) || !produtoEhBebida(produto)) return false
+  if (produto.disponivel === false) return false
   if (produto.cardapioManualHoje !== true) return false
   return produto.cardapioManualData === dataLocalISO(referencia)
 }
 
 export function produtoDisponivelParaCardapioDia(produto, producaoHoje = []) {
-  if (!produto || produto.disponivel === false) return null
+  if (!produto || produtoArquivado(produto)) return null
   const estoqueProduto = Math.max(0, Number(produto.estoque || 0))
   const liberadoManual = produtoLiberadoManualHoje(produto)
 
@@ -62,6 +71,7 @@ export function produtoDisponivelParaCardapioDia(produto, producaoHoje = []) {
     if (estoqueProduto <= 0) return null
     return {
       ...produto,
+      disponivel: true,
       estoque: estoqueProduto,
       estoqueProducaoDia: 0,
       producaoDiaIds: [],
@@ -76,6 +86,7 @@ export function produtoDisponivelParaCardapioDia(produto, producaoHoje = []) {
   if (estoque <= 0) return null
   return {
     ...produto,
+    disponivel: true,
     estoque,
     estoqueProducaoDia: quantidadeProducao,
     producaoDiaIds: producoes.map(item => item.id).filter(Boolean),

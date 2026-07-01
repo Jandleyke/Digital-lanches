@@ -3,6 +3,7 @@ import { collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, writeBatch }
 import { db } from '../../firebase'
 import { notificarPush } from '../../utils/notificarPush'
 import { ehGestao, normalizarPerfil } from '../../utils/perfis'
+import { produtoEhBebida } from '../../utils/producao'
 
 function quantidadeNaoNegativa(valor) {
   const numero = Number(valor)
@@ -63,6 +64,10 @@ export function useProdutos(usuarioLogado) {
     if (Object.prototype.hasOwnProperty.call(produto, 'estoqueInicial')) {
       produtoSeguro.estoqueInicial = quantidadeNaoNegativa(produto.estoqueInicial)
     }
+    // Admin/gestão não pode alterar `disponivel` de comidas — a Cozinha controla via produção
+    if (ehGestao(perfil) && anterior && !produtoEhBebida(anterior)) {
+      produtoSeguro.disponivel = anterior.disponivel !== undefined ? anterior.disponivel : true
+    }
     try {
       await setDoc(doc(db, 'produtos', String(produto.id)), produtoSeguro)
       const limite = Number(produtoSeguro.estoqueBaixo || 0)
@@ -114,16 +119,39 @@ export function useProdutos(usuarioLogado) {
   async function atualizarDisponibilidadeProdutos(ids, disponivel) {
     const batch = writeBatch(db)
     const agora = Date.now()
+    const perfil = normalizarPerfil(usuarioLogado?.role || usuarioLogado?.perfil)
     const data = new Date(agora)
     const cardapioManualData = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}`
-    ids.forEach(id => batch.update(doc(db, 'produtos', String(id)), {
-      disponivel: Boolean(disponivel),
-      cardapioManualHoje: Boolean(disponivel),
-      cardapioManualData: disponivel ? cardapioManualData : '',
-      cardapioManualEm: disponivel ? agora : null,
-      atualizadoEm: agora,
-    }))
+    const selecionados = ids
+      .map(id => produtos.find(produto => String(produto.id) === String(id)))
+      .filter(Boolean)
+    const alterados = { bebidas: 0, comidas: 0 }
+
+    selecionados.forEach(produto => {
+      const ref = doc(db, 'produtos', String(produto.id))
+      if (produtoEhBebida(produto)) {
+        alterados.bebidas += 1
+        batch.update(ref, {
+          disponivel: Boolean(disponivel),
+          cardapioManualHoje: Boolean(disponivel),
+          cardapioManualData: disponivel ? cardapioManualData : '',
+          cardapioManualEm: disponivel ? agora : null,
+          atualizadoEm: agora,
+        })
+        return
+      }
+
+      if (perfil === 'vendedor') return
+
+      alterados.comidas += 1
+      batch.update(ref, {
+        visivelPlanejamento: Boolean(disponivel),
+        atualizadoEm: agora,
+        avisoCardapioCozinha: 'O controle do cardápio de comidas é feito pela Cozinha. Esta ação não remove o produto do cardápio do dia.',
+      })
+    })
     await batch.commit()
+    return alterados
   }
 
   return { produtos, atualizarProduto, adicionarProduto, adicionarProdutos, removerProduto, removerProdutos, atualizarDisponibilidadeProdutos }

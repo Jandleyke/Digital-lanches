@@ -13,6 +13,7 @@ import {
   Package, QrCode, RotateCcw, XCircle,
 } from 'lucide-react'
 import { JANELA_PEDIDO_MS, codigoPedido, inicioContagemPedido, matriculaParaRetirada } from '../../utils/pedidos'
+import { produtoDisponivelParaCardapioDia } from '../../utils/producao'
 
 const statusPasso = ['Recebido', 'Entregue']
 
@@ -163,7 +164,7 @@ function ModalCancelar({ pedido, onConfirmar, onFechar }) {
 }
 
 export default function Pedidos() {
-  const { pedidos, usuarioLogado, cancelarPedido, produtos, carrinho, adicionarAoCarrinho, avaliarPedido } = useApp()
+  const { pedidos, usuarioLogado, cancelarPedido, produtos, producaoHoje, carrinho, adicionarAoCarrinho, avaliarPedido } = useApp()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [aba, setAba] = useState('ativos')
@@ -217,10 +218,11 @@ export default function Pedidos() {
     const indisponiveis = []
     pedido.itens.forEach(item => {
       const prod = produtos.find(p => p.id === item.produtoId)
-      if (!prod || !prod.disponivel || prod.estoque <= 0) { indisponiveis.push(item.nome); return }
-      const jaNoCarrinho = carrinho.find(i => i.id === prod.id)?.quantidade || 0
-      const podeAdicionar = Math.max(0, Math.min(item.quantidade, prod.estoque - jaNoCarrinho))
-      for (let i = 0; i < podeAdicionar; i++) adicionarAoCarrinho(prod)
+      const produtoDia = produtoDisponivelParaCardapioDia(prod, producaoHoje)
+      if (!produtoDia || produtoDia.estoque <= 0) { indisponiveis.push(item.nome); return }
+      const jaNoCarrinho = carrinho.find(i => i.id === produtoDia.id)?.quantidade || 0
+      const podeAdicionar = Math.max(0, Math.min(item.quantidade, produtoDia.estoque - jaNoCarrinho))
+      for (let i = 0; i < podeAdicionar; i++) adicionarAoCarrinho(produtoDia)
       if (podeAdicionar < item.quantidade) indisponiveis.push(item.nome)
     })
     if (indisponiveis.length) {

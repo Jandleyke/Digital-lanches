@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import { CheckCircle2, ChevronDown, ChevronUp, EyeOff, Leaf, AlertTriangle, FileText, Camera, Image, Trash2 } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
 import { categorias } from '../data/mockData'
@@ -11,7 +11,7 @@ import { processarFotoPerfil } from '../utils/image'
 
 const vazioNutri = { calorias: '', proteinas: '', carboidratos: '', gorduras: '', sodio: '' }
 const DIAS_PRODUCAO = DIAS_CARDAPIO
-const vazio = { nome: '', categoria: 'Lanches', preco: '', descricao: '', composicao: '', emoji: '🍔', estoqueInicial: '', estoque: '', estoqueBaixo: '', disponivel: true, foto: '', nutricional: { ...vazioNutri }, alergenios: [], diasProducao: [] }
+const vazio = { nome: '', categoria: 'Lanches', preco: '', descricao: '', composicao: '', emoji: '🍔', estoqueInicial: '', estoque: '', estoqueBaixo: '', disponivel: true, visivelPlanejamento: true, foto: '', nutricional: { ...vazioNutri }, alergenios: [], diasProducao: [] }
 
 const vazioLote = { nome: '', categoria: 'Lanches', preco: '', estoque: '', estoqueBaixo: '', diasProducao: [], disponivel: true, descricao: '', composicao: '', emoji: '🍔', foto: '', nutricional: { ...vazioNutri }, alergenios: [], _expandido: false, _novoAlerg: '' }
 
@@ -95,9 +95,13 @@ export default function GerenciarProdutos() {
     setAlterandoDisponibilidade(true)
     setErroAcaoLote('')
     try {
-      await atualizarDisponibilidadeProdutos(selecionados, disponivel)
-      setErroAcaoLote(disponivel ? 'Produtos selecionados foram disponibilizados no cardápio do dia.' : '')
-      cancelarSelecao()
+      const resultado = await atualizarDisponibilidadeProdutos(selecionados, disponivel)
+      const partes = []
+      if (resultado?.bebidas) partes.push(`${resultado.bebidas} bebida(s) ${disponivel ? 'atualizada(s) no cardápio' : 'pausada(s)'}`)
+      if (resultado?.comidas) partes.push(`${resultado.comidas} comida(s) ${disponivel ? 'visível(is) para planejamento' : 'oculta(s) para novos planejamentos'}`)
+      setErroAcaoLote(partes.join(' · ') || 'Nenhum produto alterado.')
+      setSelecionados([])
+      setModoSelecao(false)
     } catch (error) {
       setErroAcaoLote(error.message || 'Não foi possível atualizar os produtos selecionados.')
     } finally {
@@ -336,7 +340,7 @@ export default function GerenciarProdutos() {
                         {p.estoqueBaixo > 0 && p.estoque <= p.estoqueBaixo && p.estoque > 0 && (
                           <span style={{ background: '#FEF3C7', color: '#B45309', fontSize: '0.63rem', fontWeight: 800, padding: '0.1rem 0.45rem', borderRadius: 6 }}>⚡ Baixo</span>
                         )}
-                        <span style={{ ...s.tagStatus, ...(p.disponivel ? s.disponivel : s.indisponivel) }}>{p.disponivel ? 'Ativo' : 'Inativo'}</span>
+                        {(() => { const eb = String(p.categoria || '').trim().toLowerCase() === 'bebidas'; const ok = eb ? p.disponivel !== false : p.visivelPlanejamento !== false; return <span style={{ ...s.tagStatus, ...(ok ? s.disponivel : s.indisponivel) }}>{eb ? (ok ? 'Cardápio' : 'Pausada') : (ok ? 'Planejável' : 'Sem planej.')}</span> })()}
                         <span style={s.diaResumo}>{resumoDiasProduto(p)}</span>
                         {p.alergenios && p.alergenios.length > 0 && (
                           <span style={s.alergenoBadge}>⚠️ {p.alergenios.length}</span>
@@ -398,7 +402,7 @@ export default function GerenciarProdutos() {
                       <span style={{ ...s.badge, background: nivel.bg, color: nivel.color, fontSize: '0.78rem' }}>{p.estoque} un</span>
                     </span>
                     <span style={{ flex: 1 }}>
-                      <span style={{ ...s.tagStatus, ...(p.disponivel ? s.disponivel : s.indisponivel) }}>{p.disponivel ? 'Ativo' : 'Inativo'}</span>
+                      {(() => { const eb = String(p.categoria || '').trim().toLowerCase() === 'bebidas'; const ok = eb ? p.disponivel !== false : p.visivelPlanejamento !== false; return <span style={{ ...s.tagStatus, ...(ok ? s.disponivel : s.indisponivel) }}>{eb ? (ok ? 'Cardápio' : 'Pausada') : (ok ? 'Planejável' : 'Sem planej.')}</span> })()}
                     </span>
                     <span style={{ width: 80, color: '#94A3B8', fontSize: '0.82rem', fontWeight: 600, textAlign: 'right' }}>Ver →</span>
                   </div>
@@ -431,9 +435,7 @@ export default function GerenciarProdutos() {
               {/* Preço + status */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.9rem' }}>
                 <span style={{ fontSize: '1.7rem', fontWeight: 800, color: '#003D7C' }}>R$ {detalhe.preco?.toFixed(2).replace('.', ',')}</span>
-                <span style={{ padding: '0.3rem 0.9rem', borderRadius: 20, fontWeight: 700, fontSize: '0.82rem', background: detalhe.disponivel ? '#D1FAE5' : '#FEE2E2', color: detalhe.disponivel ? '#059669' : '#DC2626' }}>
-                  {detalhe.disponivel ? '● Disponível' : '● Indisponível'}
-                </span>
+{(() => { const eb2 = String(detalhe.categoria || '').trim().toLowerCase() === 'bebidas'; const ok2 = eb2 ? detalhe.disponivel !== false : detalhe.visivelPlanejamento !== false; return <span style={{ padding: '0.3rem 0.9rem', borderRadius: 20, fontWeight: 700, fontSize: '0.82rem', background: ok2 ? '#D1FAE5' : '#FEE2E2', color: ok2 ? '#059669' : '#DC2626' }}>{eb2 ? (ok2 ? 'Bebida no cardápio' : 'Bebida pausada') : (ok2 ? 'Visível para planejamento' : 'Oculto para planejamento')}</span> })()}
               </div>
 
               {detalhe.descricao && (
@@ -563,8 +565,15 @@ export default function GerenciarProdutos() {
                   </select>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 20 }}>
-                  <input type="checkbox" id="disp" checked={form.disponivel} onChange={e => setForm({ ...form, disponivel: e.target.checked })} />
-                  <label htmlFor="disp" style={s.label}>Disponível para venda</label>
+                  <input
+                    type="checkbox"
+                    id="disp"
+                    checked={form.categoria === 'Bebidas' ? !!form.disponivel : form.visivelPlanejamento !== false}
+                    onChange={e => setForm(f => ({ ...f, [f.categoria === 'Bebidas' ? 'disponivel' : 'visivelPlanejamento']: e.target.checked }))}
+                  />
+                  <label htmlFor="disp" style={s.label}>
+                    {form.categoria === 'Bebidas' ? 'Disponível para venda manual' : 'Visível para planejamento da cozinha'}
+                  </label>
                 </div>
               </div>
             )}
@@ -920,10 +929,10 @@ export default function GerenciarProdutos() {
           </div>
           <div style={{ ...s.selectionActions, display: isMobile ? 'grid' : 'flex', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : undefined }}>
             <button disabled={alterandoDisponibilidade} onClick={() => alterarDisponibilidadeSelecionados(true)} style={s.btnLoteAtivar}>
-              <CheckCircle2 size={15} /> Disponibilizar no cardápio
+              <CheckCircle2 size={15} /> Ativar / bebida no cardápio
             </button>
             <button disabled={alterandoDisponibilidade} onClick={() => alterarDisponibilidadeSelecionados(false)} style={s.btnLotePausar}>
-              <EyeOff size={15} /> Pausar venda
+              <EyeOff size={15} /> Pausar produto / ocultar bebida
             </button>
             <button disabled={alterandoDisponibilidade} onClick={() => { setErroExcluir(''); setConfirmandoLote(true) }} style={{ ...s.btnLoteExcluir, gridColumn: isMobile ? '1 / -1' : undefined }}>
               <Trash2 size={15} /> Excluir

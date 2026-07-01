@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   ArchiveRestore, Calendar, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, CloudSun, Flame,
@@ -35,7 +35,8 @@ const TURNO_LABEL = { manha: 'Manhã', tarde: 'Tarde', noite: 'Noite' }
 const CATEGORIAS_PRODUCAO = ['Todos', 'Lanches', 'Salgados', 'Doces']
 
 function categoriaProducaoValida(produto) {
-  return ['lanches', 'salgados', 'doces'].includes(String(produto?.categoria || '').trim().toLowerCase())
+  const categoriaOk = ['lanches', 'salgados', 'doces'].includes(String(produto?.categoria || '').trim().toLowerCase())
+  return categoriaOk && produto?.visivelPlanejamento !== false
 }
 
 function turnoAtual() {
@@ -569,7 +570,7 @@ export default function Cozinha() {
       }
       if (!diasCardapio.includes(diaSemana)) diasCardapio = [...diasCardapio, diaSemana]
       await atualizarProduto({ ...produto, disponivel: true, estoque: atualizado.quantidadeRestante, diasCardapio })
-      if (!opcoes.silencioso) alert('Produto marcado como pronto e liberado no cardapio do dia.')
+      if (!opcoes.silencioso) alert('Produto marcado como pronto e liberado no cardápio do dia.')
     }
     if (produto && status === 'Esgotado') {
       await atualizarProduto({ ...produto, estoque: 0 })
@@ -599,7 +600,7 @@ export default function Cozinha() {
       return
     }
     if (quantidade > maxDescarte(descarteItem)) {
-      alert('A quantidade informada e maior que o disponivel para este produto.')
+      alert('A quantidade informada é maior que o disponível para este produto.')
       return
     }
     const resultado = await registrarDescarte(descarteItem.id, descarteItem, {
