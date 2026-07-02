@@ -292,7 +292,6 @@ export default function AvisosSetor({ setor }) {
                     <span style={{ ...s.tipoBadge, ...(isMobile ? s.tipoBadgeMobile : {}), background: prioridade.bg, color: prioridade.color }}>{prioridade.label}</span>
                     {aviso.fixado && <span style={s.fixadoBadge}>Fixado</span>}
                     {arquivado && <span style={s.arquivadoBadge}>Arquivado</span>}
-                    {respostasAviso.length > 0 && <span style={s.respostasBadge}>{respostasAviso.length} resposta(s)</span>}
                   </div>
                   <div style={{ ...s.acoes, ...(isMobile ? s.acoesMobile : {}) }} onClick={e => e.stopPropagation()}>
                     {podeGerenciar && !arquivado && (

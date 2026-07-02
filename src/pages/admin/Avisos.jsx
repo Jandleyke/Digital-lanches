@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Archive, ArchiveRestore, MessageSquare, Send, X } from 'lucide-react'
+import { Archive, ArchiveRestore, CheckCircle2, MessageSquare, Send, X } from 'lucide-react'
 import Layout from '../../components/Layout'
 import RichTextEditor, { RichTextContent } from '../../components/RichTextEditor'
 import { useApp } from '../../contexts/AppContext'
@@ -54,7 +54,7 @@ function nomesLeitura(aviso) {
 }
 
 export default function Avisos() {
-  const { avisos, produtos, criarAviso, editarAviso, excluirAviso, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario, usuarioLogado } = useApp()
+  const { avisos, produtos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario, usuarioLogado } = useApp()
   const isMobile = useIsMobile()
   const escopoArquivo = 'admin'
   const [modal, setModal] = useState(null)
@@ -209,6 +209,7 @@ export default function Avisos() {
             const destino = destinoMeta(destinoAviso(aviso))
             const respostasAviso = Array.isArray(aviso.respostas) ? aviso.respostas : []
             const ehAutor = aviso.autorId === (usuarioLogado?.uid || usuarioLogado?.matricula)
+            const lido = Array.isArray(aviso.lidoPor) && aviso.lidoPor.includes(leitorId)
             const arquivado = avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)
             return (
               <article
@@ -230,10 +231,14 @@ export default function Avisos() {
                     <span style={{ ...s.tipoBadge, background: destino.bg, color: destino.color }}>{destino.label}</span>
                     {aviso.fixado && <span style={s.fixadoBadge}>Fixado</span>}
                     {arquivado && <span style={s.arquivadoBadge}>Arquivado</span>}
-                    {respostasAviso.length > 0 && <span style={s.respostasBadge}>{respostasAviso.length} resposta(s)</span>}
                   </div>
                   <div style={s.acoes} onClick={e => e.stopPropagation()}>
                     {!arquivado && <button style={s.btnAcao} onClick={() => toggleFixado(aviso)}>{aviso.fixado ? 'Desafixar' : 'Fixar'}</button>}
+                    {!lido && !arquivado && (
+                      <button style={s.btnAcao} onClick={() => marcarAvisoLido(aviso.id)}>
+                        <CheckCircle2 size={14} /> Lido
+                      </button>
+                    )}
                     {ehAutor && !arquivado && <button style={s.btnAcao} onClick={() => abrirEditar(aviso)}>Editar</button>}
                     <button style={s.btnAcao} onClick={() => toggleArquivado(aviso)}>
                       {arquivado ? <ArchiveRestore size={14} /> : <Archive size={14} />} {arquivado ? 'Desarquivar' : 'Arquivar'}
