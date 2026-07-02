@@ -8,6 +8,7 @@ import Layout from '../../components/Layout'
 import AvisosSetor from '../../components/AvisosSetor'
 import GerenciarEstoque from '../../components/GerenciarEstoque'
 import GerenciarProdutos from '../../components/GerenciarProdutos'
+import { RichTextContent } from '../../components/RichTextEditor'
 import { AreaPlanejamento, AvisoPlanejamentoSalvo } from '../../components/cozinha/PlanejamentoProducao'
 import ListaProducao from '../../components/cozinha/ListaProducao'
 import { useApp } from '../../contexts/AppContext'
@@ -15,6 +16,7 @@ import { MOTIVOS_DESPERDICIO } from '../../contexts/hooks/useProducaoDiaria'
 import { produtoDisponivelNoDia } from '../../utils/cardapioDias'
 import { useIsMobile } from '../../utils/useIsMobile'
 import { codigoPedido as pedidoCodigo } from '../../utils/pedidos'
+import { avisoArquivadoParaUsuario } from '../../utils/avisos'
 import { dadosParaStatusProducao, maxDesperdicio as maxDescarte, normalizarStatusProducao as normalizeStatus, visualStatusProducao as producaoStatusVisual } from '../../utils/producao'
 import { useTempoAtual } from '../../utils/useTempoAtual'
 
@@ -220,7 +222,7 @@ function StatusBadge({ status }) {
 }
 
 export default function Cozinha() {
-  const { pedidos, produtos, atualizarProduto, criarAviso, avisos, producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio: registrarDescarte } = useApp()
+  const { pedidos, produtos, atualizarProduto, criarAviso, avisos, usuarioLogado, producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio: registrarDescarte } = useApp()
   const location = useLocation()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
@@ -251,6 +253,7 @@ export default function Cozinha() {
   const [itensSelecionadosProducao, setItensSelecionadosProducao] = useState([])
   const [gerandoPDFProducao, setGerandoPDFProducao] = useState(false)
   const [planejamentoSalvo, setPlanejamentoSalvo] = useState(null)
+  const [avisoEmFoco, setAvisoEmFoco] = useState(null)
 
   function selecionarAba(id) {
     navigate(ROTAS_ABA[id] || '/cozinha')
@@ -284,9 +287,10 @@ export default function Cozinha() {
   const itensDisponiveis = useMemo(() => producaoOrdenada.filter(item => Number(item.quantidadeRestante || 0) > 0), [producaoOrdenada])
   const itensEsgotados = useMemo(() => producaoOrdenada.filter(item => normalizeStatus(item.status) === 'esgotado'), [producaoOrdenada])
   const avisosCozinha = useMemo(() => (avisos || [])
-    .filter(a => ['cozinha', 'todos'].includes(a.destino || a.destinatario))
+    .filter(a => !avisoArquivadoParaUsuario(a, usuarioLogado, 'cozinha') && a.status !== 'inativo')
+    .filter(a => ['cozinha', 'todos'].includes(a.destino || a.destinatario || 'todos'))
     .sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0))
-    .slice(0, 3), [avisos])
+    .slice(0, 3), [avisos, usuarioLogado])
   const semanaDatas = useMemo(() => semanaContendo(dataSelecionadaTs, tempoAtual), [dataSelecionadaTs, tempoAtual])
   const producaoDoDia = useMemo(() => {
     const fim = dataSelecionadaTs + 24 * 60 * 60 * 1000 - 1
@@ -748,13 +752,30 @@ export default function Cozinha() {
                 <StatCard icon={ArchiveRestore} label="Estoque em atenção" value={estoqueBaixoCozinha} color="#D97706" onClick={() => navigate(ROTAS_ABA.estoque, { state: { filtroInicial: 'atencao' } })} />
               </div>
               {avisosCozinha.length > 0 && (
-                <div style={s.loteBox}>
-                  <strong style={{ color: '#0F172A' }}>Ultimos avisos</strong>
-                  {avisosCozinha.map(aviso => (
-                    <div key={aviso.id} style={s.linhaResumo}>
-                      <span>{aviso.titulo}</span>
-                      <span style={s.meta}>{formatarHoraAtualizacao(aviso.criadoEm)}</span>
+                <div style={s.avisosResumoBox}>
+                  <div style={s.avisosResumoHeader}>
+                    <div style={s.avisosResumoTitulo}>
+                      <Megaphone size={18} />
+                      <strong>Ultimos avisos</strong>
+                      <span style={s.avisosCount}>{avisosCozinha.length}</span>
                     </div>
+                    <button type="button" style={s.avisosVerTodos} onClick={() => selecionarAba('avisos')}>Ver todos</button>
+                  </div>
+                  {avisosCozinha.map(aviso => (
+                    <button
+                      key={aviso.id}
+                      type="button"
+                      style={s.avisoResumoItem}
+                      onClick={() => { setAvisoEmFoco(aviso); selecionarAba('avisos') }}
+                      title="Abrir informacoes do aviso"
+                    >
+                      <span style={s.avisoResumoIcon}><Megaphone size={16} /></span>
+                      <span style={s.avisoResumoConteudo}>
+                        <span style={s.avisoResumoTituloTexto}>{aviso.titulo}</span>
+                        <span style={s.avisoResumoPreview}>{aviso.mensagem || aviso.texto || 'Clique para ver os detalhes do aviso.'}</span>
+                      </span>
+                      <span style={s.avisoResumoHora}>{formatarHoraAtualizacao(aviso.criadoEm)}</span>
+                    </button>
                   ))}
                 </div>
               )}
@@ -1142,6 +1163,23 @@ export default function Cozinha() {
         </div>
       )}
 
+      {avisoEmFoco && (
+        <div style={s.modalOverlay} role="dialog" aria-modal="true">
+          <div style={{ ...s.modal, maxWidth: 560, padding: isMobile ? 18 : 24 }}>
+            <div style={s.modalHeader}>
+              <div>
+                <h3 style={s.modalTitle}>{avisoEmFoco.titulo}</h3>
+                <p style={s.meta}>Publicado {formatarHoraAtualizacao(avisoEmFoco.criadoEm || avisoEmFoco.createdAt)}</p>
+              </div>
+              <button style={s.closeBtn} onClick={() => setAvisoEmFoco(null)}>Fechar</button>
+            </div>
+            <div style={s.avisoModalBody}>
+              <RichTextContent html={avisoEmFoco.mensagemHtml} text={avisoEmFoco.mensagem || avisoEmFoco.texto} style={s.avisoModalTexto} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {descarteItem && (
         <div style={s.modalOverlay} role="dialog" aria-modal="true">
           <div style={{ ...s.modal, maxWidth: 480, padding: isMobile ? 18 : 24 }}>
@@ -1346,6 +1384,19 @@ const s = {
   produtoMini: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 },
   produtoMiniImg: { width: 48, height: 48, borderRadius: 10, objectFit: 'cover', background: '#E2E8F0', flexShrink: 0 },
   loteBox: { background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 },
+  avisosResumoBox: { background: '#EFF6FF', border: '1.5px solid #93C5FD', borderRadius: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 8px 20px rgba(0,61,124,0.08)' },
+  avisosResumoHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  avisosResumoTitulo: { display: 'inline-flex', alignItems: 'center', gap: 8, color: '#003D7C', fontSize: '0.94rem' },
+  avisosCount: { minWidth: 22, height: 22, borderRadius: 999, background: '#003D7C', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 900 },
+  avisosVerTodos: { border: 'none', background: '#003D7C', color: '#fff', borderRadius: 999, padding: '0.38rem 0.75rem', fontWeight: 900, fontSize: '0.76rem', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
+  avisoResumoItem: { width: '100%', border: '1px solid #BFDBFE', background: '#fff', borderRadius: 14, padding: '0.72rem 0.8rem', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', boxShadow: '0 3px 10px rgba(15,23,42,0.04)' },
+  avisoResumoIcon: { width: 34, height: 34, borderRadius: 10, background: '#DBEAFE', color: '#1D4ED8', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  avisoResumoConteudo: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 },
+  avisoResumoTituloTexto: { color: '#0F172A', fontWeight: 900, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  avisoResumoPreview: { color: '#475569', fontWeight: 700, fontSize: '0.78rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  avisoResumoHora: { color: '#003D7C', fontWeight: 900, fontSize: '0.78rem', background: '#E8F0FB', borderRadius: 999, padding: '0.22rem 0.55rem', flexShrink: 0 },
+  avisoModalBody: { background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 14, padding: 14 },
+  avisoModalTexto: { color: '#334155', fontSize: '0.92rem', lineHeight: 1.55 },
   loteHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', color: '#0F172A' },
   loteLista: { display: 'flex', flexDirection: 'column', gap: 8 },
   loteItem: { display: 'grid', gap: 8, alignItems: 'center', background: '#fff', border: '1px solid #E5E7EB', borderRadius: 14, padding: 10 },

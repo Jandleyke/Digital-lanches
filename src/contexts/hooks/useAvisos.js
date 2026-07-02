@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
+import { arrayRemove, arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { notificarPush } from '../../utils/notificarPush'
+import { chaveArquivoAviso, usuarioAvisoId } from '../../utils/avisos'
 
 export function useAvisos(usuarioLogado) {
   const [avisos, setAvisos] = useState([])
@@ -19,7 +20,7 @@ export function useAvisos(usuarioLogado) {
     return unsub
   }, [usuarioLogado])
 
-  async function criarAviso({ titulo, mensagem, texto, tipo, fixado, destino, destinatario, prioridade, status, produtoPromocao }) {
+  async function criarAviso({ titulo, mensagem, texto, mensagemHtml, tipo, fixado, destino, destinatario, prioridade, status, produtoPromocao }) {
     const id = `AV${Date.now()}`
     const conteudo = mensagem || texto || ''
     const destinoFinal = destino || destinatario || 'todos'
@@ -30,6 +31,7 @@ export function useAvisos(usuarioLogado) {
         titulo,
         mensagem: conteudo,
         texto: conteudo,
+        mensagemHtml: mensagemHtml || '',
         tipo: tipo || 'info',
         prioridade: prioridade || 'media',
         status: status || 'ativo',
@@ -49,6 +51,8 @@ export function useAvisos(usuarioLogado) {
         autor: usuarioLogado?.nome || 'Sistema',
         lidoPor: [],
         lidoDetalhes: [],
+        arquivadoPorUsuarios: [],
+        arquivadoDetalhes: [],
         respostas: [],
         createdAt: agora,
         criadoEm: agora,
@@ -105,5 +109,39 @@ export function useAvisos(usuarioLogado) {
     }
   }
 
-  return { avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso }
+  async function arquivarAvisoParaUsuario(id, escopo = 'geral') {
+    const leitor = chaveArquivoAviso(usuarioLogado, escopo)
+    if (!id || !leitor) return
+    try {
+      await updateDoc(doc(db, 'avisos', id), {
+        arquivadoPorUsuarios: arrayUnion(leitor),
+        arquivadoDetalhes: arrayUnion({
+          id: leitor,
+          usuarioId: usuarioAvisoId(usuarioLogado),
+          escopo: escopo || 'geral',
+          nome: usuarioLogado?.nome || 'Usuario',
+          perfil: usuarioLogado?.role || usuarioLogado?.perfil || '',
+          data: Date.now(),
+        }),
+      })
+    } catch (e) {
+      console.error(e)
+      throw e
+    }
+  }
+
+  async function desarquivarAvisoParaUsuario(id, escopo = 'geral') {
+    const leitor = chaveArquivoAviso(usuarioLogado, escopo)
+    if (!id || !leitor) return
+    try {
+      await updateDoc(doc(db, 'avisos', id), {
+        arquivadoPorUsuarios: arrayRemove(leitor),
+      })
+    } catch (e) {
+      console.error(e)
+      throw e
+    }
+  }
+
+  return { avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario }
 }

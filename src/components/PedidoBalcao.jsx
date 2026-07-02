@@ -17,8 +17,8 @@ import { useIsMobile } from '../utils/useIsMobile'
 const PAGAMENTOS_BASE = [
   { valor: 'Dinheiro', label: 'Dinheiro' },
   { valor: 'PIX', label: 'Pix' },
-  { valor: 'DÃ©bito', label: 'CartÃ£o / DÃ©bito' },
-  { valor: 'CrÃ©dito', label: 'CartÃ£o / CrÃ©dito' },
+  { valor: 'Débito', label: 'Cartão / Débito' },
+  { valor: 'Crédito', label: 'Cartão / Crédito' },
 ]
 
 function matriculaNormalizada(valor = '') {
@@ -87,25 +87,27 @@ export default function PedidoBalcao() {
   ], [produtosDisponiveisDia])
 
   const produtosFiltrados = useMemo(() => {
-    const termo = buscaProduto.trim().toLowerCase()
+    const norm = s => String(s || '').toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    const termo = norm(buscaProduto.trim())
     return produtosDisponiveisDia
       .filter(p => categoria === 'Todos' || p.categoria === categoria)
-      .filter(p => !termo || String(p.nome || '').toLowerCase().includes(termo))
+      .filter(p => !termo || norm(p.nome).includes(termo))
       .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
   }, [produtosDisponiveisDia, buscaProduto, categoria])
 
   const alunosBusca = useMemo(() => {
-    const termo = termoAluno.trim().toLocaleLowerCase('pt-BR')
+    const norm = s => String(s || '').toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    const termo = norm(termoAluno.trim())
     return (usuarios || [])
       .filter(usuario => perfisDoUsuario(usuario).some(perfil => ['aluno', 'professor'].includes(perfil)))
       .filter(usuario => usuario.ativo !== false && usuario.bloqueado !== true)
       .filter(usuario => {
         if (!termo) return true
-        return String(usuario.nome || '').toLocaleLowerCase('pt-BR').includes(termo)
-          || String(usuario.matricula || '').toLocaleLowerCase('pt-BR').includes(termo)
+        return norm(usuario.nome).includes(termo)
+          || norm(usuario.matricula).includes(termo)
       })
       .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
-      .slice(0, 8)
+      .slice(0, 12)
   }, [usuarios, termoAluno])
 
   const perfilAluno = perfisDoUsuario(alunoEncontrado).includes('professor') ? 'professor' : 'aluno'
@@ -158,7 +160,7 @@ export default function PedidoBalcao() {
     if (alunoValido) setNomeAluno(alunoValido.nome || '')
     if (!alunoValido && alvo) setNomeAluno('')
     if (!alunoValido && pagamento === 'Conta do Professor') setPagamento('PIX')
-    setErro(alunoValido || !alvo ? '' : 'Aluno nÃ£o encontrado. Confira a matrÃ­cula ou escolha â€œSem cadastroâ€.')
+    setErro(alunoValido || !alvo ? '' : 'Aluno não encontrado. Confira a matrícula ou escolha “Sem cadastro”.')
   }
 
   function alterarMatricula(valor) {
@@ -177,17 +179,13 @@ export default function PedidoBalcao() {
 
   function adicionarProduto(produto) {
     const estoque = Math.max(0, Number(produto.estoque || 0))
-    if (produto.disponivel === false) {
-      setErro('Produto indisponÃ­vel para venda.')
-      return
-    }
     if (estoque <= 0) {
       setErro('Produto fora de estoque.')
       return
     }
     const existente = carrinho.find(i => String(i.id) === String(produto.id))
     if (existente && existente.quantidade >= Math.min(estoque, 20)) {
-      setErro('NÃ£o hÃ¡ estoque suficiente para este produto.')
+      setErro('Não há estoque suficiente para este produto.')
       return
     }
     setErro('')
@@ -212,7 +210,7 @@ export default function PedidoBalcao() {
       return
     }
     if (nova > Math.min(estoque, 20)) {
-      setErro('NÃ£o hÃ¡ estoque suficiente para este produto.')
+      setErro('Não há estoque suficiente para este produto.')
       return
     }
     setErro('')
@@ -221,11 +219,11 @@ export default function PedidoBalcao() {
 
   async function finalizarPedido() {
     if (tipoCliente === 'cadastrado' && !matriculaValida) {
-      setErro('Informe uma matrÃ­cula vÃ¡lida.')
+      setErro('Informe uma matrícula válida.')
       return
     }
     if (tipoCliente === 'avulso' && !matriculaAvulsaValida) {
-      setErro('A matrÃ­cula informada Ã© invÃ¡lida. Corrija ou deixe o campo vazio.')
+      setErro('A matrícula informada é inválida. Corrija ou deixe o campo vazio.')
       return
     }
     if (tipoCliente === 'cadastrado' && !alunoEncontrado) {
@@ -233,7 +231,7 @@ export default function PedidoBalcao() {
       return
     }
     if (!nomeAluno.trim()) {
-      setErro(tipoCliente === 'avulso' ? 'Informe o nome do aluno.' : 'NÃ£o foi possÃ­vel identificar o aluno.')
+      setErro(tipoCliente === 'avulso' ? 'Informe o nome do aluno.' : 'Não foi possível identificar o aluno.')
       return
     }
     if (tipoCliente === 'avulso' && !nomeCompletoValido) {
@@ -248,7 +246,7 @@ export default function PedidoBalcao() {
     setFinalizando(true)
     setErro('')
     try {
-      if (!usuarioLogado?.uid) throw new Error('Sua sessÃ£o expirou. Entre novamente.')
+      if (!usuarioLogado?.uid) throw new Error('Sua sessão expirou. Entre novamente.')
       const criadoEm = Date.now()
       const chaveDiaria = chaveDiariaPedido(criadoEm)
       const pedidoRef = doc(collection(db, 'pedidos'))
@@ -273,10 +271,10 @@ export default function PedidoBalcao() {
 
         const itens = produtosSnap.map((snap, index) => {
           const entrada = itensComRefs[index]
-          if (!snap.exists()) throw new Error(`O item ${entrada.nome} nÃ£o estÃ¡ mais disponÃ­vel.`)
+          if (!snap.exists()) throw new Error(`O item ${entrada.nome} não está mais disponível.`)
           const produto = snap.data()
           const estoqueAtual = Math.max(0, Number(produto.estoque || 0))
-          if (produtoEhBebida(produto) && produto.disponivel === false) throw new Error(`Produto indisponÃ­vel no cardÃ¡pio: ${produto.nome}.`)
+          if (produtoEhBebida(produto) && produto.disponivel === false) throw new Error(`Produto indisponível no cardápio: ${produto.nome}.`)
           if (produtoLiberadoManualHoje(produto) && estoqueAtual <= 0) throw new Error(`Produto fora de estoque: ${produto.nome}.`)
           if (produtoLiberadoManualHoje(produto) && estoqueAtual < entrada.quantidade) throw new Error(`Não há estoque suficiente para ${produto.nome}.`)
           const quantidadeProducao = producaoSnapsPorItem[index]
@@ -296,7 +294,7 @@ export default function PedidoBalcao() {
         })
 
         const numero = Number(contadorSnap.data()?.ultimoNumero || 0) + 1
-        if (numero > 9999) throw new Error('O limite diÃ¡rio de pedidos foi atingido.')
+        if (numero > 9999) throw new Error('O limite diário de pedidos foi atingido.')
         const codigosUsados = contadorSnap.data()?.codigosUsados || []
         const codigoPedidoGerado = gerarCodigoPedidoAleatorio(codigosUsados)
         const horario = new Date(criadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
@@ -319,7 +317,7 @@ export default function PedidoBalcao() {
           status: 'Recebido',
           statusKey: 'em_processo',
           origem: 'balcao',
-          origemLabel: 'BalcÃ£o',
+          origemLabel: 'Balcão',
           lancadoPor: {
             uid: usuarioLogado.uid,
             nome: usuarioLogado.nome || 'Vendedor',
@@ -363,8 +361,8 @@ export default function PedidoBalcao() {
       setPagamento('PIX')
       toast('Pedido criado com sucesso.', 'success')
     } catch (e) {
-      setErro(e.message || 'NÃ£o foi possÃ­vel criar o pedido no balcÃ£o.')
-      toast(e.message || 'NÃ£o foi possÃ­vel criar o pedido no balcÃ£o.', 'error')
+      setErro(e.message || 'Não foi possível criar o pedido no balcão.')
+      toast(e.message || 'Não foi possível criar o pedido no balcão.', 'error')
     } finally {
       setFinalizando(false)
     }
@@ -383,7 +381,7 @@ export default function PedidoBalcao() {
       setErroProfessor('')
       toast('Pedido marcado como entregue.', 'success')
     } catch (e) {
-      setErro(e.message || 'NÃ£o foi possÃ­vel marcar o pedido como entregue.')
+      setErro(e.message || 'Não foi possível marcar o pedido como entregue.')
     } finally {
       setEntregandoPedido(false)
     }
@@ -404,11 +402,11 @@ export default function PedidoBalcao() {
     e.preventDefault()
     const matriculaEsperada = String(ultimoPedido?.matricula || '').trim()
     if (!matriculaProfessor.trim()) {
-      setErroProfessor('Informe a matrÃ­cula do professor.')
+      setErroProfessor('Informe a matrícula do professor.')
       return
     }
     if (matriculaProfessor.trim() !== matriculaEsperada) {
-      setErroProfessor('A matrÃ­cula informada nÃ£o corresponde ao professor deste pedido.')
+      setErroProfessor('A matrícula informada não corresponde ao professor deste pedido.')
       return
     }
     concluirEntregaUltimoPedido()
@@ -447,7 +445,7 @@ export default function PedidoBalcao() {
 
         <div style={s.total}><span>Total</span><strong>{formatPrice(total)}</strong></div>
         <button type="button" onClick={finalizarPedido} disabled={!podeFinalizar} style={{ ...s.finalizar, opacity: podeFinalizar ? 1 : 0.55, cursor: podeFinalizar ? 'pointer' : 'not-allowed' }}>
-          <CreditCard size={18} /> {finalizando ? 'Finalizando...' : 'Finalizar pedido no balcÃ£o'}
+          <CreditCard size={18} /> {finalizando ? 'Finalizando...' : 'Finalizar pedido no balcão'}
         </button>
       </aside>
     )
@@ -457,7 +455,7 @@ export default function PedidoBalcao() {
     <div style={{ ...s.page, paddingBottom: isCompact ? 70 : 0 }}>
       <div style={s.tituloLinha}>
         <div>
-          <h2 style={s.titulo}>Pedido no BalcÃ£o</h2>
+          <h2 style={s.titulo}>Pedido no Balcão</h2>
           <p style={s.subtitulo}>Monte e finalize a compra presencial.</p>
         </div>
         {ultimoPedido && (
@@ -480,19 +478,19 @@ export default function PedidoBalcao() {
             <div style={s.modalProfessorTopo}>
               <div>
                 <h3 id="confirmar-professor-titulo" style={s.modalProfessorTitulo}>Confirmar entrega</h3>
-                <p style={s.modalProfessorMeta}>Pedido {codigoPedido(ultimoPedido)} Â· Conta do Professor</p>
+                <p style={s.modalProfessorMeta}>Pedido {codigoPedido(ultimoPedido)} · Conta do Professor</p>
               </div>
               <button type="button" onClick={() => setConfirmandoProfessor(false)} style={s.fecharBuscaBtn} aria-label="Fechar">
                 <X size={16} />
               </button>
             </div>
-            <label style={s.label} htmlFor="matricula-professor-entrega">MatrÃ­cula do professor</label>
+            <label style={s.label} htmlFor="matricula-professor-entrega">Matrícula do professor</label>
             <input
               id="matricula-professor-entrega"
               value={matriculaProfessor}
               onChange={e => { setMatriculaProfessor(e.target.value); setErroProfessor('') }}
               style={s.input}
-              placeholder="Digite a matrÃ­cula"
+              placeholder="Digite a matrícula"
               inputMode="numeric"
               autoFocus
             />
@@ -507,7 +505,7 @@ export default function PedidoBalcao() {
       <section style={{ ...s.identificacao, padding: isCompact ? 12 : 16, gap: isCompact ? 12 : 15 }}>
         <div style={s.identificacaoTopo}>
           <div>
-            <strong style={s.identificacaoTitulo}>IdentificaÃ§Ã£o do cliente</strong>
+            <strong style={s.identificacaoTitulo}>Identificação do cliente</strong>
             <span style={s.identificacaoMeta}>{tipoCliente === 'cadastrado' ? 'Localize pelo cadastro do sistema' : 'Venda para aluno sem conta no aplicativo'}</span>
           </div>
           <div style={{ ...s.tipoCliente, width: isMobile ? '100%' : 'auto' }} role="group" aria-label="Tipo de cliente">
@@ -530,18 +528,18 @@ export default function PedidoBalcao() {
 
         <div style={{ ...s.identificacaoCampos, gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))' }}>
           <div style={s.campoMatricula}>
-            <label style={s.label}>{tipoCliente === 'cadastrado' ? 'Buscar por matrÃ­cula' : 'MatrÃ­cula (opcional)'}</label>
+            <label style={s.label}>{tipoCliente === 'cadastrado' ? 'Buscar por matrícula' : 'Matrícula (opcional)'}</label>
             <div style={s.buscaMatricula}>
               <input
                 value={matricula}
                 onChange={e => alterarMatricula(e.target.value)}
                 onBlur={() => buscarAluno()}
                 style={s.input}
-                placeholder={tipoCliente === 'cadastrado' ? 'Ex.: 2024001' : 'Deixe vazio se nÃ£o souber'}
+                placeholder={tipoCliente === 'cadastrado' ? 'Ex.: 2024001' : 'Deixe vazio se não souber'}
                 autoComplete="off"
               />
               {tipoCliente === 'cadastrado' && (
-                <button type="button" onClick={abrirBuscaAluno} style={s.buscarAlunoBtn} title="Busca rÃ¡pida de alunos" aria-label="Abrir busca rÃ¡pida de alunos">
+                <button type="button" onClick={abrirBuscaAluno} style={s.buscarAlunoBtn} title="Busca rápida de alunos" aria-label="Abrir busca rápida de alunos">
                   <UserRoundSearch size={18} />
                 </button>
               )}
@@ -549,7 +547,7 @@ export default function PedidoBalcao() {
             {tipoCliente === 'cadastrado' && buscaAlunoAberta && (
               <div style={s.buscaAlunoPainel}>
                 <div style={s.buscaAlunoTopo}>
-                  <strong style={s.buscaAlunoTitulo}>Busca rÃ¡pida</strong>
+                  <strong style={s.buscaAlunoTitulo}>Busca rápida</strong>
                   <button type="button" onClick={() => setBuscaAlunoAberta(false)} style={s.fecharBuscaBtn} aria-label="Fechar busca">
                     <X size={16} />
                   </button>
@@ -560,7 +558,7 @@ export default function PedidoBalcao() {
                     value={termoAluno}
                     onChange={e => setTermoAluno(e.target.value)}
                     style={s.buscaAlunoInput}
-                    placeholder="Nome ou matrÃ­cula"
+                    placeholder="Nome ou matrícula"
                     autoFocus
                   />
                 </div>
@@ -570,7 +568,7 @@ export default function PedidoBalcao() {
                       <span style={s.alunoAvatar}>{String(usuario.nome || '?').trim().charAt(0).toUpperCase()}</span>
                       <span style={s.alunoDados}>
                         <strong style={s.alunoNome}>{usuario.nome || 'Sem nome'}</strong>
-                        <span style={s.alunoMatricula}>{usuario.matricula || 'Sem matrÃ­cula'} Â· {perfisDoUsuario(usuario).includes('professor') ? 'Professor' : 'Aluno'}</span>
+                        <span style={s.alunoMatricula}>{usuario.matricula || 'Sem matrícula'} · {perfisDoUsuario(usuario).includes('professor') ? 'Professor' : 'Aluno'}</span>
                       </span>
                     </button>
                   ))}
@@ -578,7 +576,7 @@ export default function PedidoBalcao() {
                 </div>
               </div>
             )}
-            {tipoCliente === 'avulso' && <span style={s.avulso}>NÃ£o exige cadastro nem matrÃ­cula.</span>}
+            {tipoCliente === 'avulso' && <span style={s.avulso}>Não exige cadastro nem matrícula.</span>}
           </div>
           <div style={s.campo}>
             <label style={s.label}>Nome do aluno</label>
@@ -587,7 +585,7 @@ export default function PedidoBalcao() {
               onChange={e => { setNomeAluno(e.target.value); setErro('') }}
               style={{ ...s.input, ...(alunoEncontrado ? s.inputConfirmado : {}) }}
               disabled={tipoCliente === 'cadastrado'}
-              placeholder={tipoCliente === 'cadastrado' ? 'Preenchido apÃ³s a busca' : 'Nome completo'}
+              placeholder={tipoCliente === 'cadastrado' ? 'Preenchido após a busca' : 'Nome completo'}
             />
             {alunoEncontrado && <span style={s.encontrado}><BadgeCheck size={13} /> {perfilAluno === 'professor' ? 'Professor identificado' : 'Aluno identificado'}</span>}
           </div>
@@ -620,27 +618,26 @@ export default function PedidoBalcao() {
 
           <div style={{ ...s.produtosGrid, gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
             {produtosFiltrados.map(produto => {
-              const indisponivel = produto.disponivel === false
               const semEstoque = Number(produto.estoque || 0) <= 0
-              const bloqueado = indisponivel || semEstoque
+              const bloqueado = semEstoque
               const quantidadeNoCarrinho = carrinho.find(item => String(item.id) === String(produto.id))?.quantidade || 0
               return (
                 <article key={produto.id} style={{ ...s.produto, ...(quantidadeNoCarrinho ? s.produtoSelecionado : {}), opacity: bloqueado ? 0.62 : 1 }}>
                   <div style={s.produtoImagem}>
                     {produto.foto
                       ? <img src={produto.foto} alt={produto.nome} style={s.imagem} />
-                      : <span style={{ fontSize: 28 }}>{produto.emoji || 'ðŸ´'}</span>}
+                      : <span style={{ fontSize: 28 }}>{produto.emoji || '🍴'}</span>}
                   </div>
                   <div style={s.produtoInfo}>
                     <div style={s.produtoNomeLinha}>
                       <strong style={s.produtoNome}>{produto.nome}</strong>
                       {quantidadeNoCarrinho > 0 && <span style={s.noCarrinho}>{quantidadeNoCarrinho} no carrinho</span>}
                     </div>
-                    <span style={s.produtoMeta}>{produto.categoria} Â· {produto.estoque || 0} un</span>
+                    <span style={s.produtoMeta}>{produto.categoria} · {produto.estoque || 0} un</span>
                     <strong style={s.preco}>{formatPrice(produto.preco || 0)}</strong>
                   </div>
                   <button type="button" onClick={() => adicionarProduto(produto)} disabled={bloqueado} style={{ ...s.adicionarBtn, opacity: bloqueado ? 0.55 : 1 }}>
-                    <Plus size={17} /> {semEstoque ? 'Sem estoque' : indisponivel ? 'IndisponÃ­vel' : 'Adicionar'}
+                    <Plus size={17} /> {semEstoque ? 'Sem estoque' : 'Adicionar'}
                   </button>
                 </article>
               )

@@ -27,7 +27,7 @@ export function AppProvider({ children }) {
   const { carrinho, setCarrinho, adicionarAoCarrinho, removerDoCarrinho, limparCarrinho, totalCarrinho, qtdCarrinho, favoritos, toggleFavorito } = useCarrinho(usuarioLogado)
   const { produtos, atualizarProduto, adicionarProduto, adicionarProdutos, removerProduto, removerProdutos, atualizarDisponibilidadeProdutos } = useProdutos(usuarioLogado)
   const logout = useCallback(() => { limparCarrinho(); sair() }, [limparCarrinho, sair])
-  const { avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso } = useAvisos(usuarioLogado)
+  const { avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario } = useAvisos(usuarioLogado)
   const { avaliacoes, resumoPorProduto: resumoAvaliacoesPorProduto, refetchAvaliacoes } = useAvaliacoes(usuarioLogado)
   const { producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio, ajustarProducaoVendedor } = useProducaoDiaria(usuarioLogado)
   const { lanchoneteConfig, salvarLanchoneteConfig } = useLanchoneteConfig(usuarioLogado)
@@ -65,7 +65,7 @@ export function AppProvider({ children }) {
       produtos, atualizarProduto, adicionarProduto, adicionarProdutos, removerProduto, removerProdutos, atualizarDisponibilidadeProdutos,
       pedidos, fazerPedido, atualizarStatusPedido, darBaixaContaProfessor, cancelarPedido, editarPedido, limparEntregues, avaliarPedido,
       atendimentos, getAtendimentoPedido, enviarMensagemPedido, responderAtendimento, encerrarAtendimento, arquivarAtendimentosEncerrados, marcarLidoCliente, marcarLidoVendedor,
-      avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso,
+      avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario,
       avaliacoes, resumoAvaliacoesPorProduto,
       producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio, ajustarProducaoVendedor,
       lanchoneteConfig, salvarLanchoneteConfig,

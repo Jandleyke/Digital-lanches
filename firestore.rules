@@ -49,6 +49,10 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fixado']);
     }
 
+    function atualizacaoArquivarAviso() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['arquivadoPorUsuarios', 'arquivadoDetalhes']);
+    }
+
     function isAvisoAutor() {
       return isSignedIn() && resource.data.autorId == request.auth.uid;
     }
@@ -323,6 +327,7 @@ service cloud.firestore {
       allow create, delete: if podeGerenciarAvisos();
       allow update: if isAvisoAutor()
         || (podeGerenciarAvisos() && atualizacaoFixarAviso())
+        || (isSignedIn() && atualizacaoArquivarAviso())
         || (isSignedIn() && (atualizacaoLeituraAviso() || atualizacaoRespostaAviso()));
     }
 

@@ -233,6 +233,19 @@ function contarItens(pedidos) {
   return Object.entries(mapa).sort((a, b) => b[1] - a[1])
 }
 
+function isPedidoCancelado(p) {
+  return ['cancelado','cancelada','cancelado pelo aluno','cancelado_pelo_aluno','cancelado-aluno','cancelado pelo admin','cancelado_admin','cancelled'].includes(normalizeStatus(p?.status))
+}
+
+function getItensTexto(p) {
+  const itens = Array.isArray(p?.itens) ? p.itens : []
+  return itens.length ? itens.map(i => `${i.quantidade || 1}x ${i.nome || i.produtoNome || 'Produto'}`).join(', ') : 'Nao informado'
+}
+
+function xmlEscape(v) {
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 function EmptyState({ children }) {
   return <div style={s.vazio}>{children}</div>
 }
@@ -340,6 +353,11 @@ export default function Vendedor() {
   const [filtroAtendimentoStatus, setFiltroAtendimentoStatus] = useState('ativos')
   const [filtroAtendimentoPeriodo, setFiltroAtendimentoPeriodo] = useState('hoje')
   const [limpandoAtendimento, setLimpandoAtendimento] = useState(false)
+  const [filtroVendasTipo, setFiltroVendasTipo] = useState('dia')
+  const [filtroVendasDia, setFiltroVendasDia] = useState(hojeIso)
+  const [filtroVendasMes, setFiltroVendasMes] = useState(() => hojeIso().slice(0, 7))
+  const [filtroVendasOrigem, setFiltroVendasOrigem] = useState('todos')
+  const [gerandoPDFVendas, setGerandoPDFVendas] = useState(false)
 
   function selecionarAba(id) {
     navigate(ROTAS_ABA[id] || '/vendedor')
@@ -533,6 +551,17 @@ export default function Vendedor() {
   }), [pedidos, hoje])
   const totalVendas = vendasHoje.reduce((acc, p) => acc + getTotalPedido(p), 0)
   const itensVendidos = useMemo(() => contarItens(vendasHoje), [vendasHoje])
+
+  const pedidosRelatorioVendas = useMemo(() => pedidos.filter(p => {
+    const date = getPedidoDate(p)
+    const str = date ? dataIsoLocal(date) : null
+    if (filtroVendasTipo === 'dia' && str !== filtroVendasDia) return false
+    if (filtroVendasTipo === 'mes' && (!str || !str.startsWith(filtroVendasMes))) return false
+    if (filtroVendasOrigem !== 'todos' && (p?.origem === 'balcao' ? 'balcao' : 'app') !== filtroVendasOrigem) return false
+    return true
+  }), [pedidos, filtroVendasTipo, filtroVendasDia, filtroVendasMes, filtroVendasOrigem])
+  const pedidosValidosRelatorio = useMemo(() => pedidosRelatorioVendas.filter(p => !isPedidoCancelado(p)), [pedidosRelatorioVendas])
+  const pedidosCanceladosRelatorio = useMemo(() => pedidosRelatorioVendas.filter(isPedidoCancelado), [pedidosRelatorioVendas])
 
   const produtosOrdenados = useMemo(() => [...produtos].sort(ordenarPorNome), [produtos])
   const produtosFiltrados = useMemo(() => produtosOrdenados.filter(produto => {
@@ -1075,6 +1104,113 @@ export default function Vendedor() {
     )
   }
 
+  const formatCurrencyV = v => `R$ ${Number(v || 0).toFixed(2).replace('.', ',')}`
+  const periodoRelatorioVendas = filtroVendasTipo === 'dia'
+    ? `Dia ${filtroVendasDia.split('-').reverse().join('/')}`
+    : filtroVendasTipo === 'mes'
+      ? `Mes ${filtroVendasMes.split('-').reverse().join('/')}`
+      : 'Todos os periodos'
+
+  async function exportarPDFVendas() {
+    if (gerandoPDFVendas) return
+    setGerandoPDFVendas(true)
+    let jsPDF, autoTable
+    try {
+      [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
+    } catch {
+      alert('Nao foi possivel carregar o gerador de PDF.')
+      setGerandoPDFVendas(false)
+      return
+    }
+    try {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      const W = doc.internal.pageSize.getWidth()
+      const H = doc.internal.pageSize.getHeight()
+      const mx = 10
+      const azul = [0, 61, 124]
+      function cab() {
+        doc.setFillColor(255,255,255); doc.rect(0,0,W,26,'F')
+        doc.setFillColor(...azul); doc.rect(0,0,W,4,'F')
+        doc.setFillColor(244,121,32); doc.rect(0,4,W,1.2,'F')
+        doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(...azul)
+        doc.text('Senac Lanches - Relatorio de Vendas', mx, 13)
+        doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(85,94,112)
+        doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}  |  Periodo: ${periodoRelatorioVendas}`, mx, 19)
+      }
+      function rod() {
+        doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(130,140,155)
+        doc.text(`Pagina ${doc.internal.getNumberOfPages()}`, W - mx, H - 6, { align: 'right' })
+      }
+      function tab(titulo, head, body) {
+        const startY = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 10 : 32
+        if (titulo) { doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...azul); doc.text(titulo, mx, startY - 3) }
+        autoTable(doc, {
+          startY, head: [head],
+          body: body.length ? body : [[{ content: 'Nenhum registro encontrado.', colSpan: head.length, styles: { halign: 'center' } }]],
+          margin: { left: mx, right: mx, top: 30, bottom: 14 }, theme: 'grid',
+          headStyles: { fillColor: azul, textColor: [255,255,255], fontStyle: 'bold', fontSize: 7.4, cellPadding: 1.6 },
+          bodyStyles: { fontSize: 7.1, cellPadding: 1.5, textColor: [71,85,105] },
+          alternateRowStyles: { fillColor: [248,250,252] },
+          didDrawPage: () => { cab(); rod() },
+        })
+      }
+      cab(); rod()
+      const totalV = pedidosValidosRelatorio.reduce((s, p) => s + getTotalPedido(p), 0)
+      tab('Resumo', ['Indicador','Valor'], [
+        ['Pedidos validos', String(pedidosValidosRelatorio.length)],
+        ['Pedidos cancelados', String(pedidosCanceladosRelatorio.length)],
+        ['Total arrecadado', formatCurrencyV(totalV)],
+        ['Media por pedido', formatCurrencyV(pedidosValidosRelatorio.length > 0 ? totalV / pedidosValidosRelatorio.length : 0)],
+        ['Periodo', periodoRelatorioVendas],
+      ])
+      tab('Pedidos validos', ['Pedido','Aluno','Origem','Itens','Total','Pagamento','Status','Data/Hora'],
+        pedidosValidosRelatorio.map(p => [
+          pedidoCodigo(p), alunoNome(p), origemLabel(p), getItensTexto(p),
+          formatCurrencyV(getTotalPedido(p)), getFormaPagamento(p), p.status || 'Nao informado',
+          formatarDataHora(getPedidoDate(p) || p.criadoEm),
+        ])
+      )
+      if (pedidosCanceladosRelatorio.length > 0) {
+        tab('Pedidos cancelados', ['Pedido','Aluno','Origem','Itens','Total','Status','Data/Hora'],
+          pedidosCanceladosRelatorio.map(p => [
+            pedidoCodigo(p), alunoNome(p), origemLabel(p), getItensTexto(p),
+            formatCurrencyV(getTotalPedido(p)), p.status || 'Cancelado',
+            formatarDataHora(getPedidoDate(p) || p.criadoEm),
+          ])
+        )
+      }
+      const sufixo = filtroVendasTipo === 'dia' ? filtroVendasDia : filtroVendasTipo === 'mes' ? filtroVendasMes : 'todos'
+      doc.save(`relatorio-vendas-${sufixo}.pdf`)
+    } catch (err) {
+      console.error('Erro PDF vendas:', err)
+      alert('Nao foi possivel gerar o PDF.')
+    } finally {
+      setGerandoPDFVendas(false)
+    }
+  }
+
+  function exportarExcelVendas() {
+    const H = v => `<Cell ss:StyleID="H"><Data ss:Type="String">${xmlEscape(v)}</Data></Cell>`
+    const C = v => `<Cell ss:StyleID="C"><Data ss:Type="String">${xmlEscape(String(v ?? ''))}</Data></Cell>`
+    const R = cells => `<Row>${cells}</Row>`
+    const styles = `<Style ss:ID="H"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#003D7C" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style><Style ss:ID="C"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:Color="#334155"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>`
+    const colsVal = [80,150,80,240,90,110,100,130].map(w=>`<Column ss:Width="${w}"/>`).join('')
+    const colsCanc = [80,150,80,240,90,100,130].map(w=>`<Column ss:Width="${w}"/>`).join('')
+    const headVal = R([H('Pedido'),H('Aluno'),H('Origem'),H('Itens'),H('Total'),H('Pagamento'),H('Status'),H('Data/Hora')].join(''))
+    const headCanc = R([H('Pedido'),H('Aluno'),H('Origem'),H('Itens'),H('Total'),H('Status'),H('Data/Hora')].join(''))
+    const rowsVal = pedidosValidosRelatorio.map(p => R([pedidoCodigo(p),alunoNome(p),origemLabel(p),getItensTexto(p),formatCurrencyV(getTotalPedido(p)),getFormaPagamento(p),p.status||'Nao informado',formatarDataHora(getPedidoDate(p)||p.criadoEm)].map(C).join(''))).join('')
+    const rowsCanc = pedidosCanceladosRelatorio.map(p => R([pedidoCodigo(p),alunoNome(p),origemLabel(p),getItensTexto(p),formatCurrencyV(getTotalPedido(p)),p.status||'Cancelado',formatarDataHora(getPedidoDate(p)||p.criadoEm)].map(C).join(''))).join('')
+    const wb = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles>${styles}</Styles><Worksheet ss:Name="Pedidos Validos"><Table ss:DefaultRowHeight="22">${colsVal}${headVal}${rowsVal||R(C('Nenhum pedido valido encontrado.'))}</Table></Worksheet><Worksheet ss:Name="Pedidos Cancelados"><Table ss:DefaultRowHeight="22">${colsCanc}${headCanc}${rowsCanc||R(C('Nenhum pedido cancelado encontrado.'))}</Table></Worksheet></Workbook>`
+    const blob = new Blob(['﻿' + wb], { type: 'application/vnd.ms-excel;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const sufixo = filtroVendasTipo === 'dia' ? filtroVendasDia : filtroVendasTipo === 'mes' ? filtroVendasMes : 'todos'
+    a.download = `relatorio-vendas-${sufixo}.xls`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <Layout titulo={aba === 'balcao' ? null : (podeEditarPreco ? 'Gestão de pedidos' : 'Painel do Vendedor')}>
       <div style={{ ...s.page, paddingBottom: isMobile ? 128 : 32 }}>
@@ -1492,18 +1628,51 @@ export default function Vendedor() {
         {aba === 'estoque' && <GerenciarEstoque />}
 
         {aba === 'vendas' && (
-          <div style={{ ...s.contentGrid, gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px, 360px) 1fr' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <section style={s.sectionCard}>
-              <h3 style={s.sectionTitle}>Resumo do dia</h3>
-              <div style={s.vendasBox}><span>Total vendido hoje</span><strong>{formatPrice(totalVendas)}</strong></div>
-              <div style={s.vendasBox}><span>Pedidos pagos/retirados</span><strong>{vendasHoje.length}</strong></div>
+              <div style={{ display: 'flex', alignItems: isMobile ? 'stretch' : 'flex-start', justifyContent: 'space-between', gap: 16, flexDirection: isMobile ? 'column' : 'row', flexWrap: 'wrap' }}>
+                <div>
+                  <h3 style={s.sectionTitle}>Exportar relatorios</h3>
+                  <p style={s.meta}>PDF e Excel com os pedidos do periodo selecionado.</p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 4, background: '#F1F5F9', borderRadius: 12, padding: 3 }}>
+                    {[['dia','Dia'],['mes','Mes'],['todos','Todos']].map(([v,l]) => (
+                      <button key={v} type="button" style={{ border: 'none', background: filtroVendasTipo === v ? '#003D7C' : 'transparent', color: filtroVendasTipo === v ? '#fff' : '#64748B', borderRadius: 9, padding: '0.48rem 0.8rem', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => setFiltroVendasTipo(v)}>{l}</button>
+                    ))}
+                  </div>
+                  {filtroVendasTipo === 'dia' && <input type="date" value={filtroVendasDia} onChange={e => setFiltroVendasDia(e.target.value)} style={s.input} />}
+                  {filtroVendasTipo === 'mes' && <input type="month" value={filtroVendasMes} onChange={e => setFiltroVendasMes(e.target.value)} style={s.input} />}
+                  <select value={filtroVendasOrigem} onChange={e => setFiltroVendasOrigem(e.target.value)} style={s.input}>
+                    <option value="todos">Todas as origens</option>
+                    <option value="app">App</option>
+                    <option value="balcao">Balcao</option>
+                  </select>
+                  <button style={{ ...s.btnPrimario, opacity: gerandoPDFVendas ? 0.7 : 1, width: isMobile ? '100%' : 'auto' }} onClick={exportarPDFVendas} disabled={gerandoPDFVendas}>
+                    {gerandoPDFVendas ? 'Gerando...' : 'Baixar PDF'}
+                  </button>
+                  <button style={{ ...s.btnEntregue, width: isMobile ? '100%' : 'auto' }} onClick={exportarExcelVendas}>Baixar Excel</button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', borderTop: '1px solid #E2E8F0', paddingTop: 12, marginTop: 4 }}>
+                <span style={s.meta}><strong style={{ color: '#003D7C' }}>{pedidosValidosRelatorio.length}</strong> validos</span>
+                <span style={s.meta}><strong style={{ color: '#DC2626' }}>{pedidosCanceladosRelatorio.length}</strong> cancelados</span>
+                <span style={s.meta}>Total: <strong style={{ color: '#166534' }}>{formatCurrencyV(pedidosValidosRelatorio.reduce((acc, p) => acc + getTotalPedido(p), 0))}</strong></span>
+              </div>
             </section>
-            <section style={s.sectionCard}>
-              <h3 style={s.sectionTitle}>Itens vendidos</h3>
-              {itensVendidos.length === 0 ? <EmptyState>Sem vendas hoje.</EmptyState> : itensVendidos.map(([nome, qtd]) => (
-                <div key={nome} style={s.linhaResumo}><span>{nome}</span><strong>{qtd} un</strong></div>
-              ))}
-            </section>
+            <div style={{ ...s.contentGrid, gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px, 360px) 1fr' }}>
+              <section style={s.sectionCard}>
+                <h3 style={s.sectionTitle}>Resumo do dia</h3>
+                <div style={s.vendasBox}><span>Total vendido hoje</span><strong>{formatPrice(totalVendas)}</strong></div>
+                <div style={s.vendasBox}><span>Pedidos pagos/retirados</span><strong>{vendasHoje.length}</strong></div>
+              </section>
+              <section style={s.sectionCard}>
+                <h3 style={s.sectionTitle}>Itens vendidos hoje</h3>
+                {itensVendidos.length === 0 ? <EmptyState>Sem vendas hoje.</EmptyState> : itensVendidos.map(([nome, qtd]) => (
+                  <div key={nome} style={s.linhaResumo}><span>{nome}</span><strong>{qtd} un</strong></div>
+                ))}
+              </section>
+            </div>
           </div>
         )}
 

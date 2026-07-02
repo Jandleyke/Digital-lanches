@@ -44,6 +44,26 @@ a { text-decoration: none; color: inherit; }
 input, select, textarea { font-family: inherit; }
 img { max-width: 100%; }
 
+.rich-text-content p,
+.rich-text-content div {
+  margin: 0 0 0.45rem;
+}
+
+.rich-text-content p:last-child,
+.rich-text-content div:last-child {
+  margin-bottom: 0;
+}
+
+.rich-text-content ul,
+.rich-text-content ol {
+  margin: 0.35rem 0 0.45rem 1.2rem;
+  padding-left: 0.4rem;
+}
+
+.rich-text-content li {
+  margin: 0.18rem 0;
+}
+
 @media (max-width: 768px) {
   html {
     font-size: 15px;

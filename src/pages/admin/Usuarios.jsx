@@ -3,8 +3,8 @@ import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
 import { useIsMobile } from '../../utils/useIsMobile'
 import { processarFotoPerfil } from '../../utils/image.js'
-import { PERFIL_INFO, ehAluno, ehGestao, ehStaff, perfisDoUsuario, perfisParaExibicao } from '../../utils/perfis'
-import { Ban, CheckCircle2, Pencil, Search, UserPlus } from 'lucide-react'
+import { PERFIL_INFO, ehGestao, ehStaff, perfisDoUsuario, perfisParaExibicao } from '../../utils/perfis'
+import { Ban, CheckCircle2, Pencil, Search, Trash2, UserPlus } from 'lucide-react'
 
 const PERFIS_SELECIONAVEIS = ['aluno', 'professor', 'admin', 'gerente', 'vendedor', 'cozinha']
 const perfilCor = {
@@ -66,46 +66,112 @@ export default function Usuarios() {
   const [cadErro, setCadErro]   = useState('')
   const [cadOk, setCadOk]       = useState(false)
 
+  const [modoSelecao, setModoSelecao] = useState(false)
+  const [selecionados, setSelecionados] = useState(new Set())
+  const [excluindoLote, setExcluindoLote] = useState(false)
+
   const isAdmin = ehGestao(usuarioLogado?.perfil)
   const isMobile = useIsMobile()
   const isCompact = useIsMobile(1180)
 
-  const filtrados = usuarios
+  const norm = s => String(s || '').toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+  const usuariosUnicos = (() => {
+    const vistos = new Set()
+    return (usuarios || []).filter(u => {
+      const k = u.uid || u.matricula
+      if (!k || vistos.has(k)) return false
+      vistos.add(k)
+      return true
+    })
+  })()
+
+  const filtrados = usuariosUnicos
     .filter(u => {
-      if (filtro === 'alunos')    return perfisDoUsuario(u).some(ehAluno)
-      if (filtro === 'staff')     return perfisDoUsuario(u).some(ehStaff)
+      const perfis = perfisDoUsuario(u)
+      if (filtro === 'alunos')     return perfis.includes('aluno') && !perfis.some(ehStaff) && !perfis.includes('professor')
+      if (filtro === 'staff')      return perfis.some(ehStaff) || perfis.includes('professor')
       if (filtro === 'bloqueados') return u.bloqueado
       return true
     })
     .filter(u => {
-      const b = busca.toLowerCase()
-      return u.nome?.toLowerCase().includes(b) || u.matricula?.toLowerCase().includes(b)
+      const b = norm(busca)
+      if (!b) return true
+      return norm(u.nome).includes(b) || norm(u.matricula).includes(b) || norm(u.email).includes(b)
     })
+    .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
 
   function pedidosDoUsuario(m) { return pedidos.filter(p => p.matricula === m) }
   function totalGasto(m) { return pedidos.filter(p => p.matricula === m && p.pago && p.status !== 'Cancelado').reduce((a, p) => a + p.total, 0) }
 
+  function toggleSelecionado(uid) {
+    setSelecionados(prev => {
+      const next = new Set(prev)
+      if (next.has(uid)) next.delete(uid)
+      else next.add(uid)
+      return next
+    })
+  }
+
+  function ativarSelecao() {
+    setModoSelecao(true)
+    setSelecionados(new Set())
+  }
+
+  function cancelarSelecao() {
+    setModoSelecao(false)
+    setSelecionados(new Set())
+  }
+
+  function toggleTodos() {
+    if (selecionados.size === filtrados.length && filtrados.length > 0) {
+      setSelecionados(new Set())
+    } else {
+      setSelecionados(new Set(filtrados.map(u => u.uid).filter(Boolean)))
+    }
+  }
+
+  async function handleExcluirLote() {
+    if (!selecionados.size || excluindoLote) return
+    if (!confirm(`Excluir ${selecionados.size} usuário(s) selecionado(s)? Esta ação é irreversível.`)) return
+    setExcluindoLote(true)
+    for (const uid of selecionados) {
+      const u = usuariosUnicos.find(x => x.uid === uid)
+      if (u?.matricula) await excluirUsuario(u.matricula)
+    }
+    setSelecionados(new Set())
+    setModoSelecao(false)
+    setExcluindoLote(false)
+  }
+
   function abrirDetalhe(u) {
     setDetalhe(u)
     setEditando(false)
-    setEditForm({ nome: u.nome || '', email: u.email || '', telefone: u.telefone || '', curso: u.curso || '', roles: perfisDoUsuario(u), fotoPerfil: u.fotoPerfil || '' })
+    setEditForm({ nome: u.nome || '', matricula: u.matricula || '', email: u.email || '', telefone: u.telefone || '', curso: u.curso || '', roles: perfisDoUsuario(u), fotoPerfil: u.fotoPerfil || '' })
     setMsgEdit('')
   }
 
   async function handleSalvarEdicao() {
     if (!editForm.nome.trim()) { setMsgEdit('Nome é obrigatório.'); return }
+    if (!editForm.matricula.trim()) { setMsgEdit('Matrícula é obrigatória.'); return }
     setSalvando(true)
-    const res = await atualizarUsuario(detalhe.matricula, {
+    const dados = {
       nome: editForm.nome.trim(),
-      email: editForm.email.trim().toLowerCase(),
       telefone: editForm.telefone,
       curso: editForm.curso.trim(),
       roles: editForm.roles,
       fotoPerfil: editForm.fotoPerfil || '',
-    })
+    }
+    if (editForm.email.trim().toLowerCase() !== (detalhe.email || '').toLowerCase()) {
+      dados.email = editForm.email.trim().toLowerCase()
+    }
+    if (editForm.matricula.trim() !== detalhe.matricula) {
+      dados.matricula = editForm.matricula.trim()
+    }
+    const res = await atualizarUsuario(detalhe.matricula, dados)
     setSalvando(false)
     if (res.erro) { setMsgEdit(res.erro); return }
-    setDetalhe(prev => ({ ...prev, ...editForm, nome: editForm.nome.trim() }))
+    setDetalhe(prev => ({ ...prev, ...editForm, nome: editForm.nome.trim(), matricula: editForm.matricula.trim() }))
     setEditando(false)
     setMsgEdit('Dados atualizados!')
   }
@@ -186,20 +252,41 @@ export default function Usuarios() {
         </div>
         <div style={s.toolbarBottom}>
           <div style={s.filtros} role="group" aria-label="Filtrar usuários">
-            {[['todos','Todos'],['alunos','Alunos/Prof.'],['staff','Equipe'],['bloqueados','Bloqueados']].map(([v,l]) => (
-              <button key={v} style={{ ...s.filtroBtn, ...(filtro === v ? s.filtroBtnOn : {}) }} onClick={() => setFiltro(v)}>{l}</button>
+            {[['todos','Todos'],['alunos','Alunos'],['staff','Equipe'],['bloqueados','Bloqueados']].map(([v,l]) => (
+              <button key={v} style={{ ...s.filtroBtn, ...(filtro === v ? s.filtroBtnOn : {}) }} onClick={() => { setFiltro(v); setSelecionados(new Set()) }}>{l}</button>
             ))}
           </div>
-          <span style={s.contador}>{filtrados.length} {filtrados.length === 1 ? 'usuário' : 'usuários'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {isAdmin && filtrados.length > 0 && !modoSelecao && (
+              <button style={s.filtroBtn} onClick={ativarSelecao}>Selecionar</button>
+            )}
+            {modoSelecao && (
+              <button style={s.filtroBtn} onClick={toggleTodos}>
+                {selecionados.size === filtrados.length && filtrados.length > 0 ? 'Desmarcar todos' : 'Selecionar todos'}
+              </button>
+            )}
+            <span style={s.contador}>{filtrados.length} {filtrados.length === 1 ? 'usuário' : 'usuários'}</span>
+          </div>
         </div>
       </div>
+
+      {selecionados.size > 0 && isAdmin && (
+        <div style={s.loteBar}>
+          <span style={{ fontWeight: 800, color: '#0F172A' }}>{selecionados.size} selecionado(s)</span>
+          <button style={s.btnExcluirLote} onClick={handleExcluirLote} disabled={excluindoLote}>
+            <Trash2 size={16} /> {excluindoLote ? 'Excluindo...' : `Excluir ${selecionados.size} selecionado(s)`}
+          </button>
+          <button style={s.btnCancelarLote} onClick={cancelarSelecao}>Cancelar</button>
+        </div>
+      )}
 
       {isCompact ? (
         <div style={s.compactList}>
           {filtrados.map(u => {
             return (
-              <div key={u.matricula} style={s.mCard}>
+              <div key={u.uid || u.matricula} style={{ ...s.mCard, outline: modoSelecao && selecionados.has(u.uid) ? '2px solid #003D7C' : 'none', cursor: modoSelecao ? 'pointer' : 'default' }} onClick={modoSelecao ? () => toggleSelecionado(u.uid) : undefined}>
                 <div style={s.mCardTop}>
+                  {isAdmin && modoSelecao && <input type="checkbox" checked={selecionados.has(u.uid)} onChange={() => toggleSelecionado(u.uid)} style={{ flexShrink: 0 }} />}
                   {u.fotoPerfil
                     ? <img src={u.fotoPerfil} alt={u.nome} style={s.mAvatarPequeno} />
                     : <div style={s.mAvatarLetra}>{u.nome?.[0]?.toUpperCase()}</div>}
@@ -246,8 +333,9 @@ export default function Usuarios() {
           </div>
           {filtrados.map(u => {
             return (
-              <div key={u.matricula} style={s.trow}>
+              <div key={u.uid || u.matricula} style={{ ...s.trow, background: modoSelecao && selecionados.has(u.uid) ? '#EFF6FF' : undefined, cursor: modoSelecao ? 'pointer' : 'default' }} onClick={modoSelecao ? () => toggleSelecionado(u.uid) : undefined}>
                 <div style={{ flex: 2, display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: '#1A202C' }}>
+                  {isAdmin && modoSelecao && <input type="checkbox" checked={selecionados.has(u.uid)} onChange={() => toggleSelecionado(u.uid)} style={{ flexShrink: 0 }} />}
                   {u.fotoPerfil
                     ? <img src={u.fotoPerfil} alt={u.nome} style={s.avatarImg} />
                     : <div style={s.avatar}>{u.nome?.[0]?.toUpperCase()}</div>}
@@ -322,6 +410,7 @@ export default function Usuarios() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {[
                     { label: 'Nome', key: 'nome', type: 'text' },
+                    { label: 'Matrícula', key: 'matricula', type: 'text' },
                     { label: 'E-mail', key: 'email', type: 'email' },
                     { label: 'Telefone', key: 'telefone', type: 'tel' },
                     { label: 'Curso', key: 'curso', type: 'text' },
@@ -485,4 +574,7 @@ const s = {
   acoesModal: { display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 8 },
   btnCancelar: { padding: '0.55rem 1.1rem', borderRadius: 8, background: '#F1F5F9', color: '#64748B', fontWeight: 600, fontSize: '0.85rem', border: 'none', cursor: 'pointer' },
   btnSalvar: { padding: '0.55rem 1.1rem', borderRadius: 8, background: '#003D7C', color: '#fff', fontWeight: 700, fontSize: '0.85rem', border: 'none', cursor: 'pointer' },
+  loteBar: { position: 'sticky', top: 72, zIndex: 50, background: '#0F172A', color: '#fff', borderRadius: 14, padding: '0.9rem 1.25rem', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', boxShadow: '0 8px 24px rgba(15,23,42,0.25)', marginBottom: 4 },
+  btnExcluirLote: { background: '#DC2626', color: '#fff', border: 'none', borderRadius: 10, padding: '0.6rem 1rem', fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'inherit' },
+  btnCancelarLote: { background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 10, padding: '0.6rem 1rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
 }

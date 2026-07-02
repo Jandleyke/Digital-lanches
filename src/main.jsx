@@ -23,3 +23,19 @@ createRoot(document.getElementById('root')).render(
 // publicada enquanto a aba estava aberta). Sem isso, a recarga automática
 // só valeria uma vez por sessão inteira do navegador.
 sessionStorage.removeItem('senac-chunk-reload')
+
+if ('serviceWorker' in navigator) {
+  let recarregouPorAtualizacao = false
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (recarregouPorAtualizacao) return
+    recarregouPorAtualizacao = true
+    window.location.reload()
+  })
+
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.getRegistrations()
+      .then(registros => Promise.all(registros.map(registro => registro.update())))
+      .catch(() => {})
+  })
+}

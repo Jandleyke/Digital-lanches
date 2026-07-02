@@ -108,8 +108,8 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
     vincularPedidosAvulsos()
   }, [usuarioLogado?.uid, usuarioLogado?.nome, usuarioLogado?.nomeVinculo, usuarioLogado?.matricula, usuarioLogado?.perfil, usuarioLogado?.role])
 
-  // Aluno sÃ³ precisa dos prÃ³prios pedidos; staff acompanha a fila inteira.
-  // Isso evita sincronizar (e cobrar leituras de) toda a coleÃ§Ã£o para cada aluno logado.
+  // Aluno só precisa dos próprios pedidos; staff acompanha a fila inteira.
+  // Isso evita sincronizar (e cobrar leituras de) toda a coleção para cada aluno logado.
   useEffect(() => {
     if (!usuarioLogado) return
     const usuarioEhStaff = ehStaff(usuarioLogado.perfil)
@@ -132,14 +132,14 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
       onFbStatus?.('erro', 'init: ' + e.message)
     }
     return unsub
-    // Re-inscreve apenas quando perfil/matrÃ­cula mudam (ex.: login/logout) â€” outros
-    // campos do usuÃ¡rio (nome, telefone...) nÃ£o afetam a consulta de pedidos.
+    // Re-inscreve apenas quando perfil/matrícula mudam (ex.: login/logout) — outros
+    // campos do usuário (nome, telefone...) não afetam a consulta de pedidos.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuarioLogado?.perfil, usuarioLogado?.matricula, usuarioLogado?.uid])
 
-  // Notifica o aluno assim que um pedido seu passa a "Pronto" â€” fica ativo em
-  // qualquer tela do app (nÃ£o sÃ³ na pÃ¡gina "Meus Pedidos"), pois o listener acima
-  // jÃ¡ mantÃ©m `pedidos` sincronizado globalmente enquanto o usuÃ¡rio estÃ¡ logado.
+  // Notifica o aluno assim que um pedido seu passa a "Pronto" — fica ativo em
+  // qualquer tela do app (não só na página "Meus Pedidos"), pois o listener acima
+  // já mantém `pedidos` sincronizado globalmente enquanto o usuário está logado.
   const prevStatusRef = useRef({})
   useEffect(() => {
     prevStatusRef.current = {}
@@ -156,23 +156,23 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
   }, [pedidos, usuarioLogado])
 
   async function fazerPedido(horarioRetirada, pagamento) {
-    if (!usuarioLogado) throw new Error('Ops! VocÃª precisa estar logado para pedir.')
-    if (carrinho.length === 0) throw new Error('Seu carrinho estÃ¡ vazio.')
+    if (!usuarioLogado) throw new Error('Ops! Você precisa estar logado para pedir.')
+    if (carrinho.length === 0) throw new Error('Seu carrinho está vazio.')
     const perfilAluno = normalizarPerfil(usuarioLogado.role || usuarioLogado.perfil)
     if (pagamento === 'Conta do Professor' && perfilAluno !== 'professor') {
-      throw new Error('Conta do Professor estÃ¡ disponÃ­vel somente para professores.')
+      throw new Error('Conta do Professor está disponível somente para professores.')
     }
 
     const produtosDoCardapio = produtos
       .map(produto => produtoDisponivelParaCardapioDia(produto, producaoHoje))
       .filter(Boolean)
     const itemSemEstoque = encontrarItemSemEstoque(carrinho, produtosDoCardapio)
-    if (itemSemEstoque) throw new Error(`NÃ£o hÃ¡ quantidade suficiente disponÃ­vel para ${itemSemEstoque.nome}.`)
+    if (itemSemEstoque) throw new Error(`Não há quantidade suficiente disponível para ${itemSemEstoque.nome}.`)
 
     const criadoEm = Date.now()
     const horarioRetiradaEm = horarioRetiradaParaTimestamp(horarioRetirada, criadoEm)
-    if (!horarioRetiradaEm) throw new Error('Selecione um horÃ¡rio vÃ¡lido para retirada.')
-    if (horarioRetiradaEm < criadoEm - 60 * 1000) throw new Error('O horÃ¡rio selecionado para retirada jÃ¡ passou. Escolha um horÃ¡rio futuro.')
+    if (!horarioRetiradaEm) throw new Error('Selecione um horário válido para retirada.')
+    if (horarioRetiradaEm < criadoEm - 60 * 1000) throw new Error('O horário selecionado para retirada já passou. Escolha um horário futuro.')
     const chaveDiaria = chaveDiariaPedido(criadoEm)
     const firestoreId = `P${chaveDiaria}-${criadoEm}`
     let novoPedido = null
@@ -208,7 +208,7 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
         })
 
         const numero = Number(contadorSnap.data()?.ultimoNumero || 0) + 1
-        if (numero > 9999) throw new Error('O limite diÃ¡rio de pedidos foi atingido. Procure o atendimento.')
+        if (numero > 9999) throw new Error('O limite diário de pedidos foi atingido. Procure o atendimento.')
         const codigosUsados = contadorSnap.data()?.codigosUsados || []
         const codigoPedidoGerado = gerarCodigoPedidoAleatorio(codigosUsados)
         const inicioContagemEm = Math.max(criadoEm, horarioRetiradaEm)
@@ -269,10 +269,10 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
     } catch (error) {
       console.error("Erro ao processar pedido:", error)
       const mensagem = String(error?.message || '')
-      if (/estoque|quantidade suficiente|disponÃ­vel|horÃ¡rio|limite diÃ¡rio/i.test(mensagem)) {
+      if (/estoque|quantidade suficiente|disponível|horário|limite diário/i.test(mensagem)) {
         throw new Error(mensagem, { cause: error })
       }
-      throw new Error('Houve um erro de conexÃ£o ao processar seu pedido. Verifique sua internet.', { cause: error })
+      throw new Error('Houve um erro de conexão ao processar seu pedido. Verifique sua internet.', { cause: error })
     }
   }
 
@@ -280,7 +280,7 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
     try {
       const pedido = pedidos.find(p => p.id === id) || pedidoInformado
       if (novoStatus === 'Entregue' && pedidoAntesDaRetirada(pedido)) {
-        throw new Error('O tempo do pedido comeÃ§arÃ¡ a contar a partir do horÃ¡rio selecionado para retirada.')
+        throw new Error('O tempo do pedido começará a contar a partir do horário selecionado para retirada.')
       }
       const statusKey = novoStatus === 'Entregue' ? 'retirado'
         : novoStatus === 'Cancelado' ? 'cancelado'
@@ -331,7 +331,7 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
       return { ok: true }
     } catch (e) {
       console.error('atualizarStatusPedido:', e)
-      return { erro: e.message || 'NÃ£o foi possÃ­vel atualizar o pedido.' }
+      return { erro: e.message || 'Não foi possível atualizar o pedido.' }
     }
   }
 
@@ -340,7 +340,7 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
       const pedido = pedidos.find(item => item.id === id)
       const formaPagamento = String(pedido?.formaPagamento || pedido?.pagamento || '').trim().toLocaleLowerCase('pt-BR')
       if (!pedido || formaPagamento !== 'conta do professor') {
-        return { erro: 'Este pedido nÃ£o pertence Ã  Conta do Professor.' }
+        return { erro: 'Este pedido não pertence Ã  Conta do Professor.' }
       }
       if (pedido.pago) return { ok: true }
       const pagoEm = Date.now()
@@ -354,7 +354,7 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
       return { ok: true }
     } catch (e) {
       console.error('darBaixaContaProfessor:', e)
-      return { erro: 'NÃ£o foi possÃ­vel dar baixa no pagamento.' }
+      return { erro: 'Não foi possível dar baixa no pagamento.' }
     }
   }
 
@@ -364,7 +364,7 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
         await runTransaction(db, async transaction => {
           const pedidoRef = doc(db, 'pedidos', id)
           const pedidoSnap = await transaction.get(pedidoRef)
-          if (!pedidoSnap.exists()) throw new Error('Pedido nÃ£o encontrado.')
+          if (!pedidoSnap.exists()) throw new Error('Pedido não encontrado.')
 
           if (!Array.isArray(updates.itens) || updates.itens.length === 0) {
             throw new Error('O pedido precisa ter pelo menos um item.')
@@ -372,13 +372,13 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
 
           const pedidoAtual = pedidoSnap.data()
           if (['Entregue', 'Cancelado'].includes(pedidoAtual.status)) {
-            throw new Error('Pedidos encerrados nÃ£o podem ser editados pelo vendedor.')
+            throw new Error('Pedidos encerrados não podem ser editados pelo vendedor.')
           }
           const itensAtuais = pedidoAtual.itens || itensAntigos
           const qtdAntes = quantidadesPorProduto(itensAtuais)
           updates.itens.forEach(i => {
             const produtoId = i.produtoId || i.id
-            if (!produtoId) throw new Error(`O produto ${i.nome || 'informado'} nÃ£o possui identificaÃ§Ã£o vÃ¡lida.`)
+            if (!produtoId) throw new Error(`O produto ${i.nome || 'informado'} não possui identificação válida.`)
           })
           const qtdDepois = quantidadesPorProduto(updates.itens)
 
@@ -391,12 +391,12 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
             const quantidadeDepois = qtdDepois[prodId] || 0
             if (quantidadeAntes === quantidadeDepois) return
             if (!snap.exists()) {
-              if (quantidadeDepois > quantidadeAntes) throw new Error('Um produto adicionado ao pedido nÃ£o estÃ¡ mais disponÃ­vel.')
+              if (quantidadeDepois > quantidadeAntes) throw new Error('Um produto adicionado ao pedido não está mais disponível.')
               return
             }
             const ajuste = calcularEstoqueAposEdicao(snap.data().estoque, quantidadeAntes, quantidadeDepois)
             if (!ajuste.valido) {
-              throw new Error(`NÃ£o hÃ¡ quantidade suficiente disponÃ­vel para ${snap.data().nome || 'este item'}.`)
+              throw new Error(`Não há quantidade suficiente disponível para ${snap.data().nome || 'este item'}.`)
             }
             transaction.update(ref, { estoque: ajuste.estoque })
           })
@@ -421,7 +421,7 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
       return { ok: true }
     } catch (e) {
       console.error('editarPedido:', e)
-      return { erro: e.message || 'NÃ£o foi possÃ­vel editar o pedido.' }
+      return { erro: e.message || 'Não foi possível editar o pedido.' }
     }
   }
 
@@ -539,7 +539,7 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
       return { ok: true }
     } catch (e) {
       console.error('cancelarPedido:', e)
-      return { erro: e.message || 'NÃ£o foi possÃ­vel cancelar o pedido.' }
+      return { erro: e.message || 'Não foi possível cancelar o pedido.' }
     }
   }
 

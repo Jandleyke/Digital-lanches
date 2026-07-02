@@ -191,7 +191,9 @@ async function atualizarUsuario(app, adminUid, adminNome, payload) {
   if (Object.hasOwn(payload, 'email')) {
     const email = String(payload.email || '').trim().toLowerCase()
     if (!emailValido(email)) return { status: 400, body: { erro: 'Informe um e-mail valido.' } }
-    authUpdate.email = email
+    let emailAtual = ''
+    try { emailAtual = (await admin.auth(app).getUser(uid)).email || '' } catch { /* usuario sem email no Auth */ }
+    if (email !== emailAtual) authUpdate.email = email
     firestoreUpdate.email = email
   }
 
@@ -223,6 +225,13 @@ async function atualizarUsuario(app, adminUid, adminNome, payload) {
   if (Object.hasOwn(payload, 'alergias')) firestoreUpdate.alergias = Array.isArray(payload.alergias) ? payload.alergias : []
   if (Object.hasOwn(payload, 'ativo')) firestoreUpdate.ativo = payload.ativo !== false
   if (Object.hasOwn(payload, 'bloqueado')) firestoreUpdate.bloqueado = payload.bloqueado === true
+  if (Object.hasOwn(payload, 'matricula')) {
+    const novaMatricula = normalizarMatricula(payload.matricula)
+    if (!matriculaValida(novaMatricula)) return { status: 400, body: { erro: 'Matricula invalida. Use entre 4 e 20 caracteres alfanumericos.' } }
+    const existente = await admin.firestore(app).collection('usuarios').where('matricula', '==', novaMatricula).limit(1).get()
+    if (!existente.empty && existente.docs[0].id !== uid) return { status: 409, body: { erro: 'Matricula ja cadastrada para outro usuario.' } }
+    firestoreUpdate.matricula = novaMatricula
+  }
 
   try {
     if (Object.keys(authUpdate).length) {

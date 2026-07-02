@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useApp } from '../contexts/AppContext'
+import { RichTextContent } from './RichTextEditor'
+import { avisoArquivadoParaUsuario } from '../utils/avisos'
 
 const TIPO_ESTILO = {
   info:      { bg: '#DBEAFE', border: '#93C5FD', color: '#1D4ED8', icon: '📢' },
@@ -9,13 +11,15 @@ const TIPO_ESTILO = {
 }
 
 export default function AvisosBanner({ perfil }) {
-  const { avisos } = useApp()
+  const { avisos, usuarioLogado } = useApp()
+  const escopoArquivo = perfil === 'alunos' ? 'aluno' : (perfil || 'geral')
   const [fechados, setFechados] = useState(() => {
     try { return JSON.parse(sessionStorage.getItem('avisosFechados') || '[]') } catch { return [] }
   })
 
   const visiveis = avisos.filter(av => {
     if (fechados.includes(av.id)) return false
+    if (avisoArquivadoParaUsuario(av, usuarioLogado, escopoArquivo) || av.status === 'inativo') return false
     const dest = av.destino || av.destinatario || 'todos'
     return dest === 'todos' || dest === perfil || (perfil === 'alunos' && dest === 'aluno') || (perfil === 'aluno' && dest === 'alunos')
   })
@@ -41,7 +45,7 @@ export default function AvisosBanner({ perfil }) {
             <span style={{ fontSize: '1rem', flexShrink: 0 }}>{e.icon}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, color: e.color, fontSize: '0.85rem' }}>{av.titulo}</div>
-              {(av.mensagem || av.texto) && <div style={{ color: '#374151', fontSize: '0.78rem', marginTop: 2, lineHeight: 1.4 }}>{av.mensagem || av.texto}</div>}
+              <RichTextContent html={av.mensagemHtml} text={av.mensagem || av.texto} style={{ color: '#374151', fontSize: '0.78rem', marginTop: 2, lineHeight: 1.4 }} />
             </div>
             <button aria-label="Fechar aviso" onClick={() => fechar(av.id)} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: '0 2px', fontSize: '1rem', flexShrink: 0, lineHeight: 1 }}>✕</button>
           </div>
