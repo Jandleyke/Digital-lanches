@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react'
-import { Archive, ArchiveRestore, CheckCircle2, ChevronLeft, MessageSquare, MoreVertical, Pin, Send, Trash2, X } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { AlertTriangle, Archive, ArchiveRestore, CheckCircle2, ChefHat, ChevronLeft, FileText, Flag, GraduationCap, Image as ImageIcon, Megaphone, MessageSquare, MoreVertical, Paperclip, Pin, Send, Shield, ShoppingBag, Sparkles, Tag, Trash2, Users, X } from 'lucide-react'
 import Layout from '../../components/Layout'
 import RichTextEditor, { RichTextContent } from '../../components/RichTextEditor'
+import AnexoAviso from '../../components/AnexoAviso'
 import { useApp } from '../../contexts/AppContext'
 import { avisoArquivadoParaUsuario, avisoCriadoPorUsuario, avisoDestinadoAoUsuario, avisoFixadoParaUsuario, avisoHistoricoLimpoParaUsuario, destinoAvisoNormalizado, destinosAvisoNormalizados, usuarioAvisoId, usuarioAvisoIds } from '../../utils/avisos'
 import { plainTextToRichText, richTextToPlainText } from '../../utils/richText'
 import { useIsMobile } from '../../utils/useIsMobile'
 import { ehGestao, normalizarPerfil, perfisDoUsuario } from '../../utils/perfis'
+import { ACCEPT_ARQUIVO, ACCEPT_IMAGEM, anexoValido, ehImagem, formatarTamanho, uploadAnexoAviso } from '../../utils/anexosAviso'
 
 const TIPOS = [
   { valor: 'info', label: 'Comunicado', bg: '#DBEAFE', color: '#1D4ED8' },
@@ -23,13 +25,24 @@ const DESTINOS = [
   { valor: 'admin', label: 'Admin', bg: '#F3E8FF', color: '#6B21A8' },
 ]
 
-const vazio = { titulo: '', mensagem: '', mensagemHtml: '', tipo: 'info', fixado: false, destino: 'todos', destinos: ['todos'], produtoId: '', recipients: [] }
+const PRIORIDADES = [
+  { valor: 'baixa', label: 'Baixa', bg: '#DCFCE7', color: '#166534' },
+  { valor: 'media', label: 'Media', bg: '#FEF3C7', color: '#92400E' },
+  { valor: 'alta', label: 'Alta', bg: '#FEE2E2', color: '#B91C1C' },
+]
+
+const TIPO_ICONE = { info: Megaphone, promo: Tag, aviso: AlertTriangle, novidade: Sparkles }
+const DESTINO_ICONE = { todos: Users, aluno: GraduationCap, vendedor: ShoppingBag, cozinha: ChefHat, admin: Shield, especifico: Users }
+const PRIORIDADE_ICONE = { baixa: Flag, media: Flag, alta: AlertTriangle }
+
+const vazio = { titulo: '', mensagem: '', mensagemHtml: '', tipo: 'info', fixado: false, destino: '', destinos: [], produtoId: '', recipients: [] }
 
 function destinoAviso(aviso) {
   return destinoAvisoNormalizado(aviso)
 }
 
 function destinoMeta(destino) {
+  if (destino === 'especifico') return { valor: 'especifico', label: 'Pessoas', bg: '#E0F2FE', color: '#075985' }
   return DESTINOS.find(x => x.valor === destino) || DESTINOS[0]
 }
 
@@ -83,6 +96,33 @@ export default function Avisos() {
   const [focarResposta, setFocarResposta] = useState(false)
   const [buscaUsuario, setBuscaUsuario] = useState('')
   const [menuAbertoId, setMenuAbertoId] = useState(null)
+  const [anexoMenuAberto, setAnexoMenuAberto] = useState(false)
+  const [anexoPendente, setAnexoPendente] = useState(null)
+  const [enviandoResposta, setEnviandoResposta] = useState(false)
+  const inputImagemRef = useRef(null)
+  const inputArquivoRef = useRef(null)
+
+  function selecionarAnexo(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    setAnexoMenuAberto(false)
+    if (!file) return
+    const validacao = anexoValido(file)
+    if (!validacao.ok) { setErro(validacao.erro); return }
+    setErro('')
+    const previewUrl = ehImagem(file.type) ? URL.createObjectURL(file) : null
+    setAnexoPendente(prev => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl)
+      return { file, previewUrl, nome: file.name, tamanho: file.size, tipo: file.type }
+    })
+  }
+
+  function removerAnexoPendente() {
+    setAnexoPendente(prev => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl)
+      return null
+    })
+  }
 
   function abrirNovo() {
     setForm(vazio)
@@ -114,6 +154,12 @@ export default function Avisos() {
       setErro('Informe o titulo do aviso.')
       return
     }
+    const destinosSelecionados = Array.isArray(form.destinos) ? form.destinos.filter(destino => destino && destino !== 'especifico') : []
+    const recipientsSelecionados = Array.isArray(form.recipients) ? form.recipients.filter(Boolean) : []
+    if (destinosSelecionados.length === 0 && recipientsSelecionados.length === 0) {
+      setErro('Selecione pelo menos um destino ou uma pessoa especifica.')
+      return
+    }
     setSalvando(true)
     const mensagemTexto = richTextToPlainText(form.mensagemHtml || plainTextToRichText(form.mensagem))
     const dados = {
@@ -121,11 +167,11 @@ export default function Avisos() {
       mensagem: mensagemTexto,
       texto: mensagemTexto,
       mensagemHtml: form.mensagemHtml,
-      destino: form.destinos?.[0] || form.destino || 'todos',
-      destinatario: form.destino,
-      destinos: form.destinos?.length ? form.destinos : [form.destino || 'todos'],
-      recipients: form.recipients,
-      recipientsDetalhes: (usuarios || []).filter(usuario => usuarioAvisoIds(usuario).some(id => form.recipients.includes(id))).map(usuario => ({
+      destino: destinosSelecionados[0] || '',
+      destinatario: destinosSelecionados[0] || '',
+      destinos: destinosSelecionados,
+      recipients: recipientsSelecionados,
+      recipientsDetalhes: (usuarios || []).filter(usuario => usuarioAvisoIds(usuario).some(id => recipientsSelecionados.includes(id))).map(usuario => ({
         id: usuario.uid || usuario.matricula || usuario.email || '',
         uid: usuario.uid || '',
         matricula: usuario.matricula || '',
@@ -184,10 +230,23 @@ export default function Avisos() {
   async function responder(e, aviso) {
     e.preventDefault()
     e.stopPropagation()
+    if (enviandoResposta) return
     const texto = String(respostas[aviso.id] || '').trim()
-    if (!texto) return
-    await responderAviso(aviso.id, texto)
-    setRespostas(prev => ({ ...prev, [aviso.id]: '' }))
+    if (!texto && !anexoPendente) return
+    setEnviandoResposta(true)
+    setErro('')
+    try {
+      let anexo = null
+      if (anexoPendente) anexo = await uploadAnexoAviso(anexoPendente.file, usuarioLogado)
+      await responderAviso(aviso.id, texto, anexo)
+      setRespostas(prev => ({ ...prev, [aviso.id]: '' }))
+      removerAnexoPendente()
+    } catch (err) {
+      console.error(err)
+      setErro(err?.message || 'Não foi possível enviar a resposta.')
+    } finally {
+      setEnviandoResposta(false)
+    }
   }
 
   function abrirDetalhe(aviso, focar = false) {
@@ -198,6 +257,8 @@ export default function Avisos() {
   function fecharDetalhe() {
     setDetalheId(null)
     setFocarResposta(false)
+    setAnexoMenuAberto(false)
+    removerAnexoPendente()
   }
 
   function toggleRecipient(usuario) {
@@ -206,8 +267,11 @@ export default function Avisos() {
     if (!principal) return
     setForm(f => {
       const selecionado = ids.some(id => f.recipients.includes(id))
+      const vaiSelecionar = !selecionado
       return {
         ...f,
+        destino: vaiSelecionar && (f.destinos || []).includes('todos') ? '' : f.destino,
+        destinos: vaiSelecionar && (f.destinos || []).includes('todos') ? [] : f.destinos,
         recipients: selecionado
           ? f.recipients.filter(id => !ids.includes(id))
           : [...new Set([...f.recipients, principal])],
@@ -218,10 +282,9 @@ export default function Avisos() {
   function toggleDestino(valor) {
     setForm(f => {
       if (valor === 'todos') return { ...f, destino: 'todos', destinos: ['todos'] }
-      const atuais = (f.destinos?.length ? f.destinos : [f.destino || 'todos']).filter(item => item !== 'todos')
+      const atuais = (f.destinos?.length ? f.destinos : [f.destino || '']).filter(item => item && item !== 'todos')
       const proximos = atuais.includes(valor) ? atuais.filter(item => item !== valor) : [...atuais, valor]
-      const destinos = proximos.length ? proximos : ['todos']
-      return { ...f, destino: destinos[0], destinos }
+      return { ...f, destino: proximos[0] || '', destinos: proximos }
     })
   }
 
@@ -394,16 +457,32 @@ export default function Avisos() {
         const produtoPromoDet = detalheAviso.produtoPromocao || detalheAviso.produtoPromo
         const arquivadoDet = avisoArquivadoParaUsuario(detalheAviso, leitorId, escopoArquivo)
         const fixadoDet = avisoFixadoParaUsuario(detalheAviso, leitorId, escopoArquivo)
-        const perfilAtivoDet = normalizarPerfil(usuarioLogado?.perfil || usuarioLogado?.role)
+        const perfilAtivoDet = normalizarPerfil(usuarioLogado?.role || usuarioLogado?.perfil)
         const podeFixarDet = ehGestao(perfilAtivoDet) || avisoDestinadoAoUsuario(detalheAviso, usuarioLogado, perfilAtivoDet)
+        const prioridadeDet = PRIORIDADES.find(p => p.valor === detalheAviso.prioridade)
+        const TipoIcone = TIPO_ICONE[tipoDet.valor] || Megaphone
+        const PrioridadeIcone = prioridadeDet ? (PRIORIDADE_ICONE[prioridadeDet.valor] || Flag) : null
+        const chipDet = isMobile ? s.tipoBadgeDetalhe : {}
         const badgesEl = (
           <div style={{ ...s.badges, ...(isMobile ? s.badgesDetalheMobile : {}) }}>
-            <span style={{ ...s.tipoBadge, background: tipoDet.bg, color: tipoDet.color }}>{tipoDet.label}</span>
-            {destinosDet.map(destino => (
-              <span key={destino.valor} style={{ ...s.tipoBadge, background: destino.bg, color: destino.color }}>{destino.label}</span>
-            ))}
-            {fixadoDet && <span style={s.fixadoBadge}>Fixado</span>}
-            {arquivadoDet && <span style={s.arquivadoBadge}>Arquivado</span>}
+            <span style={{ ...s.tipoBadge, ...chipDet, background: tipoDet.bg, color: tipoDet.color }}>
+              {isMobile && <TipoIcone size={14} />}{tipoDet.label}
+            </span>
+            {destinosDet.map(destino => {
+              const DestinoIcone = DESTINO_ICONE[destino.valor] || Users
+              return (
+                <span key={destino.valor} style={{ ...s.tipoBadge, ...chipDet, background: destino.bg, color: destino.color }}>
+                  {isMobile && <DestinoIcone size={14} />}{destino.label}
+                </span>
+              )
+            })}
+            {prioridadeDet && (
+              <span style={{ ...s.tipoBadge, ...chipDet, background: prioridadeDet.bg, color: prioridadeDet.color }}>
+                {isMobile && PrioridadeIcone && <PrioridadeIcone size={14} />}{prioridadeDet.label}
+              </span>
+            )}
+            {fixadoDet && <span style={{ ...s.fixadoBadge, ...chipDet }}>{isMobile && <Pin size={14} />}Fixado</span>}
+            {arquivadoDet && <span style={{ ...s.arquivadoBadge, ...chipDet }}>{isMobile && <Archive size={14} />}Arquivado</span>}
           </div>
         )
         return (
@@ -413,21 +492,21 @@ export default function Avisos() {
                 {isMobile ? (
                   <>
                     <div style={s.detalheHeaderLinha1}>
-                      <button type="button" style={{ ...s.voltarDetalheBtn, ...s.voltarDetalheBtnMobile }} onClick={fecharDetalhe}>
-                        <ChevronLeft size={18} /> Avisos
+                      <button type="button" style={s.voltarSetaBtn} onClick={fecharDetalhe} aria-label="Voltar">
+                        <ChevronLeft size={24} />
                       </button>
                       <strong style={s.detalheHeaderTitulo}>Detalhes do aviso</strong>
                       {!arquivadoDet && podeFixarDet ? (
                         <button
                           type="button"
-                          style={{ ...s.fecharDetalheBtn, ...(fixadoDet ? s.fixarDetalheBtnAtivo : {}) }}
+                          style={{ ...s.pinHeaderBtn, ...(fixadoDet ? s.pinHeaderBtnAtivo : {}) }}
                           onClick={() => toggleFixado(detalheAviso)}
                           aria-label={fixadoDet ? 'Desafixar aviso' : 'Fixar aviso'}
                         >
-                          <Pin size={18} fill={fixadoDet ? 'currentColor' : 'none'} />
+                          <Pin size={19} fill={fixadoDet ? 'currentColor' : 'none'} />
                         </button>
                       ) : (
-                        <span style={{ width: 34, height: 34, flexShrink: 0 }} aria-hidden="true" />
+                        <span style={{ width: 44, height: 44, flexShrink: 0 }} aria-hidden="true" />
                       )}
                     </div>
                     {badgesEl}
@@ -473,7 +552,8 @@ export default function Avisos() {
                             {!minhaResposta && <Avatar foto={fotoAutor(usuarios, resposta.autorId)} nome={resposta.autorNome} />}
                             <div style={{ ...s.balao, ...(minhaResposta ? s.balaoMeu : s.balaoOutro) }}>
                               <div style={s.respostaMeta}>{resposta.autorNome || 'Usuario'}</div>
-                              <div style={s.respostaTexto}>{resposta.texto}</div>
+                              {resposta.texto && <div style={s.respostaTexto}>{resposta.texto}</div>}
+                              <AnexoAviso anexo={resposta.anexo} />
                               <div style={s.balaoHora}>{formatarData(resposta.criadoEm)}</div>
                             </div>
                             {minhaResposta && <Avatar foto={fotoAutor(usuarios, resposta.autorId)} nome={resposta.autorNome} />}
@@ -487,19 +567,49 @@ export default function Avisos() {
               {arquivadoDet ? (
                 <div style={s.arquivadoInfo}>Este aviso esta no seu historico. Desarquive para responder ou editar.</div>
               ) : (
-                <form onSubmit={e => responder(e, detalheAviso)} style={{ ...s.respostaFormFixa, ...(isMobile ? s.respostaFormFixaMobile : {}) }}>
-                  <input
-                    autoFocus={focarResposta}
-                    value={respostas[detalheAviso.id] || ''}
-                    onChange={e => setRespostas(prev => ({ ...prev, [detalheAviso.id]: e.target.value }))}
-                    placeholder="Responder aviso..."
-                    style={s.respostaInput}
-                  />
-                  <button type="submit" style={{ ...s.respostaBtn, ...(isMobile ? s.respostaBtnMobile : {}) }} aria-label="Enviar resposta">
-                    {isMobile ? <Send size={18} /> : <><Send size={14} /> Enviar</>}
-                  </button>
-                </form>
+                <div style={s.respostaArea}>
+                  {anexoPendente && (
+                    <div style={s.anexoPreview}>
+                      {anexoPendente.previewUrl
+                        ? <img src={anexoPendente.previewUrl} alt={anexoPendente.nome} style={s.anexoPreviewImg} />
+                        : <span style={s.anexoPreviewIcone}><FileText size={22} /></span>}
+                      <div style={s.anexoPreviewInfo}>
+                        <strong style={s.anexoPreviewNome}>{anexoPendente.nome}</strong>
+                        <span style={s.anexoPreviewTamanho}>{formatarTamanho(anexoPendente.tamanho)}</span>
+                      </div>
+                      <button type="button" style={s.anexoPreviewRemover} onClick={removerAnexoPendente} aria-label="Remover anexo"><X size={15} /></button>
+                    </div>
+                  )}
+                  {erro && <p style={s.respostaErro}>{erro}</p>}
+                  <form onSubmit={e => responder(e, detalheAviso)} style={{ ...s.respostaLinha, ...(isMobile ? s.respostaLinhaMobile : {}) }}>
+                    <button type="button" style={s.clipeBtn} onClick={() => setAnexoMenuAberto(true)} disabled={enviandoResposta} aria-label="Anexar foto ou arquivo">
+                      <Paperclip size={20} />
+                    </button>
+                    <input
+                      autoFocus={focarResposta}
+                      value={respostas[detalheAviso.id] || ''}
+                      onChange={e => setRespostas(prev => ({ ...prev, [detalheAviso.id]: e.target.value }))}
+                      placeholder="Responder aviso..."
+                      style={s.respostaInput}
+                      disabled={enviandoResposta}
+                    />
+                    <button type="submit" style={{ ...s.respostaBtn, ...(isMobile ? s.respostaBtnMobile : {}), opacity: enviandoResposta ? 0.75 : 1 }} disabled={enviandoResposta} aria-label="Enviar resposta">
+                      {enviandoResposta ? <span style={s.spinnerBtn} /> : (isMobile ? <Send size={18} /> : <><Send size={14} /> Enviar</>)}
+                    </button>
+                  </form>
+                </div>
               )}
+              {anexoMenuAberto && (
+                <div style={s.menuOverlayMobile} onClick={() => setAnexoMenuAberto(false)}>
+                  <div style={s.menuSheetMobile} onClick={e => e.stopPropagation()}>
+                    <button type="button" style={s.menuItemSheet} onClick={() => inputImagemRef.current?.click()}><ImageIcon size={17} /> Foto/Imagem</button>
+                    <button type="button" style={s.menuItemSheet} onClick={() => inputArquivoRef.current?.click()}><FileText size={17} /> Arquivo</button>
+                    <button type="button" style={s.menuCancelarMobile} onClick={() => setAnexoMenuAberto(false)}>Cancelar</button>
+                  </div>
+                </div>
+              )}
+              <input ref={inputImagemRef} type="file" accept={ACCEPT_IMAGEM} onChange={selecionarAnexo} style={{ display: 'none' }} />
+              <input ref={inputArquivoRef} type="file" accept={ACCEPT_ARQUIVO} onChange={selecionarAnexo} style={{ display: 'none' }} />
             </div>
           </div>
         )
@@ -696,8 +806,8 @@ const s = {
   respostaTexto: { color: 'inherit', fontSize: '0.84rem', marginTop: 2, lineHeight: 1.4, whiteSpace: 'pre-wrap' },
   balaoHora: { marginTop: 4, fontSize: '0.67rem', opacity: 0.68, textAlign: 'right', fontWeight: 700 },
   responderToggle: { border: 'none', borderRadius: 10, background: '#003D7C', color: '#fff', padding: '0.5rem 0.8rem', fontWeight: 900, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'inherit', fontSize: '0.78rem' },
-  respostaInput: { flex: 1, minWidth: 0, border: '1px solid #CBD5E1', borderRadius: 10, padding: '0.6rem 0.75rem', fontFamily: 'inherit', outlineColor: '#003D7C' },
-  respostaBtn: { border: 'none', borderRadius: 10, background: '#003D7C', color: '#fff', padding: '0.6rem 0.85rem', fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 },
+  respostaInput: { flex: 1, minWidth: 0, border: '1px solid #CBD5E1', borderRadius: 16, padding: '0.78rem 0.9rem', fontFamily: 'inherit', outlineColor: '#003D7C', fontSize: '0.9rem', background: '#fff' },
+  respostaBtn: { border: 'none', borderRadius: 12, background: '#003D7C', color: '#fff', padding: '0.6rem 0.85rem', fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexShrink: 0 },
   arquivadoInfo: { margin: '0 1rem 1rem', background: '#EEF2F7', color: '#64748B', borderRadius: 10, padding: '0.65rem 0.8rem', fontWeight: 800, fontSize: '0.78rem' },
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' },
   modalBox: { background: '#fff', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto' },
@@ -707,23 +817,35 @@ const s = {
   modalDetalhe: { background: '#fff', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: '86vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 50px rgba(15,23,42,0.25)' },
   modalDetalheMobile: { position: 'fixed', inset: 0, maxWidth: '100%', width: '100%', height: '100dvh', maxHeight: '100dvh', borderRadius: 0, zIndex: 9001 },
   modalDetalheHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '1rem 1.1rem', borderBottom: '1px solid #E2E8F0' },
-  modalDetalheHeaderMobile: { flexDirection: 'column', alignItems: 'stretch', background: '#003D7C', color: '#fff', padding: '0.75rem 0.85rem', paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0px))', minHeight: 48, borderBottom: '3px solid #F47920', flexShrink: 0 },
-  detalheHeaderLinha1: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%' },
-  detalheHeaderTitulo: { color: '#fff', fontSize: '0.95rem', fontWeight: 800, flex: 1, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  voltarDetalheBtn: { border: 'none', background: 'transparent', color: '#003D7C', fontWeight: 800, fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0.3rem 0.2rem 0.3rem 0', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 },
-  voltarDetalheBtnMobile: { color: '#fff' },
-  badgesDetalheMobile: { marginTop: 10 },
-  fecharDetalheBtn: { border: 'none', background: '#F1F5F9', color: '#475569', borderRadius: 999, width: 34, height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
-  fixarDetalheBtnAtivo: { background: '#FFF3E8', color: '#F47920' },
+  modalDetalheHeaderMobile: { flexDirection: 'column', alignItems: 'stretch', background: 'radial-gradient(circle at 88% -10%, #DCE9FA 0%, rgba(220,233,250,0) 60%), linear-gradient(120deg, #CBDDF3 0%, #E7F0FB 55%, #D6E5F7 100%)', color: '#0B3B8C', padding: 0, borderBottom: 'none', gap: 0, flexShrink: 0 },
+  detalheHeaderLinha1: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', padding: '0.6rem 0.9rem 1.15rem', paddingTop: 'max(0.7rem, env(safe-area-inset-top, 0px))' },
+  detalheHeaderTitulo: { color: '#0B3B8C', fontSize: '1.12rem', fontWeight: 800, flex: 1, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  voltarSetaBtn: { border: 'none', background: 'transparent', color: '#0B3B8C', width: 38, height: 38, display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', cursor: 'pointer', flexShrink: 0, padding: 0 },
+  pinHeaderBtn: { border: 'none', background: 'transparent', color: '#0B3B8C', width: 38, height: 38, display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', cursor: 'pointer', flexShrink: 0, padding: 0 },
+  pinHeaderBtnAtivo: { color: '#F47920' },
+  badgesDetalheMobile: { background: '#fff', borderRadius: '20px 20px 0 0', margin: 0, padding: '0.95rem 1rem 0.9rem', borderBottom: '3px solid #F47920', justifyContent: 'flex-start', gap: 8 },
+  tipoBadgeDetalhe: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0.42rem 0.8rem', borderRadius: 999, fontWeight: 800, fontSize: '0.84rem' },
+  fecharDetalheBtn: { border: '1px solid #D8E3F4', background: '#F8FAFC', color: '#003D7C', borderRadius: 999, width: 44, height: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
   modalDetalheBody: { flex: 1, overflowY: 'auto', padding: '1rem 1.1rem' },
   modalDetalheBodyMobile: { padding: '1.25rem', WebkitOverflowScrolling: 'touch' },
   modalDetalheTitulo: { fontWeight: 800, fontSize: '1.15rem', margin: '0 0 6px', color: '#1A202C', lineHeight: 1.3 },
   modalDetalheTituloMobile: { fontSize: '1.25rem' },
   modalDetalheTexto: { color: '#334155', fontSize: '0.92rem', lineHeight: 1.55, margin: '0 0 12px' },
   modalDetalheTextoMobile: { fontSize: '0.95rem' },
-  respostaFormFixa: { display: 'flex', gap: 10, alignItems: 'center', padding: '0.85rem 1.1rem', borderTop: '1px solid #E2E8F0', background: '#fff', boxShadow: '0 -4px 14px rgba(15,23,42,0.05)' },
-  respostaFormFixaMobile: { padding: '0.75rem 1rem calc(12px + env(safe-area-inset-bottom, 0px))' },
+  respostaArea: { borderTop: '1px solid #E2E8F0', background: 'rgba(255,255,255,0.96)', padding: '0.65rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px))', boxShadow: '0 -8px 22px rgba(15,23,42,0.06)', flexShrink: 0 },
+  respostaLinha: { display: 'flex', gap: 10, alignItems: 'center' },
+  respostaLinhaMobile: { gap: 10 },
   respostaBtnMobile: { border: 'none', borderRadius: '50%', width: 48, height: 48, background: '#003D7C', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
+  clipeBtn: { border: 'none', background: 'transparent', color: '#003D7C', width: 42, height: 42, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
+  anexoPreview: { display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #E2E8F0', background: '#fff', borderRadius: 14, padding: '0.5rem 0.65rem', marginBottom: 8, boxShadow: '0 3px 10px rgba(15,23,42,0.04)' },
+  anexoPreviewImg: { width: 48, height: 48, borderRadius: 10, objectFit: 'cover', flexShrink: 0, background: '#F1F5F9' },
+  anexoPreviewIcone: { width: 48, height: 48, borderRadius: 10, background: '#EAF2FF', color: '#003D7C', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  anexoPreviewInfo: { flex: 1, minWidth: 0, display: 'grid', gap: 2 },
+  anexoPreviewNome: { color: '#0F172A', fontSize: '0.78rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  anexoPreviewTamanho: { color: '#94A3B8', fontSize: '0.7rem', fontWeight: 700 },
+  anexoPreviewRemover: { border: 'none', background: '#FEE2E2', color: '#DC2626', width: 30, height: 30, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
+  respostaErro: { margin: '0 0 0.45rem', color: '#B91C1C', fontSize: '0.76rem', fontWeight: 800 },
+  spinnerBtn: { width: 17, height: 17, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
   formGrid: { display: 'flex', flexDirection: 'column', gap: '0.85rem' },
   opcoes: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   selecionados: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 },

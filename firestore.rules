@@ -331,6 +331,17 @@ service cloud.firestore {
         || (isSignedIn() && (atualizacaoLeituraAviso() || atualizacaoRespostaAviso()));
     }
 
+    match /avisosAnexos/{anexoId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.dados is string
+        && request.resource.data.dados.size() < 980000
+        && request.resource.data.nome is string
+        && request.resource.data.tipo is string;
+      allow update: if false;
+      allow delete: if hasRole(['admin', 'gerente']);
+    }
+
     match /atendimentos/{atendimentoId} {
       allow read: if isStaff()
         || (isSignedIn() && resource.data.solicitanteId == request.auth.uid);

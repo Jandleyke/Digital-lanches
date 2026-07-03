@@ -26,7 +26,8 @@ export function avisoCriadoPorUsuario(aviso, usuario) {
 }
 
 export function destinoAvisoNormalizado(aviso) {
-  const destino = aviso?.destino || aviso?.destinatario || 'todos'
+  const temDestinatarios = Array.isArray(aviso?.recipients) && aviso.recipients.length > 0
+  const destino = aviso?.destino || aviso?.destinatario || (temDestinatarios ? 'especifico' : 'todos')
   if (destino === 'alunos') return 'aluno'
   if (destino === 'vendedora') return 'vendedor'
   return destino

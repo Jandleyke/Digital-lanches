@@ -6,7 +6,7 @@ import { avisoCriadoPorUsuario, avisoDestinadoAoUsuario, chaveArquivoAviso, usua
 import { ehGestao, normalizarPerfil } from '../../utils/perfis'
 
 function podeAgirNoAviso(aviso, usuario) {
-  const perfil = normalizarPerfil(usuario?.perfil || usuario?.role)
+  const perfil = normalizarPerfil(usuario?.role || usuario?.perfil)
   return ehGestao(perfil) || avisoDestinadoAoUsuario(aviso, usuario, perfil)
 }
 
@@ -26,8 +26,13 @@ export function useAvisos(usuarioLogado) {
   async function criarAviso({ titulo, mensagem, texto, mensagemHtml, tipo, fixado, destino, destinos, destinatario, prioridade, status, produtoPromocao, recipients, recipientsDetalhes }) {
     const id = `AV${Date.now()}`
     const conteudo = mensagem || texto || ''
-    const destinosFinais = Array.isArray(destinos) && destinos.length > 0 ? [...new Set(destinos)] : [destino || destinatario || 'todos']
-    const destinoFinal = destinosFinais[0] || 'todos'
+    const recipientsFinais = Array.isArray(recipients) ? recipients.map(String).filter(Boolean) : []
+    const destinosSelecionados = Array.isArray(destinos) ? destinos.filter(destino => destino && destino !== 'especifico') : []
+    const destinoUnico = destino || destinatario || ''
+    const destinosFinais = destinosSelecionados.length
+      ? [...new Set(destinosSelecionados)]
+      : (destinoUnico ? [destinoUnico] : (recipientsFinais.length ? [] : ['todos']))
+    const destinoFinal = destinosFinais[0] || ''
     const agora = Date.now()
     const escopoCriador = normalizarPerfil(usuarioLogado?.role || usuarioLogado?.perfil || 'geral')
     const chaveFixadoCriador = fixado ? chaveArquivoAviso(usuarioLogado, escopoCriador) : ''
@@ -61,7 +66,7 @@ export function useAvisos(usuarioLogado) {
         destino: destinoFinal,
         destinatario: destinoFinal,
         destinos: destinosFinais,
-        recipients: Array.isArray(recipients) ? recipients.map(String) : [],
+        recipients: recipientsFinais,
         recipientsDetalhes: Array.isArray(recipientsDetalhes) ? recipientsDetalhes : [],
         createdBy: usuarioLogado?.uid || usuarioLogado?.matricula || '',
         createdByMatricula: usuarioLogado?.matricula || '',
@@ -163,10 +168,10 @@ export function useAvisos(usuarioLogado) {
       })
     } catch (e) { console.error(e) }
   }
-  async function responderAviso(id, mensagem) {
+  async function responderAviso(id, mensagem, anexo = null) {
     const autorId = usuarioLogado?.uid || usuarioLogado?.matricula
     const texto = String(mensagem || '').trim()
-    if (!id || !autorId || !texto) return
+    if (!id || !autorId || (!texto && !anexo)) return
     const atual = avisos.find(aviso => aviso.id === id)
     if (atual && !podeAgirNoAviso(atual, usuarioLogado)) return
     try {
@@ -174,6 +179,7 @@ export function useAvisos(usuarioLogado) {
         respostas: arrayUnion({
           id: `RP${Date.now()}_${autorId}`,
           texto,
+          ...(anexo ? { anexo } : {}),
           autorId,
           autorNome: usuarioLogado?.nome || 'Usuario',
           autorRole: usuarioLogado?.role || usuarioLogado?.perfil || '',
