@@ -13,6 +13,8 @@ const DIAS_LABEL = {
   domingo: 'Domingo',
 }
 
+const ORDEM_DIAS = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo']
+
 function juntarEndereco(config) {
   return [config.endereco, config.bairro, config.cidade, config.cep].filter(Boolean).join(' - ')
 }
@@ -27,7 +29,7 @@ function formatarHorario(config) {
 export default function LanchoneteInfoCard({ compacto = false, isMobile = false }) {
   const { lanchoneteConfig } = useApp()
   const config = lanchoneteConfig || {}
-  const dias = config.diasFuncionamento || []
+  const dias = (config.diasFuncionamento || []).slice().sort((a, b) => ORDEM_DIAS.indexOf(a) - ORDEM_DIAS.indexOf(b))
   const [agora, setAgora] = useState(() => new Date())
 
   useEffect(() => {

@@ -301,7 +301,7 @@ export default function Carrinho() {
 }
 
 const s = {
-  layout: { display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.5rem', alignItems: 'start' },
+  layout: { display: 'grid', gap: '1.5rem', alignItems: 'start' },
   itens: { background: '#fff', borderRadius: 14, padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' },
   item: { display: 'flex', alignItems: 'center', gap: 12, padding: '0.9rem 0', borderBottom: '1px solid #F1F5F9' },
   itemInfo: { flex: 1, display: 'flex', flexDirection: 'column' },

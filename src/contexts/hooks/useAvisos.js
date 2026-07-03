@@ -3,7 +3,12 @@ import { arrayRemove, arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc
 import { db } from '../../firebase'
 import { notificarPush } from '../../utils/notificarPush'
 import { avisoCriadoPorUsuario, avisoDestinadoAoUsuario, chaveArquivoAviso, usuarioAvisoId } from '../../utils/avisos'
-import { normalizarPerfil } from '../../utils/perfis'
+import { ehGestao, normalizarPerfil } from '../../utils/perfis'
+
+function podeAgirNoAviso(aviso, usuario) {
+  const perfil = normalizarPerfil(usuario?.perfil || usuario?.role)
+  return ehGestao(perfil) || avisoDestinadoAoUsuario(aviso, usuario, perfil)
+}
 
 export function useAvisos(usuarioLogado) {
   const [avisos, setAvisos] = useState([])
@@ -13,11 +18,7 @@ export function useAvisos(usuarioLogado) {
     const unsub = onSnapshot(collection(db, 'avisos'), (snap) => {
       setAvisos(snap.docs.map(d => d.data())
         .filter(aviso => !aviso.deletedAt && aviso.status !== 'excluido')
-        .sort((a, b) => {
-          if (a.fixado && !b.fixado) return -1
-          if (!a.fixado && b.fixado) return 1
-          return (b.createdAt || b.criadoEm || 0) - (a.createdAt || a.criadoEm || 0)
-        }))
+        .sort((a, b) => (b.createdAt || b.criadoEm || 0) - (a.createdAt || a.criadoEm || 0)))
     }, err => console.error('[Firestore] avisos:', err))
     return unsub
   }, [usuarioLogado])
@@ -28,6 +29,8 @@ export function useAvisos(usuarioLogado) {
     const destinosFinais = Array.isArray(destinos) && destinos.length > 0 ? [...new Set(destinos)] : [destino || destinatario || 'todos']
     const destinoFinal = destinosFinais[0] || 'todos'
     const agora = Date.now()
+    const escopoCriador = normalizarPerfil(usuarioLogado?.role || usuarioLogado?.perfil || 'geral')
+    const chaveFixadoCriador = fixado ? chaveArquivoAviso(usuarioLogado, escopoCriador) : ''
     try {
       await setDoc(doc(db, 'avisos', id), {
         id,
@@ -45,7 +48,16 @@ export function useAvisos(usuarioLogado) {
           categoria: produtoPromocao.categoria || '',
           foto: produtoPromocao.foto || '',
         } : null,
-        fixado: !!fixado,
+        fixado: false,
+        fixadoPorUsuarios: chaveFixadoCriador ? [chaveFixadoCriador] : [],
+        fixadoDetalhes: chaveFixadoCriador ? [{
+          id: chaveFixadoCriador,
+          usuarioId: usuarioAvisoId(usuarioLogado),
+          escopo: escopoCriador,
+          nome: usuarioLogado?.nome || 'Usuario',
+          perfil: usuarioLogado?.role || usuarioLogado?.perfil || '',
+          data: agora,
+        }] : [],
         destino: destinoFinal,
         destinatario: destinoFinal,
         destinos: destinosFinais,
@@ -62,6 +74,7 @@ export function useAvisos(usuarioLogado) {
         lidoDetalhes: [],
         arquivadoPorUsuarios: [],
         arquivadoDetalhes: [],
+        historicoOcultoPorUsuarios: [],
         respostas: [],
         createdAt: agora,
         criadoEm: agora,
@@ -110,11 +123,34 @@ export function useAvisos(usuarioLogado) {
       })
     } catch (e) { console.error(e); throw e }
   }
+
+  async function fixarAviso(id, fixado, escopo = 'geral') {
+    const leitor = chaveArquivoAviso(usuarioLogado, escopo)
+    if (!id || !leitor) return
+    try {
+      const atual = avisos.find(aviso => aviso.id === id)
+      if (atual && !podeAgirNoAviso(atual, usuarioLogado)) throw new Error('Sem permissao para fixar este aviso.')
+      const dados = fixado
+        ? {
+          fixadoPorUsuarios: arrayUnion(leitor),
+          fixadoDetalhes: arrayUnion({
+            id: leitor,
+            usuarioId: usuarioAvisoId(usuarioLogado),
+            escopo: escopo || 'geral',
+            nome: usuarioLogado?.nome || 'Usuario',
+            perfil: usuarioLogado?.role || usuarioLogado?.perfil || '',
+            data: Date.now(),
+          }),
+        }
+        : { fixadoPorUsuarios: arrayRemove(leitor) }
+      await updateDoc(doc(db, 'avisos', id), dados)
+    } catch (e) { console.error(e); throw e }
+  }
   async function marcarAvisoLido(id) {
     const leitor = usuarioLogado?.uid || usuarioLogado?.matricula
     if (!id || !leitor) return
     const atual = avisos.find(aviso => aviso.id === id)
-    if (atual && !avisoDestinadoAoUsuario(atual, usuarioLogado, normalizarPerfil(usuarioLogado?.perfil || usuarioLogado?.role))) return
+    if (atual && !podeAgirNoAviso(atual, usuarioLogado)) return
     try {
       await updateDoc(doc(db, 'avisos', id), {
         lidoPor: arrayUnion(leitor),
@@ -132,7 +168,7 @@ export function useAvisos(usuarioLogado) {
     const texto = String(mensagem || '').trim()
     if (!id || !autorId || !texto) return
     const atual = avisos.find(aviso => aviso.id === id)
-    if (atual && !avisoDestinadoAoUsuario(atual, usuarioLogado, normalizarPerfil(usuarioLogado?.perfil || usuarioLogado?.role))) return
+    if (atual && !podeAgirNoAviso(atual, usuarioLogado)) return
     try {
       await updateDoc(doc(db, 'avisos', id), {
         respostas: arrayUnion({
@@ -184,5 +220,19 @@ export function useAvisos(usuarioLogado) {
     }
   }
 
-  return { avisos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario }
+  async function limparHistoricoAvisos(escopo = 'geral') {
+    const leitor = chaveArquivoAviso(usuarioLogado, escopo)
+    if (!leitor) return
+    const arquivados = avisos.filter(aviso => Array.isArray(aviso.arquivadoPorUsuarios) && aviso.arquivadoPorUsuarios.includes(leitor))
+    try {
+      await Promise.all(arquivados.map(aviso => updateDoc(doc(db, 'avisos', aviso.id), {
+        historicoOcultoPorUsuarios: arrayUnion(leitor),
+      })))
+    } catch (e) {
+      console.error(e)
+      throw e
+    }
+  }
+
+  return { avisos, criarAviso, editarAviso, excluirAviso, fixarAviso, marcarAvisoLido, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario, limparHistoricoAvisos }
 }

@@ -32,13 +32,22 @@ export function normalizarPerfil(perfil = '') {
 
 export function perfisDoUsuario(usuario = {}) {
   const fonte = usuario || {}
+  const separar = valor => Array.isArray(valor)
+    ? valor
+    : String(valor || '')
+      .split(/[,|;/]+/)
+      .map(item => item.trim())
+      .filter(Boolean)
+
   const lista = Array.isArray(fonte)
     ? fonte
-    : Array.isArray(fonte.roles)
-      ? fonte.roles
-      : Array.isArray(fonte.perfis)
-        ? fonte.perfis
-        : [fonte.role || fonte.perfil || fonte.tipo || PERFIS.aluno]
+    : [
+      ...separar(fonte.roles),
+      ...separar(fonte.perfis),
+      ...separar(fonte.role),
+      ...separar(fonte.perfil),
+      ...separar(fonte.tipo),
+    ].filter(Boolean)
 
   const unicos = [...new Set(lista.map(normalizarPerfil).filter(perfil => ORDEM_PERFIS.includes(perfil)))]
   const ordenados = ORDEM_PERFIS.filter(perfil => unicos.includes(perfil))

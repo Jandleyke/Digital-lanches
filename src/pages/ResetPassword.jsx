@@ -120,7 +120,7 @@ const s = {
   form: { display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.25rem' },
   campo: { display: 'flex', flexDirection: 'column', gap: 6 },
   label: { fontSize: '0.85rem', fontWeight: 700, color: '#334155' },
-  input: { padding: '0.9rem 1rem', borderRadius: 12, border: '2px solid #E2E8F0', fontSize: '0.95rem', outline: 'none' },
+  input: { width: '100%', boxSizing: 'border-box', padding: '0.9rem 1rem', borderRadius: 12, border: '2px solid #E2E8F0', fontSize: '0.95rem', outline: 'none' },
   btn: { padding: '0.95rem', borderRadius: 12, border: 'none', background: '#F47920', color: '#fff', fontWeight: 800, cursor: 'pointer' },
   erro: { background: '#FEF2F2', color: '#B91C1C', padding: '0.8rem 1rem', borderRadius: 12, border: '1px solid #FECACA' },
   sucessoBox: { textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 14 },

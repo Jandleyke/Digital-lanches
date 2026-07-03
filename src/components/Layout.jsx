@@ -29,6 +29,7 @@ export default function Layout({ children, titulo }) {
   const [menuAberto, setMenuAberto] = useState(true)
   const [menuMobileAberto, setMenuMobileAberto] = useState(false)
   const [notifDismissed, setNotifDismissed] = useState(() => localStorage.getItem('senac-notif-banner-dismissed') === '1')
+  const [avisoDetalheAberto, setAvisoDetalheAberto] = useState(false)
 
   useEffect(() => {
     if (!isMobile || !menuMobileAberto) return undefined
@@ -36,6 +37,12 @@ export default function Layout({ children, titulo }) {
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = overflowAnterior }
   }, [isMobile, menuMobileAberto])
+
+  useEffect(() => {
+    function handler(e) { setAvisoDetalheAberto(Boolean(e.detail)) }
+    window.addEventListener('aviso-detalhe-toggle', handler)
+    return () => window.removeEventListener('aviso-detalhe-toggle', handler)
+  }, [])
 
   useEffect(() => {
     function handler(e) {
@@ -186,7 +193,8 @@ export default function Layout({ children, titulo }) {
     else navigate(item.path)
   }
 
-  const mostrarCartBar = isMobile && qtdCarrinho > 0 && ['aluno', 'professor'].includes(perfilAtual)
+  const mostrarCartBar = isMobile && qtdCarrinho > 0 && ['aluno', 'professor'].includes(perfilAtual) && !location.pathname.includes('/carrinho')
+  const esconderChrome = isMobile && avisoDetalheAberto
 
   const avatarSize = isMobile ? 32 : 40
   const primeiroNome = usuarioLogado?.nome?.split(' ')[0] || ''
@@ -217,6 +225,7 @@ export default function Layout({ children, titulo }) {
           </div>
         </div>
       )}
+      {!esconderChrome && (
       <header style={{ ...s.header, padding: isMobile ? '0.62rem 0.75rem' : '1rem 1.75rem' }}>
 
         {/* ── Brand ── */}
@@ -254,6 +263,7 @@ export default function Layout({ children, titulo }) {
           </div>
         )}
       </header>
+      )}
 
       <div style={s.appBody}>
         {!isMobile && (
@@ -319,7 +329,7 @@ export default function Layout({ children, titulo }) {
         </div>
       )}
 
-      {isMobile && (
+      {isMobile && !esconderChrome && (
         <>
           {menuMobileAberto && (
             <>
@@ -387,7 +397,7 @@ export default function Layout({ children, titulo }) {
         </>
       )}
 
-      {usuarioLogado && <ChatAssistente />}
+      {usuarioLogado && <ChatAssistente cartBarAtiva={mostrarCartBar} />}
     </div>
   )
 }

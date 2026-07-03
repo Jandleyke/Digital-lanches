@@ -1,9 +1,9 @@
-import { useState } from 'react'
-import { Archive, ArchiveRestore, CheckCircle2, ChevronLeft, MessageSquare, Pin, Send, Trash2, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Archive, ArchiveRestore, CheckCircle2, ChevronLeft, MessageSquare, MoreVertical, Pin, Send, Trash2, X } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
 import RichTextEditor, { RichTextContent } from './RichTextEditor'
-import { normalizarPerfil } from '../utils/perfis'
-import { avisoArquivadoParaUsuario, avisoCriadoPorUsuario, avisoDestinadoAoUsuario, destinoAvisoNormalizado, destinosAvisoNormalizados, usuarioAvisoIds } from '../utils/avisos'
+import { ehGestao, normalizarPerfil, perfisDoUsuario } from '../utils/perfis'
+import { avisoArquivadoParaUsuario, avisoCriadoPorUsuario, avisoDestinadoAoUsuario, avisoFixadoParaUsuario, avisoHistoricoLimpoParaUsuario, destinoAvisoNormalizado, destinosAvisoNormalizados, usuarioAvisoIds } from '../utils/avisos'
 import { plainTextToRichText, richTextToPlainText } from '../utils/richText'
 import { useIsMobile } from '../utils/useIsMobile'
 
@@ -67,15 +67,31 @@ function nomesLeitura(aviso) {
   return lidos.length ? lidos.join(', ') : 'Ninguem ainda'
 }
 
+function fotoAutor(usuarios, autorId) {
+  if (!autorId) return ''
+  const usuario = (usuarios || []).find(u => String(u.uid) === String(autorId) || String(u.matricula) === String(autorId))
+  return usuario?.fotoPerfil || ''
+}
+
+function Avatar({ foto, nome, size = 24 }) {
+  const estilo = { width: size, height: size, borderRadius: '50%', flexShrink: 0, border: '1px solid #E2E8F0' }
+  if (foto) return <img src={foto} alt={nome || 'Usuario'} style={{ ...estilo, objectFit: 'cover' }} />
+  return (
+    <div style={{ ...estilo, background: '#EAF2FF', color: '#003D7C', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: size * 0.42 }}>
+      {(nome || '?').trim().charAt(0).toUpperCase()}
+    </div>
+  )
+}
+
 function tiposPermitidos(role) {
   if (role === 'professor') return TIPOS.filter(tipo => ['info', 'aviso', 'novidade'].includes(tipo.valor))
   return TIPOS
 }
 
 export default function AvisosSetor({ setor }) {
-  const { avisos, produtos, usuarios, criarAviso, editarAviso, marcarAvisoLido, excluirAviso, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario, usuarioLogado } = useApp()
+  const { avisos, produtos, usuarios, criarAviso, editarAviso, fixarAviso, marcarAvisoLido, excluirAviso, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario, limparHistoricoAvisos, usuarioLogado } = useApp()
   const isMobile = useIsMobile()
-  const role = normalizarPerfil(usuarioLogado?.perfil || setor)
+  const role = normalizarPerfil(usuarioLogado?.role || usuarioLogado?.perfil || setor)
   const escopoArquivo = role || setor || 'geral'
   const destinos = destinosPermitidos(role)
   const leitorId = usuarioLogado?.uid || usuarioLogado?.matricula
@@ -91,23 +107,41 @@ export default function AvisosSetor({ setor }) {
   const [detalheId, setDetalheId] = useState(null)
   const [focarResposta, setFocarResposta] = useState(false)
   const [buscaUsuario, setBuscaUsuario] = useState('')
+  const [menuAbertoId, setMenuAbertoId] = useState(null)
 
   const listaBase = avisos
     .filter(aviso => avisoVisivel(aviso, role, usuarioLogado))
     .filter(aviso => filtro === 'todos' || destinosAvisoNormalizados(aviso).includes(filtro))
   const totalAtivos = listaBase.filter(aviso => !avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)).length
-  const totalHistorico = listaBase.filter(aviso => avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)).length
-  const lista = listaBase.filter(aviso => visualizacao === 'historico' ? avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo) : !avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo))
+  const totalHistorico = listaBase.filter(aviso => avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo) && !avisoHistoricoLimpoParaUsuario(aviso, leitorId, escopoArquivo)).length
+  const lista = listaBase.filter(aviso => {
+    const arquivado = avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)
+    if (visualizacao === 'historico') return arquivado && !avisoHistoricoLimpoParaUsuario(aviso, leitorId, escopoArquivo)
+    return !arquivado
+  }).sort((a, b) => {
+    const aFixado = avisoFixadoParaUsuario(a, leitorId, escopoArquivo)
+    const bFixado = avisoFixadoParaUsuario(b, leitorId, escopoArquivo)
+    if (aFixado && !bFixado) return -1
+    if (!aFixado && bFixado) return 1
+    return (b.createdAt || b.criadoEm || 0) - (a.createdAt || a.criadoEm || 0)
+  })
   const tiposDisponiveis = tiposPermitidos(role)
   const detalheAviso = avisos.find(aviso => aviso.id === detalheId) || null
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('aviso-detalhe-toggle', { detail: Boolean(detalheId) }))
+  }, [detalheId])
+  useEffect(() => () => window.dispatchEvent(new CustomEvent('aviso-detalhe-toggle', { detail: false })), [])
+
   const usuariosSelecionaveis = (usuarios || []).filter(usuario => {
-    const perfilUsuario = normalizarPerfil(usuario.perfil || usuario.role)
-    if (perfilUsuario === 'aluno') return false
+    const perfisUsuario = perfisDoUsuario(usuario)
+    if (!perfisUsuario.some(perfil => perfil !== 'aluno')) return false
     const termo = buscaUsuario.trim().toLowerCase()
     if (!termo) return true
-    return [usuario.nome, usuario.matricula, usuario.email, usuario.perfil, usuario.role].filter(Boolean).join(' ').toLowerCase().includes(termo)
-  }).slice(0, 12)
+    return [usuario.nome, usuario.matricula, usuario.email, usuario.perfil, usuario.role, ...(usuario.roles || []), ...(usuario.perfis || [])].filter(Boolean).join(' ').toLowerCase().includes(termo)
+  })
   const usuariosSelecionados = (usuarios || []).filter(usuario => usuarioAvisoIds(usuario).some(id => form.recipients.includes(id)))
+  const menuAviso = menuAbertoId ? lista.find(aviso => aviso.id === menuAbertoId) : null
 
   function abrirNovo() {
     setForm({ ...vazio, destino: destinos[0] || 'todos' })
@@ -231,12 +265,17 @@ export default function AvisosSetor({ setor }) {
   }
 
   async function toggleFixado(aviso) {
-    await editarAviso(aviso.id, { fixado: !aviso.fixado })
+    await fixarAviso(aviso.id, !avisoFixadoParaUsuario(aviso, leitorId, escopoArquivo), escopoArquivo)
   }
 
   async function toggleArquivado(aviso) {
     if (avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)) await desarquivarAvisoParaUsuario(aviso.id, escopoArquivo)
     else await arquivarAvisoParaUsuario(aviso.id, escopoArquivo)
+  }
+
+  async function limparHistorico() {
+    if (!confirm('Limpar seu historico de avisos? Isso nao apaga avisos para outras pessoas.')) return
+    await limparHistoricoAvisos(escopoArquivo)
   }
 
   function abrirDetalhe(aviso, focar = false) {
@@ -285,6 +324,11 @@ export default function AvisosSetor({ setor }) {
 
   return (
     <>
+      <div style={{ ...s.intro, ...(isMobile ? s.introMobile : {}) }}>
+        <h2 style={s.introTitulo}>Central de Avisos</h2>
+        <p style={s.introTexto}>Fique por dentro de tudo que acontece</p>
+      </div>
+
       <div style={{ ...s.toolbar, ...(isMobile ? s.toolbarMobile : {}) }}>
         <div style={{ ...s.abasHistorico, ...(isMobile ? s.abasHistoricoMobile : {}) }}>
           <button type="button" style={{ ...s.abaBtn, ...(isMobile ? s.abaBtnMobile : {}), ...(visualizacao === 'ativos' ? s.abaBtnOn : {}) }} onClick={() => setVisualizacao('ativos')}>
@@ -295,7 +339,13 @@ export default function AvisosSetor({ setor }) {
           </button>
         </div>
         {destinos.length > 0 && <button style={{ ...s.btnNovo, ...(isMobile ? s.btnNovoMobile : {}) }} onClick={abrirNovo}>+ Novo aviso</button>}
+        {visualizacao === 'historico' && totalHistorico > 0 && (
+          <button type="button" style={{ ...s.btnLimparHistorico, ...(isMobile ? s.btnLimparHistoricoMobile : {}) }} onClick={limparHistorico}>
+            <Trash2 size={14} /> Limpar historico
+          </button>
+        )}
       </div>
+      {visualizacao === 'historico' && <div style={s.historicoAjuda}>Limpa apenas o historico do seu dispositivo.</div>}
 
       <div style={{ ...s.filtros, ...(isMobile ? s.filtrosMobile : {}) }}>
         {DESTINOS.filter(destino => destino.valor === 'todos' || destinos.includes(destino.valor) || role === 'admin' || role === 'gerente' || role === 'professor').map(destino => (
@@ -316,11 +366,11 @@ export default function AvisosSetor({ setor }) {
             const lido = Array.isArray(aviso.lidoPor) && aviso.lidoPor.includes(leitorId)
             const ehAutor = avisoCriadoPorUsuario(aviso, usuarioLogado)
             const podeExcluir = ehAutor
-            const podeGerenciar = ehAutor
             const podeEditar = ehAutor
             const podeArquivar = true
             const respostasAviso = Array.isArray(aviso.respostas) ? aviso.respostas : []
             const arquivado = avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)
+            const fixado = avisoFixadoParaUsuario(aviso, leitorId, escopoArquivo)
             return (
               <article
                 key={aviso.id}
@@ -342,58 +392,66 @@ export default function AvisosSetor({ setor }) {
                       <span key={destino.valor} style={{ ...s.tipoBadge, ...(isMobile ? s.tipoBadgeMobile : {}), background: destino.bg, color: destino.color }}>{destino.label}</span>
                     ))}
                     <span style={{ ...s.tipoBadge, ...(isMobile ? s.tipoBadgeMobile : {}), background: prioridade.bg, color: prioridade.color }}>{prioridade.label}</span>
-                    {aviso.fixado && <span style={s.fixadoBadge}>Fixado</span>}
+                    {fixado && <span style={s.fixadoBadge}>Fixado</span>}
                     {arquivado && <span style={s.arquivadoBadge}>Arquivado</span>}
                   </div>
                   <div style={{ ...s.acoes, ...(isMobile ? s.acoesMobile : {}) }} onClick={e => e.stopPropagation()}>
-                    {podeGerenciar && !arquivado && (
-                      <button style={{ ...s.btnAcao, ...(isMobile ? s.btnAcaoMobile : {}) }} onClick={() => toggleFixado(aviso)}>
-                        <Pin size={14} /> {aviso.fixado ? 'Desafixar' : 'Fixar'}
-                      </button>
-                    )}
-                    {!lido && !arquivado && (
-                      <button style={{ ...s.btnAcao, ...(isMobile ? s.btnAcaoMobile : {}) }} onClick={() => marcarAvisoLido(aviso.id)}>
-                        <CheckCircle2 size={14} /> Lido
-                      </button>
-                    )}
-                    {podeEditar && !arquivado && (
-                      <button style={{ ...s.btnAcao, ...(isMobile ? s.btnAcaoMobile : {}) }} onClick={() => abrirEditar(aviso)}>
-                        Editar
-                      </button>
-                    )}
-                    {podeArquivar && (
-                      <button style={{ ...s.btnAcao, ...(isMobile ? s.btnAcaoMobile : {}) }} onClick={() => toggleArquivado(aviso)}>
-                        {arquivado ? <ArchiveRestore size={14} /> : <Archive size={14} />} {arquivado ? 'Desarquivar' : 'Apagar para mim'}
-                      </button>
-                    )}
-                    {podeExcluir && (
-                      <button style={{ ...s.btnAcao, ...(isMobile ? s.btnAcaoMobile : {}), background: '#FEE2E2', color: '#DC2626' }} onClick={() => remover(aviso)}>
-                        <Trash2 size={14} /> Apagar para todos
-                      </button>
+                    <button type="button" style={s.menuBtn} onClick={() => setMenuAbertoId(menuAbertoId === aviso.id ? null : aviso.id)} aria-label="Acoes do aviso">
+                      <MoreVertical size={18} />
+                    </button>
+                    {menuAbertoId === aviso.id && !isMobile && (
+                      <div style={s.menuAcoes}>
+                        {podeEditar && !arquivado && <button type="button" style={s.menuItem} onClick={() => { setMenuAbertoId(null); abrirEditar(aviso) }}>Editar aviso</button>}
+                        {!arquivado && <button type="button" style={s.menuItem} onClick={() => { setMenuAbertoId(null); toggleFixado(aviso) }}><Pin size={14} /> {fixado ? 'Desafixar da minha tela' : 'Fixar na minha tela'}</button>}
+                        {podeArquivar && <button type="button" style={s.menuItem} onClick={() => { setMenuAbertoId(null); toggleArquivado(aviso) }}>{arquivado ? <ArchiveRestore size={14} /> : <Archive size={14} />} {arquivado ? 'Desarquivar' : 'Apagar para mim'}</button>}
+                        {podeExcluir && <button type="button" style={{ ...s.menuItem, ...s.menuItemDanger }} onClick={() => { setMenuAbertoId(null); remover(aviso) }}><Trash2 size={14} /> Apagar para todos</button>}
+                        {!arquivado && (lido
+                          ? <span style={s.menuItemLido}><CheckCircle2 size={14} /> Lido</span>
+                          : <button type="button" style={s.menuItem} onClick={() => { setMenuAbertoId(null); marcarAvisoLido(aviso.id) }}><CheckCircle2 size={14} /> Marcar como lido</button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
                 <h3 style={{ ...s.cardTitulo, ...(isMobile ? s.cardTituloMobile : {}) }}>{aviso.titulo}</h3>
-                <RichTextContent html={aviso.mensagemHtml} text={aviso.mensagem || aviso.texto} style={{ ...s.cardTexto, ...(isMobile ? s.cardTextoMobile : {}) }} />
+                <div style={s.resumoLinha}>
+                  <span style={s.resumoDot} />
+                  <RichTextContent html={aviso.mensagemHtml} text={aviso.mensagem || aviso.texto} style={{ ...s.cardTexto, ...(isMobile ? s.cardTextoMobile : {}) }} />
+                </div>
                 <div style={{ ...s.cardFooterResumo, ...(isMobile ? s.cardFooterMobile : {}) }}>
                   <span>{aviso.autorNome || aviso.autor || 'Sistema'}</span>
                   <span>{formatarData(aviso.createdAt || aviso.criadoEm)}</span>
-                </div>
-                <div style={{ ...s.cardFooterAcoes, ...(isMobile ? s.cardFooterAcoesMobile : {}) }} onClick={e => e.stopPropagation()}>
-                  {!arquivado && (
-                    <button type="button" style={{ ...s.responderToggle, ...(isMobile ? s.responderToggleMobile : {}) }} onClick={() => abrirDetalhe(aviso, true)}>
-                      <Send size={14} /> Responder
-                    </button>
-                  )}
-                  <button type="button" style={{ ...s.verMaisBtn, ...(isMobile ? s.verMaisBtnMobile : {}) }} onClick={() => abrirDetalhe(aviso)}>
-                    <MessageSquare size={14} /> {respostasAviso.length > 0 ? `${respostasAviso.length} resposta(s)` : 'Ver detalhes'}
-                  </button>
+                  <span style={s.respostasResumo}><MessageSquare size={14} /> {respostasAviso.length}</span>
                 </div>
               </article>
             )
           })}
         </div>
       )}
+
+      {isMobile && menuAviso && (() => {
+        const lido = Array.isArray(menuAviso.lidoPor) && menuAviso.lidoPor.includes(leitorId)
+        const ehAutor = avisoCriadoPorUsuario(menuAviso, usuarioLogado)
+        const podeExcluir = ehAutor
+        const podeEditar = ehAutor
+        const arquivado = avisoArquivadoParaUsuario(menuAviso, leitorId, escopoArquivo)
+        const fixado = avisoFixadoParaUsuario(menuAviso, leitorId, escopoArquivo)
+        return (
+          <div style={s.menuOverlayMobile} onClick={() => setMenuAbertoId(null)}>
+            <div style={s.menuSheetMobile} onClick={e => e.stopPropagation()}>
+              {podeEditar && !arquivado && <button type="button" style={s.menuItemSheet} onClick={() => { setMenuAbertoId(null); abrirEditar(menuAviso) }}>Editar aviso</button>}
+              {!arquivado && <button type="button" style={s.menuItemSheet} onClick={() => { setMenuAbertoId(null); toggleFixado(menuAviso) }}><Pin size={17} /> {fixado ? 'Desafixar da minha tela' : 'Fixar na minha tela'}</button>}
+              <button type="button" style={{ ...s.menuItemSheet, ...s.menuItemDanger }} onClick={() => { setMenuAbertoId(null); toggleArquivado(menuAviso) }}>{arquivado ? <ArchiveRestore size={17} /> : <Archive size={17} />} {arquivado ? 'Desarquivar' : 'Apagar para mim'}</button>
+              {podeExcluir && <button type="button" style={{ ...s.menuItemSheet, ...s.menuItemDanger }} onClick={() => { setMenuAbertoId(null); remover(menuAviso) }}><Trash2 size={17} /> Apagar para todos</button>}
+              {!arquivado && (lido
+                ? <span style={s.menuItemSheetLido}><CheckCircle2 size={17} /> Lido</span>
+                : <button type="button" style={s.menuItemSheet} onClick={() => { setMenuAbertoId(null); marcarAvisoLido(menuAviso.id) }}><CheckCircle2 size={17} /> Marcar como lido</button>
+              )}
+              <button type="button" style={s.menuCancelarMobile} onClick={() => setMenuAbertoId(null)}>Cancelar</button>
+            </div>
+          </div>
+        )
+      })()}
 
       {detalheAviso && (() => {
         const destinosDet = destinosAvisoNormalizados(detalheAviso).map(destino => meta(DESTINOS, destino))
@@ -402,31 +460,58 @@ export default function AvisosSetor({ setor }) {
         const respostasDet = Array.isArray(detalheAviso.respostas) ? detalheAviso.respostas : []
         const produtoPromoDet = detalheAviso.produtoPromocao || detalheAviso.produtoPromo
         const arquivadoDet = avisoArquivadoParaUsuario(detalheAviso, leitorId, escopoArquivo)
+        const fixadoDet = avisoFixadoParaUsuario(detalheAviso, leitorId, escopoArquivo)
+        const perfilAtivoDet = normalizarPerfil(usuarioLogado?.perfil || usuarioLogado?.role)
+        const podeFixarDet = ehGestao(perfilAtivoDet) || avisoDestinadoAoUsuario(detalheAviso, usuarioLogado, perfilAtivoDet)
+        const badgesEl = (
+          <div style={{ ...s.badges, ...(isMobile ? s.badgesDetalheMobile : {}) }}>
+            <span style={{ ...s.tipoBadge, background: tipoDet.bg, color: tipoDet.color }}>{tipoDet.label}</span>
+            {destinosDet.map(destino => (
+              <span key={destino.valor} style={{ ...s.tipoBadge, background: destino.bg, color: destino.color }}>{destino.label}</span>
+            ))}
+            <span style={{ ...s.tipoBadge, background: prioridadeDet.bg, color: prioridadeDet.color }}>{prioridadeDet.label}</span>
+            {fixadoDet && <span style={s.fixadoBadge}>Fixado</span>}
+            {arquivadoDet && <span style={s.arquivadoBadge}>Arquivado</span>}
+          </div>
+        )
         return (
           <div style={{ ...s.overlayDetalhe, ...(isMobile ? s.overlayDetalheMobile : {}) }} onClick={fecharDetalhe}>
             <div style={{ ...s.modalDetalhe, ...(isMobile ? s.modalDetalheMobile : {}) }} onClick={e => e.stopPropagation()}>
-              <div style={s.modalDetalheHeader}>
-                {isMobile && (
-                  <button type="button" style={s.voltarDetalheBtn} onClick={fecharDetalhe}>
-                    <ChevronLeft size={18} /> Voltar
-                  </button>
+              <div style={{ ...s.modalDetalheHeader, ...(isMobile ? s.modalDetalheHeaderMobile : {}) }}>
+                {isMobile ? (
+                  <>
+                    <div style={s.detalheHeaderLinha1}>
+                      <button type="button" style={{ ...s.voltarDetalheBtn, ...s.voltarDetalheBtnMobile }} onClick={fecharDetalhe}>
+                        <ChevronLeft size={18} /> Avisos
+                      </button>
+                      <strong style={s.detalheHeaderTitulo}>Detalhes do aviso</strong>
+                      {!arquivadoDet && podeFixarDet ? (
+                        <button
+                          type="button"
+                          style={{ ...s.fecharDetalheBtn, ...(fixadoDet ? s.fixarDetalheBtnAtivo : {}) }}
+                          onClick={() => toggleFixado(detalheAviso)}
+                          aria-label={fixadoDet ? 'Desafixar aviso' : 'Fixar aviso'}
+                        >
+                          <Pin size={18} fill={fixadoDet ? 'currentColor' : 'none'} />
+                        </button>
+                      ) : (
+                        <span style={{ width: 34, height: 34, flexShrink: 0 }} aria-hidden="true" />
+                      )}
+                    </div>
+                    {badgesEl}
+                  </>
+                ) : (
+                  <>
+                    {badgesEl}
+                    <button type="button" style={s.fecharDetalheBtn} onClick={fecharDetalhe} aria-label="Fechar">
+                      <X size={20} />
+                    </button>
+                  </>
                 )}
-                <div style={s.badges}>
-                  <span style={{ ...s.tipoBadge, background: tipoDet.bg, color: tipoDet.color }}>{tipoDet.label}</span>
-                  {destinosDet.map(destino => (
-                    <span key={destino.valor} style={{ ...s.tipoBadge, background: destino.bg, color: destino.color }}>{destino.label}</span>
-                  ))}
-                  <span style={{ ...s.tipoBadge, background: prioridadeDet.bg, color: prioridadeDet.color }}>{prioridadeDet.label}</span>
-                  {detalheAviso.fixado && <span style={s.fixadoBadge}>Fixado</span>}
-                  {arquivadoDet && <span style={s.arquivadoBadge}>Arquivado</span>}
-                </div>
-                <button type="button" style={s.fecharDetalheBtn} onClick={fecharDetalhe} aria-label="Fechar">
-                  <X size={20} />
-                </button>
               </div>
               <div style={{ ...s.modalDetalheBody, ...(isMobile ? s.modalDetalheBodyMobile : {}) }}>
-                <h2 style={s.modalDetalheTitulo}>{detalheAviso.titulo}</h2>
-                <RichTextContent html={detalheAviso.mensagemHtml} text={detalheAviso.mensagem || detalheAviso.texto} style={s.modalDetalheTexto} />
+                <h2 style={{ ...s.modalDetalheTitulo, ...(isMobile ? s.modalDetalheTituloMobile : {}) }}>{detalheAviso.titulo}</h2>
+                <RichTextContent html={detalheAviso.mensagemHtml} text={detalheAviso.mensagem || detalheAviso.texto} style={{ ...s.modalDetalheTexto, ...(isMobile ? s.modalDetalheTextoMobile : {}) }} />
                 {produtoPromoDet && (
                   <div style={s.produtoPromo}>
                     {produtoPromoDet.foto && <img src={produtoPromoDet.foto} alt={produtoPromoDet.nome} style={s.produtoPromoImg} />}
@@ -436,7 +521,10 @@ export default function AvisosSetor({ setor }) {
                     </div>
                   </div>
                 )}
-                <div style={s.cardInfo}>Criado por {detalheAviso.autorNome || detalheAviso.autor || 'Sistema'} - {formatarData(detalheAviso.createdAt || detalheAviso.criadoEm)}</div>
+                <div style={s.cardInfoAutor}>
+                  <Avatar foto={fotoAutor(usuarios, detalheAviso.autorId || detalheAviso.createdBy)} nome={detalheAviso.autorNome || detalheAviso.autor} size={26} />
+                  <span>Criado por {detalheAviso.autorNome || detalheAviso.autor || 'Sistema'} - {formatarData(detalheAviso.createdAt || detalheAviso.criadoEm)}</span>
+                </div>
                 {detalheAviso.updatedAt && <div style={s.cardInfo}>Atualizado por {detalheAviso.updatedByNome || 'Usuario'} - {formatarData(detalheAviso.updatedAt)}</div>}
                 {arquivadoDet && <div style={s.cardInfo}>Arquivado por voce</div>}
                 <div style={s.lidoInfo}>Lido por: {nomesLeitura(detalheAviso)}</div>
@@ -450,33 +538,23 @@ export default function AvisosSetor({ setor }) {
                         const minhaResposta = String(resposta.autorId || '') === String(leitorId || '')
                         return (
                           <div key={resposta.id || `${resposta.autorId}-${resposta.criadoEm}`} style={{ ...s.balaoLinha, justifyContent: minhaResposta ? 'flex-end' : 'flex-start' }}>
+                            {!minhaResposta && <Avatar foto={fotoAutor(usuarios, resposta.autorId)} nome={resposta.autorNome} />}
                             <div style={{ ...s.balao, ...(isMobile ? s.balaoMobile : {}), ...(minhaResposta ? s.balaoMeu : s.balaoOutro) }}>
                               <div style={s.respostaMeta}>{resposta.autorNome || 'Usuario'}</div>
                               <div style={s.respostaTexto}>{resposta.texto}</div>
                               <div style={s.balaoHora}>{formatarData(resposta.criadoEm)}</div>
                             </div>
+                            {minhaResposta && <Avatar foto={fotoAutor(usuarios, resposta.autorId)} nome={resposta.autorNome} />}
                           </div>
                         )
                       })}
                     </div>
                   )}
                 </div>
-                {isMobile && !arquivadoDet && (
-                  <form onSubmit={e => responder(e, detalheAviso)} style={s.respostaFormInlineMobile}>
-                    <input
-                      autoFocus={focarResposta}
-                      value={respostas[detalheAviso.id] || ''}
-                      onChange={e => setRespostas(prev => ({ ...prev, [detalheAviso.id]: e.target.value }))}
-                      placeholder="Responder aviso..."
-                      style={s.respostaInput}
-                    />
-                    <button type="submit" style={{ ...s.respostaBtn, ...s.respostaBtnMobile }}><Send size={14} /> Enviar</button>
-                  </form>
-                )}
               </div>
               {arquivadoDet ? (
                 <div style={s.arquivadoInfo}>Este aviso esta no seu historico. Desarquive para responder ou editar.</div>
-              ) : !isMobile && (
+              ) : (
                 <form onSubmit={e => responder(e, detalheAviso)} style={{ ...s.respostaFormFixa, ...(isMobile ? s.respostaFormFixaMobile : {}) }}>
                   <input
                     autoFocus={focarResposta}
@@ -485,7 +563,9 @@ export default function AvisosSetor({ setor }) {
                     placeholder="Responder aviso..."
                     style={s.respostaInput}
                   />
-                  <button type="submit" style={{ ...s.respostaBtn, ...(isMobile ? s.respostaBtnMobile : {}) }}><Send size={14} /> Enviar</button>
+                  <button type="submit" style={{ ...s.respostaBtn, ...(isMobile ? s.respostaBtnMobile : {}) }} aria-label="Enviar resposta">
+                    {isMobile ? <Send size={18} /> : <><Send size={14} /> Enviar</>}
+                  </button>
                 </form>
               )}
             </div>
@@ -557,7 +637,7 @@ export default function AvisosSetor({ setor }) {
                 return (
                   <button type="button" key={usuario.uid || usuario.matricula || usuario.email} style={{ ...s.usuarioOpcao, ...(marcado ? s.usuarioOpcaoOn : {}) }} onClick={() => toggleRecipient(usuario)}>
                     <strong>{usuario.nome || 'Usuario'}</strong>
-                    <span>{usuario.matricula || usuario.email || 'Sem matricula'} · {usuario.perfil || usuario.role || 'perfil'}</span>
+                    <span>{usuario.matricula || usuario.email || 'Sem matricula'} · {perfisDoUsuario(usuario).filter(perfil => perfil !== 'aluno').join(', ') || usuario.perfil || usuario.role || 'perfil'}</span>
                   </button>
                 )
               })}
@@ -596,8 +676,12 @@ export default function AvisosSetor({ setor }) {
 }
 
 const s = {
+  intro: { marginBottom: '0.85rem' },
+  introMobile: { marginBottom: '0.7rem' },
+  introTitulo: { margin: 0, color: '#0F172A', fontSize: '1.05rem', fontWeight: 900, lineHeight: 1.2 },
+  introTexto: { margin: '0.18rem 0 0', color: '#64748B', fontSize: '0.78rem' },
   toolbar: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.75rem', flexWrap: 'wrap' },
-  toolbarMobile: { alignItems: 'center', gap: 8 },
+  toolbarMobile: { alignItems: 'center', gap: 8, marginBottom: '0.6rem' },
   abasHistorico: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   abasHistoricoMobile: { width: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' },
   abaBtn: { border: '1px solid #D8E3F4', background: '#fff', color: '#475569', borderRadius: 999, padding: '0.42rem 0.75rem', fontWeight: 900, fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6 },
@@ -605,7 +689,10 @@ const s = {
   abaBtnOn: { background: '#003D7C', color: '#fff', borderColor: '#003D7C', boxShadow: '0 6px 14px rgba(0,61,124,0.14)' },
   abaNumero: { minWidth: 20, height: 20, padding: '0 0.35rem', borderRadius: 999, background: 'rgba(148,163,184,0.18)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' },
   btnNovo: { background: '#003D7C', color: '#fff', padding: '0.6rem 1.1rem', borderRadius: 8, fontWeight: 800, border: 'none', cursor: 'pointer', fontFamily: 'inherit' },
-  btnNovoMobile: { width: 'auto', padding: '0.48rem 0.85rem', borderRadius: 10, fontSize: '0.76rem' },
+  btnNovoMobile: { width: '100%', padding: '0.55rem 0.85rem', borderRadius: 9, fontSize: '0.76rem' },
+  btnLimparHistorico: { border: '1px solid #FECACA', background: '#fff', color: '#DC2626', borderRadius: 8, padding: '0.55rem 0.9rem', fontWeight: 900, fontSize: '0.78rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' },
+  btnLimparHistoricoMobile: { width: '100%', justifyContent: 'center', padding: '0.48rem 0.75rem', fontSize: '0.72rem' },
+  historicoAjuda: { color: '#94A3B8', fontSize: '0.7rem', fontWeight: 700, margin: '-0.25rem 0 0.75rem 0.2rem' },
   contador: { color: '#64748B', fontSize: '0.85rem' },
   filtros: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: '1rem' },
   filtrosMobile: { gap: 5, marginBottom: '0.75rem', overflowX: 'visible', flexWrap: 'wrap', paddingBottom: 0 },
@@ -614,7 +701,7 @@ const s = {
   filtroBtnOn: { background: '#003D7C', color: '#fff', borderColor: '#003D7C' },
   vazio: { textAlign: 'center', padding: '3rem', color: '#94A3B8', background: '#fff', border: '1px dashed #CBD5E1', borderRadius: 8 },
   lista: { display: 'flex', flexDirection: 'column', gap: '0.65rem' },
-  card: { background: '#fff', borderRadius: 8, padding: '0.9rem 1rem', border: '1px solid #E2E8F0', cursor: 'pointer', outline: 'none', boxShadow: '0 1px 3px rgba(15,23,42,0.03)' },
+  card: { position: 'relative', background: '#fff', borderRadius: 8, padding: '0.9rem 1rem', border: '1px solid #E2E8F0', cursor: 'pointer', outline: 'none', boxShadow: '0 1px 3px rgba(15,23,42,0.03)' },
   cardMobile: { padding: '0.75rem 0.8rem', borderRadius: 10 },
   cardArquivado: { background: '#F8FAFC', borderColor: '#CBD5E1' },
   cardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 7, gap: 8, flexWrap: 'wrap' },
@@ -628,28 +715,42 @@ const s = {
   respostasBadge: { padding: '0.2rem 0.6rem', borderRadius: 20, background: '#EAF2FF', color: '#003D7C', fontWeight: 800, fontSize: '0.75rem' },
   acoes: { display: 'flex', gap: 5, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' },
   acoesMobile: { width: 'auto', display: 'flex', gap: 5, justifyContent: 'flex-end', flexWrap: 'wrap' },
+  menuBtn: { width: 34, height: 34, borderRadius: 10, border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#0F172A', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' },
+  menuAcoes: { position: 'absolute', right: 14, top: 48, zIndex: 20, minWidth: 220, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, boxShadow: '0 16px 35px rgba(15,23,42,0.18)', padding: 6, display: 'grid', gap: 4 },
+  menuItem: { border: 'none', background: 'transparent', color: '#0F172A', borderRadius: 8, padding: '0.62rem 0.75rem', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-start', fontWeight: 800, fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' },
+  menuItemLido: { border: 'none', background: 'transparent', color: '#94A3B8', borderRadius: 8, padding: '0.62rem 0.75rem', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-start', fontWeight: 700, fontSize: '0.78rem', fontFamily: 'inherit', textAlign: 'left' },
+  menuItemDanger: { color: '#DC2626' },
+  menuOverlayMobile: { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.48)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' },
+  menuSheetMobile: { width: 'min(86vw, 320px)', background: '#fff', borderRadius: 14, boxShadow: '0 24px 60px rgba(15,23,42,0.28)', padding: 10, display: 'grid', gap: 5 },
+  menuItemSheet: { border: 'none', background: '#fff', color: '#0F172A', borderRadius: 10, padding: '0.8rem 1rem', display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'flex-start', fontWeight: 800, fontSize: '0.86rem', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' },
+  menuItemSheetLido: { border: 'none', background: '#fff', color: '#94A3B8', borderRadius: 10, padding: '0.8rem 1rem', display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'flex-start', fontWeight: 700, fontSize: '0.86rem', fontFamily: 'inherit', textAlign: 'left' },
+  menuCancelarMobile: { marginTop: 8, border: 'none', background: '#F8FAFC', color: '#0F172A', borderRadius: 10, padding: '0.8rem 1rem', fontWeight: 900, fontSize: '0.86rem', cursor: 'pointer', fontFamily: 'inherit' },
   btnAcao: { padding: '0.35rem 0.6rem', borderRadius: 8, background: '#F1F5F9', color: '#334155', fontSize: '0.78rem', border: 'none', cursor: 'pointer', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' },
   btnAcaoMobile: { width: 'auto', minHeight: 30, justifyContent: 'center', padding: '0.32rem 0.5rem', fontSize: '0.7rem' },
   cardTitulo: { fontWeight: 800, color: '#1A202C', margin: '0 0 4px', fontSize: '0.95rem', lineHeight: 1.25 },
   cardTituloMobile: { fontSize: '0.91rem', marginTop: 2 },
   cardTexto: { color: '#475569', fontSize: '0.85rem', lineHeight: 1.5, margin: '0 0 6px' },
-  cardTextoMobile: { fontSize: '0.8rem', lineHeight: 1.42 },
+  cardTextoMobile: { fontSize: '0.78rem', lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', margin: 0 },
+  resumoLinha: { display: 'flex', alignItems: 'flex-start', gap: 7, minWidth: 0 },
+  resumoDot: { width: 6, height: 6, borderRadius: 999, background: '#2563EB', flexShrink: 0, marginTop: 7 },
   cardFooterResumo: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', color: '#64748B', fontSize: '0.72rem', fontWeight: 700, marginTop: 6 },
   cardFooterMobile: { gap: 6, fontSize: '0.68rem', lineHeight: 1.25 },
   cardFooterAcoes: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 9 },
   cardFooterAcoesMobile: { gap: 6, marginTop: 8 },
+  respostasResumo: { border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#475569', borderRadius: 999, padding: '0.28rem 0.55rem', fontWeight: 900, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 5 },
   verMaisBtn: { border: '1px solid #E2E8F0', background: '#F8FAFC', color: '#475569', borderRadius: 10, padding: '0.5rem 0.75rem', fontWeight: 800, fontSize: '0.78rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' },
   verMaisBtnMobile: { minHeight: 36, padding: '0.42rem 0.6rem', fontSize: '0.72rem' },
   produtoPromo: { display: 'flex', alignItems: 'center', gap: 10, background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: 10, margin: '8px 0', color: '#92400E', fontSize: '0.82rem' },
   produtoPromoImg: { width: 44, height: 44, borderRadius: 8, objectFit: 'cover', background: '#fff', flexShrink: 0 },
   cardInfo: { fontSize: '0.73rem', color: '#64748B', fontWeight: 700 },
+  cardInfoAutor: { display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: '#94A3B8', fontWeight: 600, margin: '8px 0 4px' },
   lidoInfo: { fontSize: '0.72rem', color: '#94A3B8', marginTop: 4 },
-  historico: { marginTop: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 10 },
-  historicoTitulo: { display: 'block', color: '#0F172A', fontSize: '0.78rem', marginBottom: 6 },
-  semResposta: { color: '#94A3B8', fontSize: '0.78rem', fontWeight: 700 },
+  historico: { marginTop: 14, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 18, padding: 12 },
+  historicoTitulo: { display: 'block', color: '#334155', fontSize: '0.8rem', fontWeight: 800, marginBottom: 6 },
+  semResposta: { color: '#94A3B8', fontSize: '0.78rem', fontWeight: 500 },
   conversa: { display: 'flex', flexDirection: 'column', gap: 8 },
   conversaMobile: { gap: 7 },
-  balaoLinha: { display: 'flex', width: '100%' },
+  balaoLinha: { display: 'flex', width: '100%', gap: 8, alignItems: 'flex-end' },
   balao: { maxWidth: 'min(82%, 520px)', borderRadius: 14, padding: '0.55rem 0.7rem', boxShadow: '0 1px 2px rgba(15,23,42,0.05)' },
   balaoMobile: { maxWidth: '92%', padding: '0.5rem 0.62rem' },
   balaoMeu: { background: '#DCFCE7', color: '#14532D', borderBottomRightRadius: 4 },
@@ -665,21 +766,28 @@ const s = {
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' },
   modalBox: { background: '#fff', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto' },
   modalTitulo: { fontWeight: 800, margin: '0 0 1.25rem', color: '#1A202C' },
-  overlayDetalhe: { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '1.25rem' },
-  overlayDetalheMobile: { padding: 0, zIndex: 1200 },
+  overlayDetalhe: { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9000, padding: '1.25rem' },
+  overlayDetalheMobile: { padding: 0, zIndex: 9000 },
   modalDetalhe: { background: '#fff', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: '86vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 50px rgba(15,23,42,0.25)' },
-  modalDetalheMobile: { position: 'fixed', inset: 0, maxWidth: '100%', width: '100%', height: '100dvh', maxHeight: '100dvh', borderRadius: 0, zIndex: 1201 },
+  modalDetalheMobile: { position: 'fixed', inset: 0, maxWidth: '100%', width: '100%', height: '100dvh', maxHeight: '100dvh', borderRadius: 0, zIndex: 9001 },
   modalDetalheHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '1rem 1.1rem', borderBottom: '1px solid #E2E8F0' },
+  modalDetalheHeaderMobile: { flexDirection: 'column', alignItems: 'stretch', background: '#003D7C', color: '#fff', padding: '0.75rem 0.85rem', paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0px))', minHeight: 48, borderBottom: '3px solid #F47920', flexShrink: 0 },
+  detalheHeaderLinha1: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%' },
+  detalheHeaderTitulo: { color: '#fff', fontSize: '0.95rem', fontWeight: 800, flex: 1, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   voltarDetalheBtn: { border: 'none', background: 'transparent', color: '#003D7C', fontWeight: 800, fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0.3rem 0.2rem 0.3rem 0', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 },
+  voltarDetalheBtnMobile: { color: '#fff' },
+  badgesDetalheMobile: { marginTop: 10 },
   fecharDetalheBtn: { border: 'none', background: '#F1F5F9', color: '#475569', borderRadius: 999, width: 34, height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
+  fixarDetalheBtnAtivo: { background: '#FFF3E8', color: '#F47920' },
   modalDetalheBody: { flex: 1, overflowY: 'auto', padding: '1rem 1.1rem' },
-  modalDetalheBodyMobile: { paddingBottom: '1rem', WebkitOverflowScrolling: 'touch' },
-  modalDetalheTitulo: { fontWeight: 800, fontSize: '1.15rem', margin: '0 0 10px', color: '#1A202C', lineHeight: 1.3 },
-  modalDetalheTexto: { color: '#334155', fontSize: '0.92rem', lineHeight: 1.6, margin: '0 0 14px' },
-  respostaFormFixa: { display: 'flex', gap: 8, padding: '0.75rem 1.1rem', borderTop: '1px solid #E2E8F0', background: '#fff' },
-  respostaFormFixaMobile: { position: 'sticky', bottom: 0, zIndex: 4, padding: '0.65rem 0.85rem calc(0.8rem + env(safe-area-inset-bottom, 0px))', boxShadow: '0 -8px 18px rgba(15,23,42,0.08)' },
-  respostaFormInlineMobile: { display: 'flex', gap: 8, marginTop: 14, paddingTop: 12, borderTop: '1px solid #E2E8F0' },
-  respostaBtnMobile: { minHeight: 40, padding: '0.6rem 0.75rem' },
+  modalDetalheBodyMobile: { padding: '1.25rem', WebkitOverflowScrolling: 'touch' },
+  modalDetalheTitulo: { fontWeight: 800, fontSize: '1.15rem', margin: '0 0 6px', color: '#1A202C', lineHeight: 1.3 },
+  modalDetalheTituloMobile: { fontSize: '1.25rem' },
+  modalDetalheTexto: { color: '#334155', fontSize: '0.92rem', lineHeight: 1.55, margin: '0 0 12px' },
+  modalDetalheTextoMobile: { fontSize: '0.95rem' },
+  respostaFormFixa: { display: 'flex', gap: 10, alignItems: 'center', padding: '0.85rem 1.1rem', borderTop: '1px solid #E2E8F0', background: '#fff', boxShadow: '0 -4px 14px rgba(15,23,42,0.05)' },
+  respostaFormFixaMobile: { padding: '0.75rem 1rem calc(12px + env(safe-area-inset-bottom, 0px))' },
+  respostaBtnMobile: { border: 'none', borderRadius: '50%', width: 48, height: 48, background: '#003D7C', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
   label: { display: 'block', color: '#64748B', fontWeight: 800, margin: '0.85rem 0 0.35rem', fontSize: '0.83rem' },
   labelRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: '0.85rem' },
   editarTipoBtn: { border: 'none', background: '#EAF2FF', color: '#004A8D', borderRadius: 999, padding: '0.32rem 0.65rem', fontWeight: 900, fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'inherit' },

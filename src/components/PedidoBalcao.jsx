@@ -680,7 +680,7 @@ const s = {
   sucessoTexto: { display: 'inline-flex', alignItems: 'center', gap: 7 },
   entregarAgoraBtn: { minHeight: 34, border: 'none', borderRadius: 6, padding: '0 0.7rem', background: '#15803D', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit', fontWeight: 900, cursor: 'pointer' },
   modalOverlay: { position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.54)', padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  modalProfessor: { width: '100%', maxWidth: 420, background: '#fff', borderRadius: 8, padding: 18, display: 'flex', flexDirection: 'column', gap: 11, boxShadow: '0 24px 60px rgba(15, 23, 42, 0.28)' },
+  modalProfessor: { width: '100%', maxWidth: 420, maxHeight: '85vh', overflowY: 'auto', background: '#fff', borderRadius: 8, padding: 18, display: 'flex', flexDirection: 'column', gap: 11, boxShadow: '0 24px 60px rgba(15, 23, 42, 0.28)' },
   modalProfessorTopo: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 2 },
   modalProfessorTitulo: { margin: 0, color: '#0F172A', fontSize: '1rem', fontWeight: 900 },
   modalProfessorMeta: { margin: '4px 0 0', color: '#64748B', fontSize: '0.76rem' },

@@ -508,7 +508,10 @@ export default function GerenciarProdutos() {
       {modal && (
         <div style={s.overlay}>
           <div style={{ ...s.modalBox, padding: isMobile ? '1rem' : '1.75rem', borderRadius: isMobile ? 10 : 16 }}>
-            <h3 style={s.modalTitulo}>{modal === 'novo' ? 'Novo Produto' : 'Editar Produto'}</h3>
+            <div style={s.modalHeaderProduto}>
+              <h3 style={{ ...s.modalTitulo, marginBottom: 0 }}>{modal === 'novo' ? 'Novo Produto' : 'Editar Produto'}</h3>
+              <button type="button" style={s.fecharModalBtn} onClick={() => setModal(null)} aria-label="Fechar">✕</button>
+            </div>
 
             <div style={s.abasMod}>
               {[['geral', '📋 Geral'], ['foto', '📷 Foto'], ['nutricional', '🥗 Nutricional'], ['alergenos', '⚠️ Alérgenos'], ...(modal === 'novo' ? [['lote', '📦 Em lote']] : [])].map(([id, label]) => (
@@ -985,6 +988,8 @@ const s = {
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' },
   modalBox: { background: '#fff', borderRadius: 16, padding: '1.75rem', width: '100%', maxWidth: 540, maxHeight: '90vh', overflowY: 'auto' },
   modalTitulo: { fontWeight: 800, marginBottom: '1rem', color: '#1A202C' },
+  modalHeaderProduto: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, position: 'sticky', top: 0, background: '#fff', paddingBottom: '0.75rem', marginBottom: '0.25rem', zIndex: 1 },
+  fecharModalBtn: { border: 'none', background: '#F1F5F9', color: '#475569', borderRadius: 999, width: 32, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, fontSize: '0.95rem' },
   abasMod: { display: 'flex', gap: 4, marginBottom: '1.25rem', borderBottom: '2px solid #F1F5F9', paddingBottom: '0.75rem', overflowX: 'auto', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' },
   abaMod: { padding: '0.45rem 0.75rem', borderRadius: 8, background: 'none', color: '#64748B', fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap', flexShrink: 0 },
   abaModAtiva: { background: '#E8F0FB', color: '#003D7C' },

@@ -391,7 +391,7 @@ export default function Cardapio() {
             </div>
 
             {/* Body */}
-            <div style={{ overflowY: 'auto', padding: isMobile ?'1rem 1.1rem' : '1.25rem 1.4rem', display: 'flex', flexDirection: 'column', gap: '0.85rem', flex: 1 }}>
+            <div style={{ overflowY: 'auto', padding: isMobile ?'1rem 1.1rem' : '1.25rem 1.4rem', paddingBottom: isMobile ? 'max(1rem, env(safe-area-inset-bottom, 0px))' : undefined, display: 'flex', flexDirection: 'column', gap: '0.85rem', flex: 1 }}>
 
               {/* Preço + status badges */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

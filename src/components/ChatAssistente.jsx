@@ -77,14 +77,14 @@ function statusCantina(cfg) {
   return { aberta: false, msg: `⚠️ ${status.texto}.${diasInfo}${horario}` }
 }
 
-function limitarPosicao(posicao) {
+function limitarPosicao(posicao, reservaInferior = 0) {
   if (!posicao || typeof window === 'undefined') return null
   const x = Number(posicao.x)
   const y = Number(posicao.y)
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null
 
   const limiteX = Math.max(4, window.innerWidth - 56)
-  const limiteY = Math.max(4, window.innerHeight - 56)
+  const limiteY = Math.max(4, window.innerHeight - 56 - reservaInferior)
   return {
     x: Math.max(4, Math.min(limiteX, x)),
     y: Math.max(4, Math.min(limiteY, y)),
@@ -153,13 +153,14 @@ const SUGESTOES = {
   aluno: ['Que horas abre?', 'Como está meu pedido?', 'O que tem hoje?'],
 }
 
-export default function ChatAssistente() {
+export default function ChatAssistente({ cartBarAtiva = false }) {
   const {
     usuarioLogado, produtos, pedidos, lanchoneteConfig,
     carrinho, totalCarrinho, favoritos, toggleFavorito, adicionarAoCarrinho, cancelarPedido, resumoAvaliacoesPorProduto,
   } = useApp()
   const location = useLocation()
   const isMobile = useIsMobile()
+  const reservaInferior = cartBarAtiva ? 144 : 0
 
   const [aberto, setAberto] = useState(false)
   const [mensagens, setMensagens] = useState(null)
@@ -176,8 +177,10 @@ export default function ChatAssistente() {
   const dragState = useRef(null)
   const posRef = useRef(pos)
   const abrirRef = useRef(null)
+  const reservaRef = useRef(reservaInferior)
 
   useEffect(() => { posRef.current = pos }, [pos])
+  useEffect(() => { reservaRef.current = reservaInferior }, [reservaInferior])
   useEffect(() => {
     abrirRef.current = () => {
       setAberto(v => {
@@ -207,7 +210,7 @@ export default function ChatAssistente() {
     function ajustarPosicao() {
       setPos(atual => {
         if (!atual) return null
-        const ajustada = limitarPosicao(atual)
+        const ajustada = limitarPosicao(atual, reservaRef.current)
         if (!ajustada) {
           localStorage.removeItem('chat-btn-pos')
           return null
@@ -234,7 +237,7 @@ export default function ChatAssistente() {
       if (!dragState.current.moved && Math.abs(dx) < 6 && Math.abs(dy) < 6) return
       dragState.current.moved = true
       const nx = Math.max(4, Math.min(window.innerWidth - 56, dragState.current.elX + dx))
-      const ny = Math.max(4, Math.min(window.innerHeight - 56, dragState.current.elY + dy))
+      const ny = Math.max(4, Math.min(window.innerHeight - 56 - reservaRef.current, dragState.current.elY + dy))
       const np = { x: nx, y: ny }
       setPos(np); posRef.current = np
     }
@@ -253,7 +256,7 @@ export default function ChatAssistente() {
       dragState.current.moved = true
       e.preventDefault()
       const nx = Math.max(4, Math.min(window.innerWidth - 56, dragState.current.elX + dx))
-      const ny = Math.max(4, Math.min(window.innerHeight - 56, dragState.current.elY + dy))
+      const ny = Math.max(4, Math.min(window.innerHeight - 56 - reservaRef.current, dragState.current.elY + dy))
       const np = { x: nx, y: ny }
       setPos(np); posRef.current = np
     }
@@ -347,7 +350,7 @@ export default function ChatAssistente() {
     cursor: 'grab',
     ...(pos
       ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' }
-      : { right: 18, bottom: isMobile ? 'calc(80px + env(safe-area-inset-bottom, 0px))' : 24 }
+      : { right: 18, bottom: cartBarAtiva ? 'calc(9rem + env(safe-area-inset-bottom, 0px))' : (isMobile ? 'calc(80px + env(safe-area-inset-bottom, 0px))' : 24) }
     ),
   }
 

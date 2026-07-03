@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useApp } from '../contexts/AppContext'
 import { codigoPedido, compararPedidosFila } from '../utils/pedidos'
+import { useIsMobile } from '../utils/useIsMobile'
 
 export default function Painel() {
   const { pedidos } = useApp()
+  const isMobile = useIsMobile()
   const [hora, setHora] = useState(new Date())
 
   useEffect(() => {
@@ -20,15 +22,15 @@ export default function Painel() {
   return (
     <div style={s.page}>
       {/* Header */}
-      <div style={s.header}>
+      <div style={{ ...s.header, ...(isMobile ? s.headerMobile : {}) }}>
         <div style={s.logo}>🍔 Senac Lanches</div>
         <div style={s.relogio}>
-          <div style={s.hora}>{horaStr}</div>
+          <div style={{ ...s.hora, ...(isMobile ? s.horaMobile : {}) }}>{horaStr}</div>
           <div style={s.data}>{dataStr}</div>
         </div>
       </div>
 
-      <div style={s.corpo}>
+      <div style={{ ...s.corpo, ...(isMobile ? s.corpoMobile : {}) }}>
         {/* Coluna principal — prontos */}
         <div style={s.colPrincipal}>
           <div style={s.secaoTitulo}>
@@ -43,7 +45,7 @@ export default function Painel() {
               <p style={{ color: '#475569', fontSize: '1.2rem' }}>Nenhum pedido pronto no momento</p>
             </div>
           ) : (
-            <div style={s.cardsGrid}>
+            <div style={{ ...s.cardsGrid, ...(isMobile ? s.cardsGridMobile : {}) }}>
               {prontos.map(p => (
                 <div key={p.id} style={s.cardPronto}>
                   <div style={s.numeroGrande}>{codigoPedido(p)}</div>
@@ -57,7 +59,7 @@ export default function Painel() {
         </div>
 
         {/* Coluna lateral — histórico recente */}
-        <div style={s.colLateral}>
+        <div style={{ ...s.colLateral, ...(isMobile ? s.colLateralMobile : {}) }}>
           <div style={{ ...s.secaoTitulo, fontSize: '1rem' }}>
             <span>📦</span>
             <span>Últimos entregues</span>
@@ -93,18 +95,23 @@ export default function Painel() {
 const s = {
   page: { minHeight: '100vh', background: '#0F172A', color: '#F1F5F9', fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2rem', borderBottom: '1px solid #1E293B' },
+  headerMobile: { padding: '1rem', flexWrap: 'wrap', gap: 8, paddingTop: 'max(1rem, env(safe-area-inset-top, 0px))' },
   logo: { fontSize: '1.5rem', fontWeight: 800, color: '#F47920' },
   relogio: { textAlign: 'right' },
   hora: { fontSize: '2rem', fontWeight: 800, fontFamily: 'monospace', color: '#F1F5F9' },
+  horaMobile: { fontSize: '1.3rem' },
   data: { fontSize: '0.85rem', color: '#64748B', textTransform: 'capitalize' },
   corpo: { display: 'flex', flex: 1, gap: '1.5rem', padding: '1.5rem 2rem' },
-  colPrincipal: { flex: 1 },
+  corpoMobile: { flexDirection: 'column', gap: '1.25rem', padding: '1rem', paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 0px))' },
+  colPrincipal: { flex: 1, minWidth: 0 },
   colLateral: { width: 280, display: 'flex', flexDirection: 'column', gap: '1rem' },
+  colLateralMobile: { width: '100%' },
   secaoTitulo: { display: 'flex', alignItems: 'center', gap: 10, fontSize: '1.3rem', fontWeight: 800, color: '#22C55E', marginBottom: '1.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' },
   tituloIcon: { fontSize: '1.5rem' },
   contadorBadge: { background: '#22C55E', color: '#fff', borderRadius: '50%', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.95rem', fontWeight: 800 },
   vazio: { textAlign: 'center', padding: '4rem 0', display: 'flex', flexDirection: 'column', alignItems: 'center' },
   cardsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem' },
+  cardsGridMobile: { gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.75rem' },
   cardPronto: {
     background: 'linear-gradient(135deg, #064E3B, #065F46)',
     border: '2px solid #22C55E',

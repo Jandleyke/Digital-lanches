@@ -1,3 +1,5 @@
+import { normalizarPerfil } from './perfis'
+
 export function usuarioAvisoId(usuario) {
   return usuario?.uid || usuario?.matricula || ''
 }
@@ -53,9 +55,8 @@ export function avisoDestinadoAoUsuario(aviso, usuario, perfilNormalizado) {
   const recipients = Array.isArray(aviso.recipients) ? aviso.recipients.map(String) : []
   if (recipients.length > 0) return ids.some(id => recipients.includes(id))
 
-  const perfil = perfilNormalizado || usuario?.perfil || usuario?.role || ''
+  const perfil = normalizarPerfil(perfilNormalizado || usuario?.role || usuario?.perfil || '')
   const destinos = destinosAvisoNormalizados(aviso)
-  if (perfil === 'aluno') return destinos.includes('todos') || destinos.includes('aluno')
   return destinos.includes('todos') || destinos.includes(perfil)
 }
 
@@ -68,4 +69,16 @@ export function avisoArquivadoParaUsuario(aviso, usuarioOuId, escopo = 'geral') 
   const id = chaveArquivoAviso(usuarioOuId, escopo)
   const arquivados = Array.isArray(aviso?.arquivadoPorUsuarios) ? aviso.arquivadoPorUsuarios : []
   return !!id && arquivados.includes(id)
+}
+
+export function avisoFixadoParaUsuario(aviso, usuarioOuId, escopo = 'geral') {
+  const id = chaveArquivoAviso(usuarioOuId, escopo)
+  const fixados = Array.isArray(aviso?.fixadoPorUsuarios) ? aviso.fixadoPorUsuarios : []
+  return !!id && fixados.includes(id)
+}
+
+export function avisoHistoricoLimpoParaUsuario(aviso, usuarioOuId, escopo = 'geral') {
+  const id = chaveArquivoAviso(usuarioOuId, escopo)
+  const ocultos = Array.isArray(aviso?.historicoOcultoPorUsuarios) ? aviso.historicoOcultoPorUsuarios : []
+  return !!id && ocultos.includes(id)
 }

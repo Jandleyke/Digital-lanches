@@ -1079,7 +1079,7 @@ export default function Cozinha() {
             )}
 
             {loteProducao.length > 0 && (
-              <div style={{ ...s.salvarBar, ...(isMobile ? s.salvarBarMobile : {}), bottom: isMobile ? 64 : 0 }}>
+              <div style={{ ...s.salvarBar, ...(isMobile ? s.salvarBarMobile : {}), bottom: isMobile ? 'calc(64px + env(safe-area-inset-bottom, 0px))' : 0 }}>
                 <button type="button" style={s.btnCancelarRascunho} onClick={cancelarRascunhoLote}>
                   <X size={16} /> Remover itens
                 </button>
@@ -1090,7 +1090,7 @@ export default function Cozinha() {
             )}
 
             {modoSelecaoProducao && itensSelecionadosProducao.length > 0 && (
-              <div style={{ ...s.salvarBar, ...(isMobile ? s.salvarBarMobile : {}), bottom: isMobile ? 64 : 0, flexWrap: 'wrap' }}>
+              <div style={{ ...s.salvarBar, ...(isMobile ? s.salvarBarMobile : {}), bottom: isMobile ? 'calc(64px + env(safe-area-inset-bottom, 0px))' : 0, flexWrap: 'wrap' }}>
                 <button type="button" style={s.btnLoteAcao} onClick={() => aplicarStatusLoteSelecionados('Em producao')}>
                   <Flame size={16} /> Iniciar produção ({itensSelecionadosProducao.length})
                 </button>
@@ -1335,7 +1335,7 @@ const s = {
   checkOn: { width: 22, height: 22, borderRadius: 6, border: '2px solid #3B82F6', background: '#3B82F6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   checkOff: { width: 22, height: 22, borderRadius: 6, border: '2px solid #CBD5E1', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   produtoMiniThumb: { width: 40, height: 40, borderRadius: 10, overflow: 'hidden', background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  iconBtnMenu: { width: 34, height: 34, borderRadius: 10, border: 'none', background: '#F1F5F9', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, marginLeft: 'auto' },
+  iconBtnMenu: { width: 40, height: 40, borderRadius: 10, border: 'none', background: '#F1F5F9', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, marginLeft: 'auto' },
   menuAcoes: { display: 'flex', flexDirection: 'column', gap: 7, paddingTop: 8, borderTop: '1px solid #E2E8F0' },
   filtroCount: { background: 'rgba(0,0,0,0.08)', borderRadius: 999, padding: '0.05rem 0.5rem', fontSize: '0.7rem', fontWeight: 900 },
   salvarBar: { position: 'fixed', left: 0, right: 0, padding: '0.7rem 1rem', background: '#fff', borderTop: '1px solid #E2E8F0', boxShadow: '0 -8px 20px rgba(15,23,42,0.06)', zIndex: 40, display: 'flex', justifyContent: 'center', gap: 10 },
