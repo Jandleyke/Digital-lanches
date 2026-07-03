@@ -46,7 +46,7 @@ service cloud.firestore {
     }
 
     function atualizacaoFixarAviso() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fixado']);
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fixado', 'fixadoPorUsuarios', 'fixadoDetalhes']);
     }
 
     function atualizacaoArquivarAviso() {
@@ -326,7 +326,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create, delete: if podeGerenciarAvisos();
       allow update: if isAvisoAutor()
-        || (podeGerenciarAvisos() && atualizacaoFixarAviso())
+        || (isSignedIn() && atualizacaoFixarAviso())
         || (isSignedIn() && atualizacaoArquivarAviso())
         || (isSignedIn() && (atualizacaoLeituraAviso() || atualizacaoRespostaAviso()));
     }
