@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useApp } from '../contexts/AppContext'
 import { RichTextContent } from './RichTextEditor'
-import { avisoArquivadoParaUsuario } from '../utils/avisos'
+import { avisoArquivadoParaUsuario, avisoDestinadoAoUsuario } from '../utils/avisos'
+import { normalizarPerfil } from '../utils/perfis'
 
 const TIPO_ESTILO = {
   info:      { bg: '#DBEAFE', border: '#93C5FD', color: '#1D4ED8', icon: '📢' },
@@ -20,8 +21,7 @@ export default function AvisosBanner({ perfil }) {
   const visiveis = avisos.filter(av => {
     if (fechados.includes(av.id)) return false
     if (avisoArquivadoParaUsuario(av, usuarioLogado, escopoArquivo) || av.status === 'inativo') return false
-    const dest = av.destino || av.destinatario || 'todos'
-    return dest === 'todos' || dest === perfil || (perfil === 'alunos' && dest === 'aluno') || (perfil === 'aluno' && dest === 'alunos')
+    return avisoDestinadoAoUsuario(av, usuarioLogado, normalizarPerfil(usuarioLogado?.perfil || perfil))
   })
 
   if (visiveis.length === 0) return null

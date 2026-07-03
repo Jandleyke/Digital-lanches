@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { Archive, ArchiveRestore, CheckCircle2, MessageSquare, Pin, Send, Trash2, X } from 'lucide-react'
+import { Archive, ArchiveRestore, CheckCircle2, ChevronLeft, MessageSquare, Pin, Send, Trash2, X } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
 import RichTextEditor, { RichTextContent } from './RichTextEditor'
 import { normalizarPerfil } from '../utils/perfis'
-import { avisoArquivadoParaUsuario } from '../utils/avisos'
+import { avisoArquivadoParaUsuario, avisoCriadoPorUsuario, avisoDestinadoAoUsuario, destinoAvisoNormalizado, destinosAvisoNormalizados, usuarioAvisoIds } from '../utils/avisos'
 import { plainTextToRichText, richTextToPlainText } from '../utils/richText'
 import { useIsMobile } from '../utils/useIsMobile'
 
@@ -32,7 +32,7 @@ const PRIORIDADES = [
   { valor: 'alta', label: 'Alta', bg: '#FEE2E2', color: '#B91C1C' },
 ]
 
-const vazio = { titulo: '', mensagem: '', mensagemHtml: '', destino: 'todos', tipo: 'info', prioridade: 'media', status: 'ativo', produtoId: '' }
+const vazio = { titulo: '', mensagem: '', mensagemHtml: '', destino: 'todos', destinos: ['todos'], tipo: 'info', prioridade: 'media', status: 'ativo', produtoId: '', recipients: [] }
 
 function destinosPermitidos(role) {
   if (role === 'admin' || role === 'gerente' || role === 'professor') return ['todos', 'aluno', 'vendedor', 'cozinha', 'admin']
@@ -42,17 +42,11 @@ function destinosPermitidos(role) {
 }
 
 function destinoAviso(aviso) {
-  const destino = aviso.destino || aviso.destinatario || 'todos'
-  if (destino === 'alunos') return 'aluno'
-  if (destino === 'vendedora') return 'vendedor'
-  return destino
+  return destinoAvisoNormalizado(aviso)
 }
 
-function avisoVisivel(aviso, role) {
-  const destino = destinoAviso(aviso)
-  if (role === 'admin' || role === 'gerente' || role === 'professor') return true
-  if (role === 'aluno') return ['todos', 'aluno'].includes(destino)
-  return destino === 'todos' || destino === role
+function avisoVisivel(aviso, role, usuario) {
+  return avisoDestinadoAoUsuario(aviso, usuario, role)
 }
 
 function meta(lista, valor) {
@@ -79,7 +73,7 @@ function tiposPermitidos(role) {
 }
 
 export default function AvisosSetor({ setor }) {
-  const { avisos, produtos, criarAviso, editarAviso, marcarAvisoLido, excluirAviso, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario, usuarioLogado } = useApp()
+  const { avisos, produtos, usuarios, criarAviso, editarAviso, marcarAvisoLido, excluirAviso, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario, usuarioLogado } = useApp()
   const isMobile = useIsMobile()
   const role = normalizarPerfil(usuarioLogado?.perfil || setor)
   const escopoArquivo = role || setor || 'geral'
@@ -96,15 +90,24 @@ export default function AvisosSetor({ setor }) {
   const [visualizacao, setVisualizacao] = useState('ativos')
   const [detalheId, setDetalheId] = useState(null)
   const [focarResposta, setFocarResposta] = useState(false)
+  const [buscaUsuario, setBuscaUsuario] = useState('')
 
   const listaBase = avisos
-    .filter(aviso => avisoVisivel(aviso, role))
-    .filter(aviso => filtro === 'todos' || destinoAviso(aviso) === filtro)
+    .filter(aviso => avisoVisivel(aviso, role, usuarioLogado))
+    .filter(aviso => filtro === 'todos' || destinosAvisoNormalizados(aviso).includes(filtro))
   const totalAtivos = listaBase.filter(aviso => !avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)).length
   const totalHistorico = listaBase.filter(aviso => avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)).length
   const lista = listaBase.filter(aviso => visualizacao === 'historico' ? avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo) : !avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo))
   const tiposDisponiveis = tiposPermitidos(role)
   const detalheAviso = avisos.find(aviso => aviso.id === detalheId) || null
+  const usuariosSelecionaveis = (usuarios || []).filter(usuario => {
+    const perfilUsuario = normalizarPerfil(usuario.perfil || usuario.role)
+    if (perfilUsuario === 'aluno') return false
+    const termo = buscaUsuario.trim().toLowerCase()
+    if (!termo) return true
+    return [usuario.nome, usuario.matricula, usuario.email, usuario.perfil, usuario.role].filter(Boolean).join(' ').toLowerCase().includes(termo)
+  }).slice(0, 12)
+  const usuariosSelecionados = (usuarios || []).filter(usuario => usuarioAvisoIds(usuario).some(id => form.recipients.includes(id)))
 
   function abrirNovo() {
     setForm({ ...vazio, destino: destinos[0] || 'todos' })
@@ -122,10 +125,12 @@ export default function AvisosSetor({ setor }) {
       mensagem: aviso.mensagem || aviso.texto || '',
       mensagemHtml: aviso.mensagemHtml || plainTextToRichText(aviso.mensagem || aviso.texto || ''),
       destino: destinoAviso(aviso),
+      destinos: destinosAvisoNormalizados(aviso),
       tipo: tipoPodeUsar ? tipoAtual : 'info',
       prioridade: aviso.prioridade || 'media',
       status: aviso.status || 'ativo',
       produtoId: aviso.produtoPromocao?.id || '',
+      recipients: Array.isArray(aviso.recipients) ? aviso.recipients.map(String) : [],
     })
     setEditando(aviso)
     setErro('')
@@ -148,10 +153,20 @@ export default function AvisosSetor({ setor }) {
         mensagem: mensagemTexto,
         texto: mensagemTexto,
         mensagemHtml: form.mensagemHtml,
-        destino: form.destino,
+        destino: form.destinos?.[0] || form.destino || 'todos',
+        destinos: form.destinos?.length ? form.destinos : [form.destino || 'todos'],
         tipo: form.tipo,
         prioridade: form.prioridade,
         status: form.status,
+        recipients: form.recipients,
+        recipientsDetalhes: usuariosSelecionados.map(usuario => ({
+          id: usuario.uid || usuario.matricula || usuario.email || '',
+          uid: usuario.uid || '',
+          matricula: usuario.matricula || '',
+          nome: usuario.nome || '',
+          perfil: usuario.perfil || usuario.role || '',
+          email: usuario.email || '',
+        })),
         produtoPromocao: form.tipo === 'promo' ? produtos.find(p => String(p.id) === String(form.produtoId)) || null : null,
       })
       setModal(false)
@@ -178,11 +193,21 @@ export default function AvisosSetor({ setor }) {
         mensagem: mensagemTexto,
         texto: mensagemTexto,
         mensagemHtml: form.mensagemHtml,
-        destino: form.destino,
-        destinatario: form.destino,
+        destino: form.destinos?.[0] || form.destino || 'todos',
+        destinatario: form.destinos?.[0] || form.destino || 'todos',
+        destinos: form.destinos?.length ? form.destinos : [form.destino || 'todos'],
         tipo: form.tipo,
         prioridade: form.prioridade,
         status: form.status,
+        recipients: form.recipients,
+        recipientsDetalhes: usuariosSelecionados.map(usuario => ({
+          id: usuario.uid || usuario.matricula || usuario.email || '',
+          uid: usuario.uid || '',
+          matricula: usuario.matricula || '',
+          nome: usuario.nome || '',
+          perfil: usuario.perfil || usuario.role || '',
+          email: usuario.email || '',
+        })),
         produtoPromocao: produtoPromocao ? {
           id: produtoPromocao.id,
           nome: produtoPromocao.nome || '',
@@ -201,7 +226,7 @@ export default function AvisosSetor({ setor }) {
   }
 
   async function remover(aviso) {
-    if (!aviso?.id || !confirm('Excluir este aviso?')) return
+    if (!aviso?.id || !confirm('Apagar este aviso para todos?')) return
     await excluirAviso(aviso.id)
   }
 
@@ -222,6 +247,31 @@ export default function AvisosSetor({ setor }) {
   function fecharDetalhe() {
     setDetalheId(null)
     setFocarResposta(false)
+  }
+
+  function toggleRecipient(usuario) {
+    const ids = usuarioAvisoIds(usuario)
+    const principal = ids[0]
+    if (!principal) return
+    setForm(f => {
+      const selecionado = ids.some(id => f.recipients.includes(id))
+      return {
+        ...f,
+        recipients: selecionado
+          ? f.recipients.filter(id => !ids.includes(id))
+          : [...new Set([...f.recipients, principal])],
+      }
+    })
+  }
+
+  function toggleDestino(valor) {
+    setForm(f => {
+      if (valor === 'todos') return { ...f, destino: 'todos', destinos: ['todos'] }
+      const atuais = (f.destinos?.length ? f.destinos : [f.destino || 'todos']).filter(item => item !== 'todos')
+      const proximos = atuais.includes(valor) ? atuais.filter(item => item !== valor) : [...atuais, valor]
+      const destinos = proximos.length ? proximos : ['todos']
+      return { ...f, destino: destinos[0], destinos }
+    })
   }
 
   async function responder(e, aviso) {
@@ -260,15 +310,15 @@ export default function AvisosSetor({ setor }) {
       ) : (
         <div style={s.lista}>
           {lista.map(aviso => {
-            const destino = meta(DESTINOS, destinoAviso(aviso))
+            const destinosDoAviso = destinosAvisoNormalizados(aviso).map(destino => meta(DESTINOS, destino))
             const tipo = meta(TIPOS, aviso.tipo || 'info')
             const prioridade = meta(PRIORIDADES, aviso.prioridade || 'media')
             const lido = Array.isArray(aviso.lidoPor) && aviso.lidoPor.includes(leitorId)
-            const ehAutor = aviso.autorId === leitorId
-            const podeExcluir = role === 'admin' || role === 'gerente' || role === 'professor' || aviso.autorId === leitorId || normalizarPerfil(aviso.autorRole) === role
-            const podeGerenciar = destinos.length > 0
+            const ehAutor = avisoCriadoPorUsuario(aviso, usuarioLogado)
+            const podeExcluir = ehAutor
+            const podeGerenciar = ehAutor
             const podeEditar = ehAutor
-            const podeArquivar = podeGerenciar || ehAutor
+            const podeArquivar = true
             const respostasAviso = Array.isArray(aviso.respostas) ? aviso.respostas : []
             const arquivado = avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)
             return (
@@ -288,7 +338,9 @@ export default function AvisosSetor({ setor }) {
                 <div style={{ ...s.cardTop, ...(isMobile ? s.cardTopMobile : {}) }}>
                   <div style={{ ...s.badges, ...(isMobile ? s.badgesMobile : {}) }}>
                     <span style={{ ...s.tipoBadge, ...(isMobile ? s.tipoBadgeMobile : {}), background: tipo.bg, color: tipo.color }}>{tipo.label}</span>
-                    <span style={{ ...s.tipoBadge, ...(isMobile ? s.tipoBadgeMobile : {}), background: destino.bg, color: destino.color }}>{destino.label}</span>
+                    {destinosDoAviso.map(destino => (
+                      <span key={destino.valor} style={{ ...s.tipoBadge, ...(isMobile ? s.tipoBadgeMobile : {}), background: destino.bg, color: destino.color }}>{destino.label}</span>
+                    ))}
                     <span style={{ ...s.tipoBadge, ...(isMobile ? s.tipoBadgeMobile : {}), background: prioridade.bg, color: prioridade.color }}>{prioridade.label}</span>
                     {aviso.fixado && <span style={s.fixadoBadge}>Fixado</span>}
                     {arquivado && <span style={s.arquivadoBadge}>Arquivado</span>}
@@ -311,12 +363,12 @@ export default function AvisosSetor({ setor }) {
                     )}
                     {podeArquivar && (
                       <button style={{ ...s.btnAcao, ...(isMobile ? s.btnAcaoMobile : {}) }} onClick={() => toggleArquivado(aviso)}>
-                        {arquivado ? <ArchiveRestore size={14} /> : <Archive size={14} />} {arquivado ? 'Desarquivar' : 'Arquivar'}
+                        {arquivado ? <ArchiveRestore size={14} /> : <Archive size={14} />} {arquivado ? 'Desarquivar' : 'Apagar para mim'}
                       </button>
                     )}
                     {podeExcluir && (
                       <button style={{ ...s.btnAcao, ...(isMobile ? s.btnAcaoMobile : {}), background: '#FEE2E2', color: '#DC2626' }} onClick={() => remover(aviso)}>
-                        <Trash2 size={14} /> Excluir
+                        <Trash2 size={14} /> Apagar para todos
                       </button>
                     )}
                   </div>
@@ -344,7 +396,7 @@ export default function AvisosSetor({ setor }) {
       )}
 
       {detalheAviso && (() => {
-        const destinoDet = meta(DESTINOS, destinoAviso(detalheAviso))
+        const destinosDet = destinosAvisoNormalizados(detalheAviso).map(destino => meta(DESTINOS, destino))
         const tipoDet = meta(TIPOS, detalheAviso.tipo || 'info')
         const prioridadeDet = meta(PRIORIDADES, detalheAviso.prioridade || 'media')
         const respostasDet = Array.isArray(detalheAviso.respostas) ? detalheAviso.respostas : []
@@ -354,9 +406,16 @@ export default function AvisosSetor({ setor }) {
           <div style={{ ...s.overlayDetalhe, ...(isMobile ? s.overlayDetalheMobile : {}) }} onClick={fecharDetalhe}>
             <div style={{ ...s.modalDetalhe, ...(isMobile ? s.modalDetalheMobile : {}) }} onClick={e => e.stopPropagation()}>
               <div style={s.modalDetalheHeader}>
+                {isMobile && (
+                  <button type="button" style={s.voltarDetalheBtn} onClick={fecharDetalhe}>
+                    <ChevronLeft size={18} /> Voltar
+                  </button>
+                )}
                 <div style={s.badges}>
                   <span style={{ ...s.tipoBadge, background: tipoDet.bg, color: tipoDet.color }}>{tipoDet.label}</span>
-                  <span style={{ ...s.tipoBadge, background: destinoDet.bg, color: destinoDet.color }}>{destinoDet.label}</span>
+                  {destinosDet.map(destino => (
+                    <span key={destino.valor} style={{ ...s.tipoBadge, background: destino.bg, color: destino.color }}>{destino.label}</span>
+                  ))}
                   <span style={{ ...s.tipoBadge, background: prioridadeDet.bg, color: prioridadeDet.color }}>{prioridadeDet.label}</span>
                   {detalheAviso.fixado && <span style={s.fixadoBadge}>Fixado</span>}
                   {arquivadoDet && <span style={s.arquivadoBadge}>Arquivado</span>}
@@ -365,7 +424,7 @@ export default function AvisosSetor({ setor }) {
                   <X size={20} />
                 </button>
               </div>
-              <div style={s.modalDetalheBody}>
+              <div style={{ ...s.modalDetalheBody, ...(isMobile ? s.modalDetalheBodyMobile : {}) }}>
                 <h2 style={s.modalDetalheTitulo}>{detalheAviso.titulo}</h2>
                 <RichTextContent html={detalheAviso.mensagemHtml} text={detalheAviso.mensagem || detalheAviso.texto} style={s.modalDetalheTexto} />
                 {produtoPromoDet && (
@@ -378,6 +437,7 @@ export default function AvisosSetor({ setor }) {
                   </div>
                 )}
                 <div style={s.cardInfo}>Criado por {detalheAviso.autorNome || detalheAviso.autor || 'Sistema'} - {formatarData(detalheAviso.createdAt || detalheAviso.criadoEm)}</div>
+                {detalheAviso.updatedAt && <div style={s.cardInfo}>Atualizado por {detalheAviso.updatedByNome || 'Usuario'} - {formatarData(detalheAviso.updatedAt)}</div>}
                 {arquivadoDet && <div style={s.cardInfo}>Arquivado por voce</div>}
                 <div style={s.lidoInfo}>Lido por: {nomesLeitura(detalheAviso)}</div>
                 <div style={s.historico}>
@@ -401,11 +461,23 @@ export default function AvisosSetor({ setor }) {
                     </div>
                   )}
                 </div>
+                {isMobile && !arquivadoDet && (
+                  <form onSubmit={e => responder(e, detalheAviso)} style={s.respostaFormInlineMobile}>
+                    <input
+                      autoFocus={focarResposta}
+                      value={respostas[detalheAviso.id] || ''}
+                      onChange={e => setRespostas(prev => ({ ...prev, [detalheAviso.id]: e.target.value }))}
+                      placeholder="Responder aviso..."
+                      style={s.respostaInput}
+                    />
+                    <button type="submit" style={{ ...s.respostaBtn, ...s.respostaBtnMobile }}><Send size={14} /> Enviar</button>
+                  </form>
+                )}
               </div>
               {arquivadoDet ? (
                 <div style={s.arquivadoInfo}>Este aviso esta no seu historico. Desarquive para responder ou editar.</div>
-              ) : (
-                <form onSubmit={e => responder(e, detalheAviso)} style={s.respostaFormFixa}>
+              ) : !isMobile && (
+                <form onSubmit={e => responder(e, detalheAviso)} style={{ ...s.respostaFormFixa, ...(isMobile ? s.respostaFormFixaMobile : {}) }}>
                   <input
                     autoFocus={focarResposta}
                     value={respostas[detalheAviso.id] || ''}
@@ -413,7 +485,7 @@ export default function AvisosSetor({ setor }) {
                     placeholder="Responder aviso..."
                     style={s.respostaInput}
                   />
-                  <button type="submit" style={s.respostaBtn}><Send size={14} /> Enviar</button>
+                  <button type="submit" style={{ ...s.respostaBtn, ...(isMobile ? s.respostaBtnMobile : {}) }}><Send size={14} /> Enviar</button>
                 </form>
               )}
             </div>
@@ -456,11 +528,41 @@ export default function AvisosSetor({ setor }) {
             <label style={s.label}>Destino</label>
             <div style={s.opcoes}>
               {DESTINOS.filter(destino => destinos.includes(destino.valor)).map(destino => (
-                <button type="button" key={destino.valor} style={{ ...s.tipoBtnBase, ...(form.destino === destino.valor ? { border: `2px solid ${destino.color}`, background: destino.bg, color: destino.color } : {}) }} onClick={() => setForm(f => ({ ...f, destino: destino.valor }))}>
+                <button type="button" key={destino.valor} style={{ ...s.tipoBtnBase, ...((form.destinos || []).includes(destino.valor) ? { border: `2px solid ${destino.color}`, background: destino.bg, color: destino.color } : {}) }} onClick={() => toggleDestino(destino.valor)}>
                   {destino.label}
                 </button>
               ))}
             </div>
+
+            <label style={s.label}>Pessoas especificas</label>
+            <input
+              style={s.input}
+              value={buscaUsuario}
+              onChange={e => setBuscaUsuario(e.target.value)}
+              placeholder="Buscar por nome, matricula ou perfil"
+            />
+            {usuariosSelecionados.length > 0 && (
+              <div style={s.selecionados}>
+                {usuariosSelecionados.map(usuario => (
+                  <button type="button" key={usuario.uid || usuario.matricula || usuario.email} style={s.selecionadoChip} onClick={() => toggleRecipient(usuario)}>
+                    {usuario.nome || usuario.email || usuario.matricula} <X size={12} />
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={s.listaUsuarios}>
+              {usuariosSelecionaveis.map(usuario => {
+                const ids = usuarioAvisoIds(usuario)
+                const marcado = ids.some(id => form.recipients.includes(id))
+                return (
+                  <button type="button" key={usuario.uid || usuario.matricula || usuario.email} style={{ ...s.usuarioOpcao, ...(marcado ? s.usuarioOpcaoOn : {}) }} onClick={() => toggleRecipient(usuario)}>
+                    <strong>{usuario.nome || 'Usuario'}</strong>
+                    <span>{usuario.matricula || usuario.email || 'Sem matricula'} · {usuario.perfil || usuario.role || 'perfil'}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div style={s.ajudaCampo}>Se selecionar pessoas, o aviso aparece somente para elas e para quem criou.</div>
 
             <label style={s.label}>Prioridade</label>
             <div style={s.opcoes}>
@@ -563,20 +665,31 @@ const s = {
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' },
   modalBox: { background: '#fff', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto' },
   modalTitulo: { fontWeight: 800, margin: '0 0 1.25rem', color: '#1A202C' },
-  overlayDetalhe: { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '1.25rem' },
-  overlayDetalheMobile: { padding: 0 },
+  overlayDetalhe: { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '1.25rem' },
+  overlayDetalheMobile: { padding: 0, zIndex: 1200 },
   modalDetalhe: { background: '#fff', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: '86vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 50px rgba(15,23,42,0.25)' },
-  modalDetalheMobile: { maxWidth: '100%', width: '100%', height: '100%', maxHeight: '100%', borderRadius: 0 },
+  modalDetalheMobile: { position: 'fixed', inset: 0, maxWidth: '100%', width: '100%', height: '100dvh', maxHeight: '100dvh', borderRadius: 0, zIndex: 1201 },
   modalDetalheHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '1rem 1.1rem', borderBottom: '1px solid #E2E8F0' },
+  voltarDetalheBtn: { border: 'none', background: 'transparent', color: '#003D7C', fontWeight: 800, fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0.3rem 0.2rem 0.3rem 0', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 },
   fecharDetalheBtn: { border: 'none', background: '#F1F5F9', color: '#475569', borderRadius: 999, width: 34, height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
   modalDetalheBody: { flex: 1, overflowY: 'auto', padding: '1rem 1.1rem' },
+  modalDetalheBodyMobile: { paddingBottom: '1rem', WebkitOverflowScrolling: 'touch' },
   modalDetalheTitulo: { fontWeight: 800, fontSize: '1.15rem', margin: '0 0 10px', color: '#1A202C', lineHeight: 1.3 },
   modalDetalheTexto: { color: '#334155', fontSize: '0.92rem', lineHeight: 1.6, margin: '0 0 14px' },
   respostaFormFixa: { display: 'flex', gap: 8, padding: '0.75rem 1.1rem', borderTop: '1px solid #E2E8F0', background: '#fff' },
+  respostaFormFixaMobile: { position: 'sticky', bottom: 0, zIndex: 4, padding: '0.65rem 0.85rem calc(0.8rem + env(safe-area-inset-bottom, 0px))', boxShadow: '0 -8px 18px rgba(15,23,42,0.08)' },
+  respostaFormInlineMobile: { display: 'flex', gap: 8, marginTop: 14, paddingTop: 12, borderTop: '1px solid #E2E8F0' },
+  respostaBtnMobile: { minHeight: 40, padding: '0.6rem 0.75rem' },
   label: { display: 'block', color: '#64748B', fontWeight: 800, margin: '0.85rem 0 0.35rem', fontSize: '0.83rem' },
   labelRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: '0.85rem' },
   editarTipoBtn: { border: 'none', background: '#EAF2FF', color: '#004A8D', borderRadius: 999, padding: '0.32rem 0.65rem', fontWeight: 900, fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'inherit' },
   opcoes: { display: 'flex', flexWrap: 'wrap', gap: 8 },
+  selecionados: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  selecionadoChip: { border: 'none', borderRadius: 999, background: '#EAF2FF', color: '#003D7C', padding: '0.35rem 0.55rem', fontWeight: 900, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontFamily: 'inherit' },
+  listaUsuarios: { display: 'grid', gridTemplateColumns: '1fr', gap: 6, maxHeight: 180, overflowY: 'auto', marginTop: 8, border: '1px solid #E2E8F0', borderRadius: 10, padding: 6, background: '#F8FAFC' },
+  usuarioOpcao: { border: '1px solid #E2E8F0', background: '#fff', borderRadius: 8, padding: '0.5rem 0.65rem', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', gap: 2, color: '#334155' },
+  usuarioOpcaoOn: { borderColor: '#003D7C', background: '#EAF2FF', color: '#003D7C' },
+  ajudaCampo: { color: '#64748B', fontSize: '0.72rem', fontWeight: 700, marginTop: 6 },
   tipoBtnBase: { padding: '0.45rem 0.9rem', borderRadius: 999, border: '2px solid #E2E8F0', background: '#fff', color: '#64748B', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' },
   input: { width: '100%', boxSizing: 'border-box', border: '2px solid #E2E8F0', borderRadius: 10, padding: '0.75rem 0.9rem', fontFamily: 'inherit', outlineColor: '#003D7C' },
   erro: { marginTop: 10, background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 10, padding: '0.6rem 0.85rem', fontWeight: 800, fontSize: '0.86rem' },

@@ -12,7 +12,7 @@ import {
 import { ehOperacional, normalizarPerfil } from '../utils/perfis'
 import { suportaNotificacao, permissaoNotificacao, solicitarPermissaoNotificacao, atualizarBadgeApp } from '../utils/notifications'
 import { suportaPush, inscreverPush } from '../utils/push'
-import { avisoArquivadoParaUsuario } from '../utils/avisos'
+import { avisoArquivadoParaUsuario, avisoDestinadoAoUsuario } from '../utils/avisos'
 
 export default function Layout({ children, titulo }) {
   const { usuarioLogado, logout, qtdCarrinho, totalCarrinho, carregando, avisos } = useApp()
@@ -163,24 +163,12 @@ export default function Layout({ children, titulo }) {
   const perfilAtual = normalizarPerfil(usuarioLogado?.perfil)
   const leitorId = usuarioLogado?.uid || usuarioLogado?.matricula
   const avisosNaoLidos = useMemo(() => {
-    function destinoAviso(aviso) {
-      const destino = aviso.destino || aviso.destinatario || 'todos'
-      if (destino === 'alunos') return 'aluno'
-      if (destino === 'vendedora') return 'vendedor'
-      return destino
-    }
-    function avisoVisivel(aviso) {
-      const destino = destinoAviso(aviso)
-      if (perfilAtual === 'admin' || perfilAtual === 'gerente' || perfilAtual === 'professor') return true
-      if (perfilAtual === 'aluno') return ['todos', 'aluno'].includes(destino)
-      return destino === 'todos' || destino === perfilAtual
-    }
     if (!leitorId) return 0
     return (avisos || []).filter(aviso => {
       const lidoPor = Array.isArray(aviso.lidoPor) ? aviso.lidoPor : []
-      return avisoVisivel(aviso) && aviso.status !== 'inativo' && !avisoArquivadoParaUsuario(aviso, leitorId, perfilAtual || 'geral') && !lidoPor.includes(leitorId)
+      return avisoDestinadoAoUsuario(aviso, usuarioLogado, perfilAtual) && aviso.status !== 'inativo' && !avisoArquivadoParaUsuario(aviso, leitorId, perfilAtual || 'geral') && !lidoPor.includes(leitorId)
     }).length
-  }, [avisos, leitorId, perfilAtual])
+  }, [avisos, leitorId, perfilAtual, usuarioLogado])
 
   useEffect(() => {
     atualizarBadgeApp(avisosNaoLidos)

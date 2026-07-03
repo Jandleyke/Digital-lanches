@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Archive, ArchiveRestore, CheckCircle2, MessageSquare, Send, X } from 'lucide-react'
+import { Archive, ArchiveRestore, CheckCircle2, ChevronLeft, MessageSquare, Send, X } from 'lucide-react'
 import Layout from '../../components/Layout'
 import RichTextEditor, { RichTextContent } from '../../components/RichTextEditor'
 import { useApp } from '../../contexts/AppContext'
-import { avisoArquivadoParaUsuario, usuarioAvisoId } from '../../utils/avisos'
+import { avisoArquivadoParaUsuario, avisoCriadoPorUsuario, avisoDestinadoAoUsuario, destinoAvisoNormalizado, destinosAvisoNormalizados, usuarioAvisoId, usuarioAvisoIds } from '../../utils/avisos'
 import { plainTextToRichText, richTextToPlainText } from '../../utils/richText'
 import { useIsMobile } from '../../utils/useIsMobile'
+import { normalizarPerfil } from '../../utils/perfis'
 
 const TIPOS = [
   { valor: 'info', label: 'Comunicado', bg: '#DBEAFE', color: '#1D4ED8' },
@@ -22,13 +23,10 @@ const DESTINOS = [
   { valor: 'admin', label: 'Admin', bg: '#F3E8FF', color: '#6B21A8' },
 ]
 
-const vazio = { titulo: '', mensagem: '', mensagemHtml: '', tipo: 'info', fixado: false, destino: 'todos', produtoId: '' }
+const vazio = { titulo: '', mensagem: '', mensagemHtml: '', tipo: 'info', fixado: false, destino: 'todos', destinos: ['todos'], produtoId: '', recipients: [] }
 
 function destinoAviso(aviso) {
-  const destino = aviso.destino || aviso.destinatario || 'todos'
-  if (destino === 'alunos') return 'aluno'
-  if (destino === 'vendedora') return 'vendedor'
-  return destino
+  return destinoAvisoNormalizado(aviso)
 }
 
 function destinoMeta(destino) {
@@ -54,7 +52,7 @@ function nomesLeitura(aviso) {
 }
 
 export default function Avisos() {
-  const { avisos, produtos, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario, usuarioLogado } = useApp()
+  const { avisos, produtos, usuarios, criarAviso, editarAviso, excluirAviso, marcarAvisoLido, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario, usuarioLogado } = useApp()
   const isMobile = useIsMobile()
   const escopoArquivo = 'admin'
   const [modal, setModal] = useState(null)
@@ -67,6 +65,7 @@ export default function Avisos() {
   const [visualizacao, setVisualizacao] = useState('ativos')
   const [detalheId, setDetalheId] = useState(null)
   const [focarResposta, setFocarResposta] = useState(false)
+  const [buscaUsuario, setBuscaUsuario] = useState('')
 
   function abrirNovo() {
     setForm(vazio)
@@ -83,7 +82,9 @@ export default function Avisos() {
       tipo: aviso.tipo || 'info',
       fixado: !!aviso.fixado,
       destino: destinoAviso(aviso),
+      destinos: destinosAvisoNormalizados(aviso),
       produtoId: aviso.produtoPromocao?.id || '',
+      recipients: Array.isArray(aviso.recipients) ? aviso.recipients.map(String) : [],
     })
     setModal(aviso)
     setErro('')
@@ -103,7 +104,18 @@ export default function Avisos() {
       mensagem: mensagemTexto,
       texto: mensagemTexto,
       mensagemHtml: form.mensagemHtml,
+      destino: form.destinos?.[0] || form.destino || 'todos',
       destinatario: form.destino,
+      destinos: form.destinos?.length ? form.destinos : [form.destino || 'todos'],
+      recipients: form.recipients,
+      recipientsDetalhes: (usuarios || []).filter(usuario => usuarioAvisoIds(usuario).some(id => form.recipients.includes(id))).map(usuario => ({
+        id: usuario.uid || usuario.matricula || usuario.email || '',
+        uid: usuario.uid || '',
+        matricula: usuario.matricula || '',
+        nome: usuario.nome || '',
+        perfil: usuario.perfil || usuario.role || '',
+        email: usuario.email || '',
+      })),
       produtoPromocao: form.tipo === 'promo' ? produtos.find(p => String(p.id) === String(form.produtoId)) || null : null,
     }
     try {
@@ -119,7 +131,7 @@ export default function Avisos() {
 
   async function handleExcluir(id) {
     setErro('')
-    if (!confirm('Excluir este aviso?')) return
+    if (!confirm('Apagar este aviso para todos?')) return
     try {
       await excluirAviso(id)
       if (modal?.id === id) setModal(null)
@@ -166,14 +178,47 @@ export default function Avisos() {
     setFocarResposta(false)
   }
 
+  function toggleRecipient(usuario) {
+    const ids = usuarioAvisoIds(usuario)
+    const principal = ids[0]
+    if (!principal) return
+    setForm(f => {
+      const selecionado = ids.some(id => f.recipients.includes(id))
+      return {
+        ...f,
+        recipients: selecionado
+          ? f.recipients.filter(id => !ids.includes(id))
+          : [...new Set([...f.recipients, principal])],
+      }
+    })
+  }
+
+  function toggleDestino(valor) {
+    setForm(f => {
+      if (valor === 'todos') return { ...f, destino: 'todos', destinos: ['todos'] }
+      const atuais = (f.destinos?.length ? f.destinos : [f.destino || 'todos']).filter(item => item !== 'todos')
+      const proximos = atuais.includes(valor) ? atuais.filter(item => item !== valor) : [...atuais, valor]
+      const destinos = proximos.length ? proximos : ['todos']
+      return { ...f, destino: destinos[0], destinos }
+    })
+  }
+
   const filtrados = filtro === 'todos'
-    ? avisos
-    : avisos.filter(aviso => destinoAviso(aviso) === filtro)
+    ? avisos.filter(aviso => avisoDestinadoAoUsuario(aviso, usuarioLogado, 'admin'))
+    : avisos.filter(aviso => avisoDestinadoAoUsuario(aviso, usuarioLogado, 'admin') && destinosAvisoNormalizados(aviso).includes(filtro))
   const leitorId = usuarioAvisoId(usuarioLogado)
   const totalAtivos = filtrados.filter(aviso => !avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)).length
   const totalHistorico = filtrados.filter(aviso => avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)).length
   const visiveis = filtrados.filter(aviso => visualizacao === 'historico' ? avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo) : !avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo))
   const detalheAviso = avisos.find(aviso => aviso.id === detalheId) || null
+  const usuariosSelecionaveis = (usuarios || []).filter(usuario => {
+    const perfilUsuario = normalizarPerfil(usuario.perfil || usuario.role)
+    if (perfilUsuario === 'aluno') return false
+    const termo = buscaUsuario.trim().toLowerCase()
+    if (!termo) return true
+    return [usuario.nome, usuario.matricula, usuario.email, usuario.perfil, usuario.role].filter(Boolean).join(' ').toLowerCase().includes(termo)
+  }).slice(0, 12)
+  const usuariosSelecionados = (usuarios || []).filter(usuario => usuarioAvisoIds(usuario).some(id => form.recipients.includes(id)))
 
   return (
     <Layout titulo="Central de Avisos">
@@ -206,9 +251,9 @@ export default function Avisos() {
         <div style={s.lista}>
           {visiveis.map(aviso => {
             const tipo = tipoMeta(aviso.tipo)
-            const destino = destinoMeta(destinoAviso(aviso))
+            const destinosDoAviso = destinosAvisoNormalizados(aviso).map(destino => destinoMeta(destino))
             const respostasAviso = Array.isArray(aviso.respostas) ? aviso.respostas : []
-            const ehAutor = aviso.autorId === (usuarioLogado?.uid || usuarioLogado?.matricula)
+            const ehAutor = avisoCriadoPorUsuario(aviso, usuarioLogado)
             const lido = Array.isArray(aviso.lidoPor) && aviso.lidoPor.includes(leitorId)
             const arquivado = avisoArquivadoParaUsuario(aviso, leitorId, escopoArquivo)
             return (
@@ -228,12 +273,14 @@ export default function Avisos() {
                 <div style={s.cardTop}>
                   <div style={s.badges}>
                     <span style={{ ...s.tipoBadge, background: tipo.bg, color: tipo.color }}>{tipo.label}</span>
-                    <span style={{ ...s.tipoBadge, background: destino.bg, color: destino.color }}>{destino.label}</span>
+                    {destinosDoAviso.map(destino => (
+                      <span key={destino.valor} style={{ ...s.tipoBadge, background: destino.bg, color: destino.color }}>{destino.label}</span>
+                    ))}
                     {aviso.fixado && <span style={s.fixadoBadge}>Fixado</span>}
                     {arquivado && <span style={s.arquivadoBadge}>Arquivado</span>}
                   </div>
                   <div style={s.acoes} onClick={e => e.stopPropagation()}>
-                    {!arquivado && <button style={s.btnAcao} onClick={() => toggleFixado(aviso)}>{aviso.fixado ? 'Desafixar' : 'Fixar'}</button>}
+                    {ehAutor && !arquivado && <button style={s.btnAcao} onClick={() => toggleFixado(aviso)}>{aviso.fixado ? 'Desafixar' : 'Fixar'}</button>}
                     {!lido && !arquivado && (
                       <button style={s.btnAcao} onClick={() => marcarAvisoLido(aviso.id)}>
                         <CheckCircle2 size={14} /> Lido
@@ -241,9 +288,9 @@ export default function Avisos() {
                     )}
                     {ehAutor && !arquivado && <button style={s.btnAcao} onClick={() => abrirEditar(aviso)}>Editar</button>}
                     <button style={s.btnAcao} onClick={() => toggleArquivado(aviso)}>
-                      {arquivado ? <ArchiveRestore size={14} /> : <Archive size={14} />} {arquivado ? 'Desarquivar' : 'Arquivar'}
+                      {arquivado ? <ArchiveRestore size={14} /> : <Archive size={14} />} {arquivado ? 'Desarquivar' : 'Apagar para mim'}
                     </button>
-                    <button style={{ ...s.btnAcao, background: '#FEE2E2', color: '#DC2626' }} onClick={() => handleExcluir(aviso.id)}>Excluir</button>
+                    {ehAutor && <button style={{ ...s.btnAcao, background: '#FEE2E2', color: '#DC2626' }} onClick={() => handleExcluir(aviso.id)}>Apagar para todos</button>}
                   </div>
                 </div>
                 <h3 style={s.cardTitulo}>{aviso.titulo}</h3>
@@ -270,7 +317,7 @@ export default function Avisos() {
 
       {detalheAviso && (() => {
         const tipoDet = tipoMeta(detalheAviso.tipo)
-        const destinoDet = destinoMeta(destinoAviso(detalheAviso))
+        const destinosDet = destinosAvisoNormalizados(detalheAviso).map(destino => destinoMeta(destino))
         const respostasDet = Array.isArray(detalheAviso.respostas) ? detalheAviso.respostas : []
         const produtoPromoDet = detalheAviso.produtoPromocao || detalheAviso.produtoPromo
         const arquivadoDet = avisoArquivadoParaUsuario(detalheAviso, leitorId, escopoArquivo)
@@ -278,9 +325,16 @@ export default function Avisos() {
           <div style={{ ...s.overlayDetalhe, ...(isMobile ? s.overlayDetalheMobile : {}) }} onClick={fecharDetalhe}>
             <div style={{ ...s.modalDetalhe, ...(isMobile ? s.modalDetalheMobile : {}) }} onClick={e => e.stopPropagation()}>
               <div style={s.modalDetalheHeader}>
+                {isMobile && (
+                  <button type="button" style={s.voltarDetalheBtn} onClick={fecharDetalhe}>
+                    <ChevronLeft size={18} /> Voltar
+                  </button>
+                )}
                 <div style={s.badges}>
                   <span style={{ ...s.tipoBadge, background: tipoDet.bg, color: tipoDet.color }}>{tipoDet.label}</span>
-                  <span style={{ ...s.tipoBadge, background: destinoDet.bg, color: destinoDet.color }}>{destinoDet.label}</span>
+                  {destinosDet.map(destino => (
+                    <span key={destino.valor} style={{ ...s.tipoBadge, background: destino.bg, color: destino.color }}>{destino.label}</span>
+                  ))}
                   {detalheAviso.fixado && <span style={s.fixadoBadge}>Fixado</span>}
                   {arquivadoDet && <span style={s.arquivadoBadge}>Arquivado</span>}
                 </div>
@@ -288,7 +342,7 @@ export default function Avisos() {
                   <X size={20} />
                 </button>
               </div>
-              <div style={s.modalDetalheBody}>
+              <div style={{ ...s.modalDetalheBody, ...(isMobile ? s.modalDetalheBodyMobile : {}) }}>
                 <h2 style={s.modalDetalheTitulo}>{detalheAviso.titulo}</h2>
                 <RichTextContent html={detalheAviso.mensagemHtml} text={detalheAviso.mensagem || detalheAviso.texto} style={s.modalDetalheTexto} />
                 {produtoPromoDet && (
@@ -301,6 +355,7 @@ export default function Avisos() {
                   </div>
                 )}
                 <div style={s.cardInfo}>Criado por {detalheAviso.autorNome || detalheAviso.autor || 'Sistema'} - {formatarData(detalheAviso.createdAt || detalheAviso.criadoEm)}</div>
+                {detalheAviso.updatedAt && <div style={s.cardInfo}>Atualizado por {detalheAviso.updatedByNome || 'Usuario'} - {formatarData(detalheAviso.updatedAt)}</div>}
                 {arquivadoDet && <div style={s.cardInfo}>Arquivado por voce</div>}
                 <div style={s.lidoInfo}>Lido por: {nomesLeitura(detalheAviso)}</div>
                 <div style={s.historico}>
@@ -324,10 +379,22 @@ export default function Avisos() {
                     </div>
                   )}
                 </div>
+                {isMobile && !arquivadoDet && (
+                  <form onSubmit={e => responder(e, detalheAviso)} style={s.respostaFormInlineMobile}>
+                    <input
+                      autoFocus={focarResposta}
+                      value={respostas[detalheAviso.id] || ''}
+                      onChange={e => setRespostas(prev => ({ ...prev, [detalheAviso.id]: e.target.value }))}
+                      placeholder="Responder aviso..."
+                      style={s.respostaInput}
+                    />
+                    <button type="submit" style={{ ...s.respostaBtn, ...s.respostaBtnMobile }}><Send size={14} /> Enviar</button>
+                  </form>
+                )}
               </div>
               {arquivadoDet ? (
                 <div style={s.arquivadoInfo}>Este aviso esta no seu historico. Desarquive para responder ou editar.</div>
-              ) : (
+              ) : !isMobile && (
                 <form onSubmit={e => responder(e, detalheAviso)} style={s.respostaFormFixa}>
                   <input
                     autoFocus={focarResposta}
@@ -372,12 +439,44 @@ export default function Avisos() {
                 <div style={s.opcoes}>
                   {DESTINOS.map(destino => (
                     <button key={destino.valor}
-                      style={{ ...s.tipoBtnBase, ...(form.destino === destino.valor ? { border: `2px solid ${destino.color}`, background: destino.bg, color: destino.color } : {}) }}
-                      onClick={() => setForm(f => ({ ...f, destino: destino.valor }))}>
+                      style={{ ...s.tipoBtnBase, ...((form.destinos || []).includes(destino.valor) ? { border: `2px solid ${destino.color}`, background: destino.bg, color: destino.color } : {}) }}
+                      onClick={() => toggleDestino(destino.valor)}>
                       {destino.label}
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label style={s.label}>Pessoas especificas</label>
+                <input
+                  style={s.input}
+                  value={buscaUsuario}
+                  onChange={e => setBuscaUsuario(e.target.value)}
+                  placeholder="Buscar por nome, matricula ou perfil"
+                />
+                {usuariosSelecionados.length > 0 && (
+                  <div style={s.selecionados}>
+                    {usuariosSelecionados.map(usuario => (
+                      <button type="button" key={usuario.uid || usuario.matricula || usuario.email} style={s.selecionadoChip} onClick={() => toggleRecipient(usuario)}>
+                        {usuario.nome || usuario.email || usuario.matricula} <X size={12} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div style={s.listaUsuarios}>
+                  {usuariosSelecionaveis.map(usuario => {
+                    const ids = usuarioAvisoIds(usuario)
+                    const marcado = ids.some(id => form.recipients.includes(id))
+                    return (
+                      <button type="button" key={usuario.uid || usuario.matricula || usuario.email} style={{ ...s.usuarioOpcao, ...(marcado ? s.usuarioOpcaoOn : {}) }} onClick={() => toggleRecipient(usuario)}>
+                        <strong>{usuario.nome || 'Usuario'}</strong>
+                        <span>{usuario.matricula || usuario.email || 'Sem matricula'} · {usuario.perfil || usuario.role || 'perfil'}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <div style={s.ajudaCampo}>Se selecionar pessoas, o aviso aparece somente para elas e para quem criou.</div>
               </div>
 
               {form.tipo === 'promo' && (
@@ -417,7 +516,7 @@ export default function Avisos() {
               <button style={{ ...s.btnSalvar, opacity: salvando ? 0.7 : 1 }} onClick={salvar} disabled={salvando}>
                 {salvando ? 'Publicando...' : 'Publicar'}
               </button>
-              {modal !== 'novo' && <button style={{ ...s.btnSalvar, background: '#EF4444' }} onClick={() => handleExcluir(modal.id)}>Excluir</button>}
+              {modal !== 'novo' && avisoCriadoPorUsuario(modal, usuarioLogado) && <button style={{ ...s.btnSalvar, background: '#EF4444' }} onClick={() => handleExcluir(modal.id)}>Apagar para todos</button>}
             </div>
           </div>
         </div>
@@ -476,18 +575,28 @@ const s = {
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' },
   modalBox: { background: '#fff', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto' },
   modalTitulo: { fontWeight: 800, margin: '0 0 1.25rem', color: '#1A202C' },
-  overlayDetalhe: { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '1.25rem' },
-  overlayDetalheMobile: { padding: 0 },
+  overlayDetalhe: { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '1.25rem' },
+  overlayDetalheMobile: { padding: 0, zIndex: 1200 },
   modalDetalhe: { background: '#fff', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: '86vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 50px rgba(15,23,42,0.25)' },
-  modalDetalheMobile: { maxWidth: '100%', width: '100%', height: '100%', maxHeight: '100%', borderRadius: 0 },
+  modalDetalheMobile: { position: 'fixed', inset: 0, maxWidth: '100%', width: '100%', height: '100dvh', maxHeight: '100dvh', borderRadius: 0, zIndex: 1201 },
   modalDetalheHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '1rem 1.1rem', borderBottom: '1px solid #E2E8F0' },
+  voltarDetalheBtn: { border: 'none', background: 'transparent', color: '#003D7C', fontWeight: 800, fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0.3rem 0.2rem 0.3rem 0', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 },
   fecharDetalheBtn: { border: 'none', background: '#F1F5F9', color: '#475569', borderRadius: 999, width: 34, height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
   modalDetalheBody: { flex: 1, overflowY: 'auto', padding: '1rem 1.1rem' },
+  modalDetalheBodyMobile: { paddingBottom: '1rem', WebkitOverflowScrolling: 'touch' },
   modalDetalheTitulo: { fontWeight: 800, fontSize: '1.15rem', margin: '0 0 10px', color: '#1A202C', lineHeight: 1.3 },
   modalDetalheTexto: { color: '#334155', fontSize: '0.92rem', lineHeight: 1.6, margin: '0 0 14px' },
   respostaFormFixa: { display: 'flex', gap: 8, padding: '0.75rem 1.1rem', borderTop: '1px solid #E2E8F0', background: '#fff' },
+  respostaFormInlineMobile: { display: 'flex', gap: 8, marginTop: 14, paddingTop: 12, borderTop: '1px solid #E2E8F0' },
+  respostaBtnMobile: { minHeight: 40, padding: '0.6rem 0.75rem' },
   formGrid: { display: 'flex', flexDirection: 'column', gap: '0.85rem' },
   opcoes: { display: 'flex', gap: 8, flexWrap: 'wrap' },
+  selecionados: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  selecionadoChip: { border: 'none', borderRadius: 999, background: '#EAF2FF', color: '#003D7C', padding: '0.35rem 0.55rem', fontWeight: 900, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontFamily: 'inherit' },
+  listaUsuarios: { display: 'grid', gridTemplateColumns: '1fr', gap: 6, maxHeight: 180, overflowY: 'auto', marginTop: 8, border: '1px solid #E2E8F0', borderRadius: 10, padding: 6, background: '#F8FAFC' },
+  usuarioOpcao: { border: '1px solid #E2E8F0', background: '#fff', borderRadius: 8, padding: '0.5rem 0.65rem', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column', gap: 2, color: '#334155' },
+  usuarioOpcaoOn: { borderColor: '#003D7C', background: '#EAF2FF', color: '#003D7C' },
+  ajudaCampo: { color: '#64748B', fontSize: '0.72rem', fontWeight: 700, marginTop: 6 },
   label: { fontWeight: 700, fontSize: '0.82rem', color: '#64748B', display: 'block', marginBottom: 5 },
   labelRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 5 },
   editarTipoBtn: { border: 'none', background: '#EAF2FF', color: '#004A8D', borderRadius: 999, padding: '0.32rem 0.65rem', fontWeight: 900, fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'inherit' },

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { arrayRemove, arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
+import { arrayRemove, arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { notificarPush } from '../../utils/notificarPush'
-import { chaveArquivoAviso, usuarioAvisoId } from '../../utils/avisos'
+import { avisoCriadoPorUsuario, avisoDestinadoAoUsuario, chaveArquivoAviso, usuarioAvisoId } from '../../utils/avisos'
+import { normalizarPerfil } from '../../utils/perfis'
 
 export function useAvisos(usuarioLogado) {
   const [avisos, setAvisos] = useState([])
@@ -11,6 +12,7 @@ export function useAvisos(usuarioLogado) {
     if (!usuarioLogado) return
     const unsub = onSnapshot(collection(db, 'avisos'), (snap) => {
       setAvisos(snap.docs.map(d => d.data())
+        .filter(aviso => !aviso.deletedAt && aviso.status !== 'excluido')
         .sort((a, b) => {
           if (a.fixado && !b.fixado) return -1
           if (!a.fixado && b.fixado) return 1
@@ -20,10 +22,11 @@ export function useAvisos(usuarioLogado) {
     return unsub
   }, [usuarioLogado])
 
-  async function criarAviso({ titulo, mensagem, texto, mensagemHtml, tipo, fixado, destino, destinatario, prioridade, status, produtoPromocao }) {
+  async function criarAviso({ titulo, mensagem, texto, mensagemHtml, tipo, fixado, destino, destinos, destinatario, prioridade, status, produtoPromocao, recipients, recipientsDetalhes }) {
     const id = `AV${Date.now()}`
     const conteudo = mensagem || texto || ''
-    const destinoFinal = destino || destinatario || 'todos'
+    const destinosFinais = Array.isArray(destinos) && destinos.length > 0 ? [...new Set(destinos)] : [destino || destinatario || 'todos']
+    const destinoFinal = destinosFinais[0] || 'todos'
     const agora = Date.now()
     try {
       await setDoc(doc(db, 'avisos', id), {
@@ -45,6 +48,12 @@ export function useAvisos(usuarioLogado) {
         fixado: !!fixado,
         destino: destinoFinal,
         destinatario: destinoFinal,
+        destinos: destinosFinais,
+        recipients: Array.isArray(recipients) ? recipients.map(String) : [],
+        recipientsDetalhes: Array.isArray(recipientsDetalhes) ? recipientsDetalhes : [],
+        createdBy: usuarioLogado?.uid || usuarioLogado?.matricula || '',
+        createdByMatricula: usuarioLogado?.matricula || '',
+        createdByEmail: usuarioLogado?.email || '',
         autorId: usuarioLogado?.uid || usuarioLogado?.matricula || '',
         autorNome: usuarioLogado?.nome || 'Sistema',
         autorRole: usuarioLogado?.role || usuarioLogado?.perfil || '',
@@ -68,14 +77,44 @@ export function useAvisos(usuarioLogado) {
     }
   }
   async function editarAviso(id, dados) {
-    try { await updateDoc(doc(db, 'avisos', id), dados) } catch (e) { console.error(e); throw e }
+    try {
+      const atual = avisos.find(aviso => aviso.id === id)
+      if (atual && !avisoCriadoPorUsuario(atual, usuarioLogado)) throw new Error('Somente quem criou o aviso pode editar.')
+      const permitidos = { ...dados }
+      delete permitidos.createdAt
+      delete permitidos.criadoEm
+      delete permitidos.createdBy
+      delete permitidos.createdByMatricula
+      delete permitidos.createdByEmail
+      delete permitidos.autorId
+      delete permitidos.autorNome
+      delete permitidos.autorRole
+      delete permitidos.autor
+      await updateDoc(doc(db, 'avisos', id), {
+        ...permitidos,
+        updatedAt: Date.now(),
+        updatedBy: usuarioLogado?.uid || usuarioLogado?.matricula || '',
+        updatedByNome: usuarioLogado?.nome || 'Usuario',
+      })
+    } catch (e) { console.error(e); throw e }
   }
   async function excluirAviso(id) {
-    try { await deleteDoc(doc(db, 'avisos', id)) } catch (e) { console.error(e); throw e }
+    try {
+      const atual = avisos.find(aviso => aviso.id === id)
+      if (atual && !avisoCriadoPorUsuario(atual, usuarioLogado)) throw new Error('Somente quem criou o aviso pode apagar para todos.')
+      await updateDoc(doc(db, 'avisos', id), {
+        status: 'excluido',
+        deletedAt: Date.now(),
+        deletedBy: usuarioLogado?.uid || usuarioLogado?.matricula || '',
+        deletedByNome: usuarioLogado?.nome || 'Usuario',
+      })
+    } catch (e) { console.error(e); throw e }
   }
   async function marcarAvisoLido(id) {
     const leitor = usuarioLogado?.uid || usuarioLogado?.matricula
     if (!id || !leitor) return
+    const atual = avisos.find(aviso => aviso.id === id)
+    if (atual && !avisoDestinadoAoUsuario(atual, usuarioLogado, normalizarPerfil(usuarioLogado?.perfil || usuarioLogado?.role))) return
     try {
       await updateDoc(doc(db, 'avisos', id), {
         lidoPor: arrayUnion(leitor),
@@ -92,6 +131,8 @@ export function useAvisos(usuarioLogado) {
     const autorId = usuarioLogado?.uid || usuarioLogado?.matricula
     const texto = String(mensagem || '').trim()
     if (!id || !autorId || !texto) return
+    const atual = avisos.find(aviso => aviso.id === id)
+    if (atual && !avisoDestinadoAoUsuario(atual, usuarioLogado, normalizarPerfil(usuarioLogado?.perfil || usuarioLogado?.role))) return
     try {
       await updateDoc(doc(db, 'avisos', id), {
         respostas: arrayUnion({
