@@ -96,6 +96,7 @@ export default function Avisos() {
   const [focarResposta, setFocarResposta] = useState(false)
   const [buscaUsuario, setBuscaUsuario] = useState('')
   const [menuAbertoId, setMenuAbertoId] = useState(null)
+  const [pessoasAviso, setPessoasAviso] = useState(null)
   const [anexoMenuAberto, setAnexoMenuAberto] = useState(false)
   const [anexoPendente, setAnexoPendente] = useState(null)
   const [enviandoResposta, setEnviandoResposta] = useState(false)
@@ -312,6 +313,43 @@ export default function Avisos() {
     window.dispatchEvent(new CustomEvent('aviso-detalhe-toggle', { detail: Boolean(detalheId) }))
   }, [detalheId])
   useEffect(() => () => window.dispatchEvent(new CustomEvent('aviso-detalhe-toggle', { detail: false })), [])
+
+  useEffect(() => {
+    const tela = modal ? 'form' : detalheId ? 'detalhe' : 'lista'
+    const contexto = {
+      tela,
+      rascunho: tela === 'form' ? { titulo: form.titulo, mensagem: form.mensagem, tipo: form.tipo, destino: form.destino } : null,
+      aviso: tela === 'detalhe' && detalheAviso ? { titulo: detalheAviso.titulo, mensagem: detalheAviso.mensagem || detalheAviso.texto, tipo: detalheAviso.tipo, destino: destinoAviso(detalheAviso) } : null,
+    }
+    window.dispatchEvent(new CustomEvent('avisos-contexto-change', { detail: contexto }))
+  }, [modal, detalheId, form.titulo, form.mensagem, form.tipo, form.destino, detalheAviso])
+  useEffect(() => () => window.dispatchEvent(new CustomEvent('avisos-contexto-change', { detail: null })), [])
+
+  useEffect(() => {
+    function preencherAviso(e) {
+      const patch = e.detail
+      if (!patch) return
+      if (!modal) setModal('novo')
+      setForm(f => ({
+        ...f,
+        ...(patch.titulo !== undefined ? { titulo: patch.titulo } : {}),
+        ...(patch.mensagem !== undefined ? { mensagem: patch.mensagem, mensagemHtml: plainTextToRichText(patch.mensagem) } : {}),
+        ...(patch.tipo !== undefined ? { tipo: patch.tipo } : {}),
+        ...(patch.destino !== undefined ? { destino: patch.destino, destinos: [patch.destino] } : {}),
+      }))
+    }
+    function preencherResposta(e) {
+      const texto = e.detail?.texto
+      if (!texto || !detalheId) return
+      setRespostas(prev => ({ ...prev, [detalheId]: texto }))
+    }
+    window.addEventListener('ia-preencher-aviso', preencherAviso)
+    window.addEventListener('ia-preencher-resposta', preencherResposta)
+    return () => {
+      window.removeEventListener('ia-preencher-aviso', preencherAviso)
+      window.removeEventListener('ia-preencher-resposta', preencherResposta)
+    }
+  }, [modal, detalheId])
   const usuariosSelecionaveis = (usuarios || []).filter(usuario => {
     const perfisUsuario = perfisDoUsuario(usuario)
     if (!perfisUsuario.some(perfil => perfil !== 'aluno')) return false
@@ -388,7 +426,11 @@ export default function Avisos() {
                   <div style={{ ...s.badges, ...(isMobile ? s.badgesMobile : {}) }}>
                     <span style={{ ...s.tipoBadge, ...(isMobile ? s.tipoBadgeMobile : {}), background: tipo.bg, color: tipo.color }}>{tipo.label}</span>
                     {destinosDoAviso.map(destino => (
-                      <span key={destino.valor} style={{ ...s.tipoBadge, ...(isMobile ? s.tipoBadgeMobile : {}), background: destino.bg, color: destino.color }}>{destino.label}</span>
+                      destino.valor === 'especifico' ? (
+                        <button key={destino.valor} type="button" style={{ ...s.tipoBadge, ...(isMobile ? s.tipoBadgeMobile : {}), background: destino.bg, color: destino.color, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }} onClick={e => { e.stopPropagation(); setPessoasAviso(aviso) }}>{destino.label}</button>
+                      ) : (
+                        <span key={destino.valor} style={{ ...s.tipoBadge, ...(isMobile ? s.tipoBadgeMobile : {}), background: destino.bg, color: destino.color }}>{destino.label}</span>
+                      )
                     ))}
                     {fixado && <span style={s.fixadoBadge}>Fixado</span>}
                     {arquivado && <span style={s.arquivadoBadge}>Arquivado</span>}
@@ -470,6 +512,13 @@ export default function Avisos() {
             </span>
             {destinosDet.map(destino => {
               const DestinoIcone = DESTINO_ICONE[destino.valor] || Users
+              if (destino.valor === 'especifico') {
+                return (
+                  <button key={destino.valor} type="button" style={{ ...s.tipoBadge, ...chipDet, background: destino.bg, color: destino.color, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => setPessoasAviso(detalheAviso)}>
+                    {isMobile && <DestinoIcone size={14} />}{destino.label}
+                  </button>
+                )
+              }
               return (
                 <span key={destino.valor} style={{ ...s.tipoBadge, ...chipDet, background: destino.bg, color: destino.color }}>
                   {isMobile && <DestinoIcone size={14} />}{destino.label}
@@ -614,6 +663,26 @@ export default function Avisos() {
           </div>
         )
       })()}
+
+      {pessoasAviso && (
+        <div style={s.pessoasOverlay} onClick={() => setPessoasAviso(null)}>
+          <div style={s.pessoasCard} onClick={e => e.stopPropagation()}>
+            <div style={s.pessoasHeader}>
+              <strong>Destinatários específicos</strong>
+              <button type="button" style={s.pessoasFechar} onClick={() => setPessoasAviso(null)} aria-label="Fechar"><X size={16} /></button>
+            </div>
+            <div style={s.pessoasLista}>
+              {(pessoasAviso.recipientsDetalhes || []).length === 0 && <p style={s.pessoasVazio}>Nenhum nome salvo para este aviso.</p>}
+              {(pessoasAviso.recipientsDetalhes || []).map(pessoa => (
+                <div key={pessoa.id || pessoa.matricula || pessoa.email} style={s.pessoaItem}>
+                  <span style={s.pessoaNome}>{pessoa.nome || pessoa.matricula || pessoa.email || 'Sem nome'}</span>
+                  {pessoa.perfil && <span style={s.pessoaPerfil}>{pessoa.perfil}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {modal && (
         <div style={s.overlay}>
@@ -809,6 +878,15 @@ const s = {
   respostaInput: { flex: 1, minWidth: 0, border: '1px solid #CBD5E1', borderRadius: 16, padding: '0.78rem 0.9rem', fontFamily: 'inherit', outlineColor: '#003D7C', fontSize: '0.9rem', background: '#fff' },
   respostaBtn: { border: 'none', borderRadius: 12, background: '#003D7C', color: '#fff', padding: '0.6rem 0.85rem', fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexShrink: 0 },
   arquivadoInfo: { margin: '0 1rem 1rem', background: '#EEF2F7', color: '#64748B', borderRadius: 10, padding: '0.65rem 0.8rem', fontWeight: 800, fontSize: '0.78rem' },
+  pessoasOverlay: { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 10500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' },
+  pessoasCard: { background: '#fff', borderRadius: 16, width: '100%', maxWidth: 360, maxHeight: '70vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(15,23,42,0.28)' },
+  pessoasHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.9rem 1rem', borderBottom: '1px solid #E2E8F0', color: '#0F172A' },
+  pessoasFechar: { border: 'none', background: '#F1F5F9', color: '#475569', borderRadius: 999, width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 },
+  pessoasLista: { padding: '0.6rem 1rem 1rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 },
+  pessoasVazio: { color: '#94A3B8', fontSize: '0.82rem', fontWeight: 600, padding: '0.5rem 0' },
+  pessoaItem: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0.55rem 0.7rem', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10 },
+  pessoaNome: { fontSize: '0.85rem', color: '#0F172A', fontWeight: 700 },
+  pessoaPerfil: { fontSize: '0.68rem', color: '#075985', background: '#E0F2FE', borderRadius: 999, padding: '0.15rem 0.5rem', fontWeight: 800, textTransform: 'capitalize', flexShrink: 0 },
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' },
   modalBox: { background: '#fff', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto' },
   modalTitulo: { fontWeight: 800, margin: '0 0 1.25rem', color: '#1A202C' },
@@ -817,11 +895,11 @@ const s = {
   modalDetalhe: { background: '#fff', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: '86vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 50px rgba(15,23,42,0.25)' },
   modalDetalheMobile: { position: 'fixed', inset: 0, maxWidth: '100%', width: '100%', height: '100dvh', maxHeight: '100dvh', borderRadius: 0, zIndex: 9001 },
   modalDetalheHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '1rem 1.1rem', borderBottom: '1px solid #E2E8F0' },
-  modalDetalheHeaderMobile: { flexDirection: 'column', alignItems: 'stretch', background: 'radial-gradient(circle at 88% -10%, #DCE9FA 0%, rgba(220,233,250,0) 60%), linear-gradient(120deg, #CBDDF3 0%, #E7F0FB 55%, #D6E5F7 100%)', color: '#0B3B8C', padding: 0, borderBottom: 'none', gap: 0, flexShrink: 0 },
+  modalDetalheHeaderMobile: { flexDirection: 'column', alignItems: 'stretch', background: 'linear-gradient(135deg, #0B1E45 0%, #003D7C 55%, #004F9E 100%)', color: '#fff', padding: 0, borderBottom: 'none', gap: 0, flexShrink: 0 },
   detalheHeaderLinha1: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', padding: '0.6rem 0.9rem 1.15rem', paddingTop: 'max(0.7rem, env(safe-area-inset-top, 0px))' },
-  detalheHeaderTitulo: { color: '#0B3B8C', fontSize: '1.12rem', fontWeight: 800, flex: 1, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  voltarSetaBtn: { border: 'none', background: 'transparent', color: '#0B3B8C', width: 38, height: 38, display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', cursor: 'pointer', flexShrink: 0, padding: 0 },
-  pinHeaderBtn: { border: 'none', background: 'transparent', color: '#0B3B8C', width: 38, height: 38, display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', cursor: 'pointer', flexShrink: 0, padding: 0 },
+  detalheHeaderTitulo: { color: '#fff', fontSize: '1.12rem', fontWeight: 800, flex: 1, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  voltarSetaBtn: { border: 'none', background: 'transparent', color: '#fff', width: 38, height: 38, display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', cursor: 'pointer', flexShrink: 0, padding: 0 },
+  pinHeaderBtn: { border: 'none', background: 'transparent', color: '#fff', width: 38, height: 38, display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', cursor: 'pointer', flexShrink: 0, padding: 0 },
   pinHeaderBtnAtivo: { color: '#F47920' },
   badgesDetalheMobile: { background: '#fff', borderRadius: '20px 20px 0 0', margin: 0, padding: '0.95rem 1rem 0.9rem', borderBottom: '3px solid #F47920', justifyContent: 'flex-start', gap: 8 },
   tipoBadgeDetalhe: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0.42rem 0.8rem', borderRadius: 999, fontWeight: 800, fontSize: '0.84rem' },

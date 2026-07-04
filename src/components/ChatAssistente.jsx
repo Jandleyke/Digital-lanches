@@ -3,9 +3,10 @@ import { useLocation } from 'react-router-dom'
 import { useApp } from '../contexts/AppContext'
 import { useIsMobile } from '../utils/useIsMobile'
 import { buildContextoAluno, buildContextoAdmin } from '../utils/aiContext'
-import { Send, Bot, RefreshCcw, MessageCircle, X } from 'lucide-react'
+import { Send, Bot, RefreshCcw, MessageCircle, Sparkles, X } from 'lucide-react'
 import { codigoPedido } from '../utils/pedidos'
 import { calcularStatusLanchonete } from '../utils/lanchonete'
+import { gerarRascunhoAvisoIA } from '../utils/rascunhoAvisoIA'
 
 const ERRO_REDE = 'Não consegui responder agora. Tente novamente em instantes.'
 const ERRO_ACAO = '\n\n(Não consegui concluir essa ação — confira se o item ou pedido ainda está disponível.)'
@@ -91,10 +92,16 @@ function limitarPosicao(posicao, reservaInferior = 0) {
   }
 }
 
-function saudacaoInicial(usuario, cfg) {
+function saudacaoInicial(usuario, cfg, emAvisos = false, telaAvisos = 'lista') {
   const perfil = usuario?.perfil
   const primeiroNome = usuario?.nome?.split(' ')[0] || 'você'
   const hora = new Date().getHours()
+
+  if (emAvisos) {
+    if (telaAvisos === 'detalhe') return `Oi, ${primeiroNome}! 📋 Quer que eu ajude a responder esse aviso? Posso confirmar recebimento, pedir mais informações ou deixar a resposta mais formal.`
+    if (telaAvisos === 'form') return `Oi, ${primeiroNome}! ✍️ Posso melhorar o texto que você está escrevendo — mais curto, mais formal ou mais claro. É só pedir.`
+    return `Oi, ${primeiroNome}! 📣 Posso criar um rascunho de aviso pra você — é só descrever o que precisa (ex: "avisar que não haverá aula dia 10/07 no turno da tarde"). Você revisa e publica quando quiser.`
+  }
 
   if (perfil === 'admin' || perfil === 'gerente') {
     const frases = [
@@ -153,6 +160,21 @@ const SUGESTOES = {
   aluno: ['Que horas abre?', 'Como está meu pedido?', 'O que tem hoje?'],
 }
 
+const SUGESTOES_AVISOS_DETALHE = ['Confirmar recebimento', 'Pedir mais informações', 'Responder formalmente', 'Resumir aviso', 'Gerar resposta curta']
+const SUGESTOES_AVISOS_LISTA = ['Criar aviso', 'Melhorar texto', 'Comunicar ausência de aula', 'Confirmar turma', 'Avisar cozinha']
+
+function padraoCriarAviso(texto) {
+  return /\b(cria|criar|gera|gerar|monta|montar|escreve|escrever|redig[ei]r?)\b.*\b(aviso|comunicado)\b|^(avisar|comunicar|confirmar)\b/i.test(texto)
+}
+
+function padraoMelhorarTexto(texto) {
+  return /\b(melhor|mais curt|mais claro|mais formal|profissional|corrig[ei]|revis[ae]r?)\b/i.test(texto)
+}
+
+const TAG_TIPO = { info: 'Comunicado', promo: 'Promoção', aviso: 'Aviso', novidade: 'Novidade' }
+const TAG_DESTINO = { todos: 'Todos', aluno: 'Alunos', vendedor: 'Vendedor', cozinha: 'Cozinha', admin: 'Admin' }
+const TAG_PRIORIDADE = { baixa: 'Baixa', media: 'Média', alta: 'Alta' }
+
 export default function ChatAssistente({ cartBarAtiva = false }) {
   const {
     usuarioLogado, produtos, pedidos, lanchoneteConfig,
@@ -161,11 +183,13 @@ export default function ChatAssistente({ cartBarAtiva = false }) {
   const location = useLocation()
   const isMobile = useIsMobile()
   const reservaInferior = cartBarAtiva ? 144 : 0
+  const emTelaAvisos = location.pathname.includes('/avisos')
 
   const [aberto, setAberto] = useState(false)
   const [mensagens, setMensagens] = useState(null)
   const [input, setInput] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [contextoAvisos, setContextoAvisos] = useState(null)
   const [visivel, setVisivel] = useState(() => localStorage.getItem('chat-btn-visible') !== 'false')
   const [pos, setPos] = useState(() => {
     try { const s = localStorage.getItem('chat-btn-pos'); if (s) return JSON.parse(s) } catch { return null }
@@ -185,12 +209,19 @@ export default function ChatAssistente({ cartBarAtiva = false }) {
     abrirRef.current = () => {
       setAberto(v => {
         if (!v && mensagens === null && usuarioLogado) {
-          setMensagens([{ autor: 'bot', texto: saudacaoInicial(usuarioLogado, lanchoneteConfig) }])
+          setMensagens([{ autor: 'bot', texto: saudacaoInicial(usuarioLogado, lanchoneteConfig, emTelaAvisos, contextoAvisos?.tela) }])
         }
         return !v
       })
     }
   })
+
+  // Ouve o contexto atual da tela de Avisos (lista, detalhe ou formulário aberto)
+  useEffect(() => {
+    function handler(e) { setContextoAvisos(e.detail || null) }
+    window.addEventListener('avisos-contexto-change', handler)
+    return () => window.removeEventListener('avisos-contexto-change', handler)
+  }, [])
 
   // Ouve evento para mostrar/esconder (disparado pelo perfil)
   useEffect(() => {
@@ -308,9 +339,59 @@ export default function ChatAssistente({ cartBarAtiva = false }) {
     return true
   }
 
+  async function enviarTextoAvisos(texto) {
+    setMensagens(prev => [...(prev || []), { autor: 'user', texto }])
+    setInput('')
+
+    const tela = contextoAvisos?.tela || 'lista'
+
+    // Rascunho local instantâneo (sem custo de API) quando o pedido claramente é para criar um aviso novo
+    if (tela !== 'detalhe' && padraoCriarAviso(texto) && !padraoMelhorarTexto(texto)) {
+      try {
+        const rascunho = gerarRascunhoAvisoIA(texto)
+        if (rascunho.reconhecido) {
+          setMensagens(prev => [...(prev || []), {
+            autor: 'bot',
+            texto: 'Preparei um rascunho com base no que você descreveu. Revise e clique em "Usar este aviso" se estiver bom.',
+            rascunhoAviso: rascunho,
+          }])
+          return
+        }
+      } catch { /* cai para a IA abaixo */ }
+    }
+
+    setEnviando(true)
+    const historico = (mensagens || []).slice(-6)
+    const contexto = {
+      tela,
+      rascunhoAtual: tela === 'form' && contextoAvisos?.rascunho ? contextoAvisos.rascunho : null,
+      avisoAtual: tela === 'detalhe' && contextoAvisos?.aviso ? contextoAvisos.aviso : null,
+    }
+    try {
+      const resp = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modo: 'avisos', contexto, historico, mensagem: texto }),
+      })
+      const dados = await resp.json()
+      setMensagens(prev => [...(prev || []), {
+        autor: 'bot',
+        texto: dados?.resposta || ERRO_REDE,
+        rascunhoAviso: dados?.rascunhoAviso || null,
+        textoMelhorado: dados?.textoMelhorado || null,
+        rascunhoResposta: dados?.rascunhoResposta || null,
+      }])
+    } catch {
+      setMensagens(prev => [...(prev || []), { autor: 'bot', texto: ERRO_REDE }])
+    } finally { setEnviando(false) }
+  }
+
   async function enviarTexto(textoOriginal) {
     const texto = textoOriginal.trim()
     if (!texto || enviando) return
+
+    if (emTelaAvisos) { await enviarTextoAvisos(texto); return }
+
     const perfilAtual = usuarioLogado.perfil
     const ehGestao = ['admin', 'vendedor', 'cozinha'].includes(perfilAtual)
     const contexto = ehGestao
@@ -345,9 +426,31 @@ export default function ChatAssistente({ cartBarAtiva = false }) {
     } finally { setEnviando(false) }
   }
 
+  function usarRascunhoAviso(indice, rascunho) {
+    window.dispatchEvent(new CustomEvent('ia-preencher-aviso', { detail: rascunho }))
+    setMensagens(prev => prev.map((m, i) => i === indice ? { ...m, usado: true } : m))
+  }
+
+  function usarTextoMelhorado(indice, texto) {
+    window.dispatchEvent(new CustomEvent('ia-preencher-aviso', { detail: { mensagem: texto } }))
+    setMensagens(prev => prev.map((m, i) => i === indice ? { ...m, usado: true } : m))
+  }
+
+  function usarRascunhoResposta(indice, texto) {
+    window.dispatchEvent(new CustomEvent('ia-preencher-resposta', { detail: { texto } }))
+    setMensagens(prev => prev.map((m, i) => i === indice ? { ...m, usado: true } : m))
+  }
+
+  const sugestoesAtuais = emTelaAvisos
+    ? (contextoAvisos?.tela === 'detalhe' ? SUGESTOES_AVISOS_DETALHE : SUGESTOES_AVISOS_LISTA)
+    : (SUGESTOES[usuarioLogado.perfil] || SUGESTOES.aluno)
+
   const btnStyle = {
     ...s.botaoFlutuante,
     cursor: 'grab',
+    // Na tela de Avisos o detalhe abre em modal de tela cheia (zIndex 9001) — o botão
+    // precisa ficar acima dele, senão fica inacessível enquanto o aviso está aberto.
+    ...(emTelaAvisos ? { zIndex: 9100 } : {}),
     ...(pos
       ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' }
       : { right: 18, bottom: cartBarAtiva ? 'calc(9rem + env(safe-area-inset-bottom, 0px))' : (isMobile ? 'calc(80px + env(safe-area-inset-bottom, 0px))' : 24) }
@@ -378,12 +481,12 @@ export default function ChatAssistente({ cartBarAtiva = false }) {
 
       {/* Painel do chat */}
       {aberto && (
-        <div style={{ ...s.painel, ...(isMobile ? s.painelMobile : s.painelDesktop) }}>
+        <div style={{ ...s.painel, ...(isMobile ? s.painelMobile : s.painelDesktop), ...(emTelaAvisos ? { zIndex: 9110 } : {}) }}>
           <div style={s.cabecalho}>
             <Bot size={17} color="#fff" />
             <span style={s.cabecalhoTitulo}>Assistente Senac Lanches</span>
             <button type="button"
-              onClick={() => setMensagens([{ autor: 'bot', texto: saudacaoInicial(usuarioLogado, lanchoneteConfig) }])}
+              onClick={() => setMensagens([{ autor: 'bot', texto: saudacaoInicial(usuarioLogado, lanchoneteConfig, emTelaAvisos, contextoAvisos?.tela) }])}
               style={s.btnCab} title="Limpar conversa">
               <RefreshCcw size={14} color="#fff" />
             </button>
@@ -396,6 +499,36 @@ export default function ChatAssistente({ cartBarAtiva = false }) {
             {(mensagens || []).map((m, i) => (
               <div key={i} style={{ ...s.bolha, ...(m.autor === 'user' ? s.bolhaUser : s.bolhaBot) }}>
                 {m.texto}
+                {m.rascunhoAviso && (
+                  <div style={s.rascunhoCard}>
+                    <div style={s.rascunhoCabecalho}>
+                      <span style={s.rascunhoTag}>{TAG_TIPO[m.rascunhoAviso.tipo] || 'Comunicado'}</span>
+                      <span style={s.rascunhoTag}>{TAG_DESTINO[m.rascunhoAviso.destino] || 'Todos'}</span>
+                      <span style={s.rascunhoTag}>{TAG_PRIORIDADE[m.rascunhoAviso.prioridade] || 'Média'}</span>
+                    </div>
+                    <strong style={s.rascunhoTitulo}>{m.rascunhoAviso.titulo}</strong>
+                    <p style={s.rascunhoTexto}>{m.rascunhoAviso.mensagem}</p>
+                    <button type="button" style={{ ...s.botaoUsar, ...(m.usado ? s.botaoUsarFeito : {}) }} onClick={() => usarRascunhoAviso(i, m.rascunhoAviso)} disabled={m.usado}>
+                      <Sparkles size={13} /> {m.usado ? 'Preenchido no formulário ✓' : 'Usar este aviso'}
+                    </button>
+                  </div>
+                )}
+                {m.textoMelhorado && (
+                  <div style={s.rascunhoCard}>
+                    <p style={s.rascunhoTexto}>{m.textoMelhorado}</p>
+                    <button type="button" style={{ ...s.botaoUsar, ...(m.usado ? s.botaoUsarFeito : {}) }} onClick={() => usarTextoMelhorado(i, m.textoMelhorado)} disabled={m.usado}>
+                      <Sparkles size={13} /> {m.usado ? 'Texto atualizado ✓' : 'Usar texto melhorado'}
+                    </button>
+                  </div>
+                )}
+                {m.rascunhoResposta && (
+                  <div style={s.rascunhoCard}>
+                    <p style={s.rascunhoTexto}>{m.rascunhoResposta}</p>
+                    <button type="button" style={{ ...s.botaoUsar, ...(m.usado ? s.botaoUsarFeito : {}) }} onClick={() => usarRascunhoResposta(i, m.rascunhoResposta)} disabled={m.usado}>
+                      <Sparkles size={13} /> {m.usado ? 'Preenchido na resposta ✓' : 'Usar resposta'}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
             {enviando && <div style={{ ...s.bolha, ...s.bolhaBot, color: '#94A3B8' }}>Digitando...</div>}
@@ -403,7 +536,7 @@ export default function ChatAssistente({ cartBarAtiva = false }) {
           </div>
 
           <div style={s.sugestoes}>
-            {(SUGESTOES[usuarioLogado.perfil] || SUGESTOES.aluno).map(sg => (
+            {sugestoesAtuais.map(sg => (
               <button key={sg} type="button" onClick={() => enviarTexto(sg)} style={s.sugestao} disabled={enviando}>
                 {sg}
               </button>
@@ -461,4 +594,11 @@ const s = {
   form: { display: 'flex', gap: 8, padding: '0.75rem', borderTop: '1px solid #E2E8F0', flexShrink: 0 },
   input: { flex: 1, padding: '0.55rem 0.8rem', borderRadius: 20, border: '1px solid #E2E8F0', fontSize: '0.85rem', fontFamily: 'inherit', outline: 'none' },
   botaoEnviar: { width: 36, height: 36, borderRadius: '50%', border: 'none', cursor: 'pointer', background: '#F47920', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  rascunhoCard: { marginTop: 8, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, padding: '0.6rem 0.7rem', display: 'flex', flexDirection: 'column', gap: 6 },
+  rascunhoCabecalho: { display: 'flex', flexWrap: 'wrap', gap: 5 },
+  rascunhoTag: { background: '#EAF2FF', color: '#003D7C', borderRadius: 999, padding: '0.15rem 0.5rem', fontSize: '0.66rem', fontWeight: 800 },
+  rascunhoTitulo: { color: '#0F172A', fontSize: '0.85rem' },
+  rascunhoTexto: { color: '#334155', fontSize: '0.8rem', lineHeight: 1.4, whiteSpace: 'pre-wrap', margin: 0 },
+  botaoUsar: { alignSelf: 'flex-start', border: 'none', background: '#003D7C', color: '#fff', borderRadius: 999, padding: '0.4rem 0.75rem', fontSize: '0.74rem', fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' },
+  botaoUsarFeito: { background: '#DCFCE7', color: '#166534', cursor: 'default' },
 }

@@ -36,6 +36,37 @@ Ações disponíveis:
 Use exatamente o nome do produto em contexto.cardapio. Só adicione produtos disponíveis e com estoque.
 Só cancele pedidos com podeCancelar=true. Sempre responda em JSON válido, sem markdown.`
 
+const INSTRUCAO_AVISOS = `Você ajuda a equipe da cantina "Senac Lanches" (admin, gerente, vendedor, cozinha, professor)
+a escrever avisos internos e respostas a avisos já existentes. Fale em português do Brasil, tom
+profissional, claro e breve.
+
+Você pode fazer exatamente UMA das três coisas abaixo por resposta, de acordo com o pedido do usuário:
+
+1. Criar um rascunho de aviso novo a partir de uma descrição (ex: "criar aviso dizendo que não haverá
+   aula dia 10/07 para a turma 75 no turno da tarde"). Preencha o campo "rascunhoAviso" com titulo curto,
+   mensagem completa, tipo (info = comunicado geral, aviso = alerta importante, novidade, promo = promoção),
+   prioridade (baixa/media/alta) e destino (todos/aluno/vendedor/cozinha/admin) mais adequado ao conteúdo.
+
+2. Melhorar o texto de um aviso que o usuário já está escrevendo (vem em contexto.rascunhoAtual.mensagem).
+   Preencha "textoMelhorado" com a nova versão do texto, seguindo o pedido (mais profissional, mais curto,
+   mais claro, corrigir português, tom mais formal). NÃO invente informação nova, apenas reescreva o que já
+   existe.
+
+3. Ajudar a redigir uma resposta a um aviso já aberto (vem em contexto.avisoAtual, com titulo e mensagem).
+   Preencha "rascunhoResposta" com o texto da resposta, no tom pedido (confirmar recebimento, pedir mais
+   informações, resposta formal, resposta curta, avisar que um setor está ciente, etc.).
+
+Regras obrigatórias:
+- Nunca invente datas, turmas, quantidades ou nomes que não foram informados. Se faltar um dado essencial
+  para criar o aviso, não invente — pergunte no campo "resposta" e deixe os três rascunhos como null.
+- Preencha SOMENTE o campo relevante ao pedido (rascunhoAviso OU textoMelhorado OU rascunhoResposta).
+  Os outros dois devem ficar null. Se o pedido não for nenhuma das três coisas, deixe os três null e
+  responda normalmente no campo "resposta".
+- Você NUNCA publica, envia, edita, exclui ou marca nada como lido sozinho — você só gera o rascunho.
+  O usuário sempre revisa e confirma manualmente clicando em "usar" e depois em salvar/enviar.
+- O campo "resposta" deve ser curto: 1 a 2 frases dizendo o que você preparou.
+- Sempre responda em JSON válido, sem markdown.`
+
 const INSTRUCAO_ADMIN = `Você é o assistente virtual de gestão da cantina "Senac Lanches".
 Fale em português do Brasil, com tom profissional e objetivo. Ajude a administração a entender
 vendas, ticket médio, pedidos, estoque, itens indisponíveis, avaliações e gargalos operacionais.
@@ -63,6 +94,29 @@ const ESQUEMA_RESPOSTA_ALUNO = {
         pedidoId: { type: 'STRING' },
       },
     },
+  },
+  required: ['resposta'],
+}
+
+const ESQUEMA_RESPOSTA_AVISOS = {
+  type: 'OBJECT',
+  propertyOrdering: ['resposta', 'rascunhoAviso', 'textoMelhorado', 'rascunhoResposta'],
+  properties: {
+    resposta: { type: 'STRING' },
+    rascunhoAviso: {
+      type: 'OBJECT',
+      nullable: true,
+      propertyOrdering: ['titulo', 'mensagem', 'tipo', 'prioridade', 'destino'],
+      properties: {
+        titulo: { type: 'STRING' },
+        mensagem: { type: 'STRING' },
+        tipo: { type: 'STRING', enum: ['info', 'aviso', 'novidade', 'promo'] },
+        prioridade: { type: 'STRING', enum: ['baixa', 'media', 'alta'] },
+        destino: { type: 'STRING', enum: ['todos', 'aluno', 'vendedor', 'cozinha', 'admin'] },
+      },
+    },
+    textoMelhorado: { type: 'STRING', nullable: true },
+    rascunhoResposta: { type: 'STRING', nullable: true },
   },
   required: ['resposta'],
 }
@@ -252,6 +306,17 @@ function limitarQuantidade(valor, estoque) {
   return quantidade
 }
 
+function validarRascunhoAviso(rascunho) {
+  if (!rascunho || typeof rascunho !== 'object') return null
+  const titulo = String(rascunho.titulo || '').trim().slice(0, 120)
+  const mensagem = String(rascunho.mensagem || '').trim().slice(0, 2000)
+  if (!titulo || !mensagem) return null
+  const tipo = ['info', 'aviso', 'novidade', 'promo'].includes(rascunho.tipo) ? rascunho.tipo : 'info'
+  const prioridade = ['baixa', 'media', 'alta'].includes(rascunho.prioridade) ? rascunho.prioridade : 'media'
+  const destino = ['todos', 'aluno', 'vendedor', 'cozinha', 'admin'].includes(rascunho.destino) ? rascunho.destino : 'todos'
+  return { titulo, mensagem, tipo, prioridade, destino }
+}
+
 function validarAcao(acao, contexto) {
   if (!acao || typeof acao !== 'object') return null
 
@@ -342,9 +407,60 @@ export default async function handler(req, res) {
       return
     }
 
-    const { perfil, contexto, historico, mensagem } = req.body || {}
+    const { perfil, modo, contexto, historico, mensagem } = req.body || {}
     if (!mensagem || typeof mensagem !== 'string' || mensagem.length > MAX_MENSAGEM_CHARS) {
       res.status(200).json({ resposta: RESPOSTA_ERRO })
+      return
+    }
+
+    if (modo === 'avisos') {
+      const apiKeyAvisos = process.env.GEMINI_API_KEY
+      if (!apiKeyAvisos) {
+        res.status(200).json({ resposta: RESPOSTA_INDISPONIVEL })
+        return
+      }
+
+      const contentsAvisos = []
+      for (const item of historicoSeguro(historico)) {
+        contentsAvisos.push({ role: item.autor === 'bot' ? 'model' : 'user', parts: [{ text: item.texto }] })
+      }
+      contentsAvisos.push({ role: 'user', parts: [{ text: `Contexto (JSON): ${JSON.stringify(contexto || {})}\n\nPedido do usuário: ${mensagem}` }] })
+
+      const consultaAvisos = await consultarGemini({
+        apiKey: apiKeyAvisos,
+        instrucao: INSTRUCAO_AVISOS,
+        contents: contentsAvisos,
+        generationConfig: { maxOutputTokens: 550, temperature: 0.4, responseMimeType: 'application/json', responseSchema: ESQUEMA_RESPOSTA_AVISOS },
+      })
+
+      if (consultaAvisos.tipo === 'limite') {
+        res.status(200).json({ resposta: RESPOSTA_LIMITE })
+        return
+      }
+      if (consultaAvisos.tipo === 'sobrecarga') {
+        console.error('Gemini indisponível (avisos):', consultaAvisos.status, consultaAvisos.modelo, consultaAvisos.corpo)
+        res.status(200).json({ resposta: RESPOSTA_SOBRECARGA })
+        return
+      }
+      if (!consultaAvisos.ok) {
+        console.error('Gemini respondeu com erro (avisos):', consultaAvisos.status, consultaAvisos.modelo, consultaAvisos.corpo)
+        res.status(200).json({ resposta: RESPOSTA_ERRO })
+        return
+      }
+
+      const textoAvisos = consultaAvisos.dados?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+      if (!textoAvisos) {
+        res.status(200).json({ resposta: RESPOSTA_ERRO })
+        return
+      }
+
+      const parsedAvisos = extrairRespostaAluno(textoAvisos)
+      res.status(200).json({
+        resposta: parsedAvisos.resposta || RESPOSTA_ERRO,
+        rascunhoAviso: validarRascunhoAviso(parsedAvisos.rascunhoAviso),
+        textoMelhorado: typeof parsedAvisos.textoMelhorado === 'string' ? parsedAvisos.textoMelhorado.trim().slice(0, 2000) || null : null,
+        rascunhoResposta: typeof parsedAvisos.rascunhoResposta === 'string' ? parsedAvisos.rascunhoResposta.trim().slice(0, 1000) || null : null,
+      })
       return
     }
 

@@ -66,12 +66,15 @@ export function gerarRascunhoAvisoIA(entrada) {
   let titulo
   let tipo = 'info'
   let prioridade = 'media'
+  let destino = 'todos'
   let mensagem
+  let reconhecido = true
 
   if (semAula) {
     titulo = datas.length ? `Aula cancelada ${datas.join(' e ')}` : 'Aula cancelada'
     tipo = 'aviso'
     prioridade = 'alta'
+    destino = 'aluno'
     mensagem = [
       `Informamos que nao havera aula ${quando || 'na data informada'}.`,
       turma ? `Turma: ${turma}.` : '',
@@ -82,6 +85,7 @@ export function gerarRascunhoAvisoIA(entrada) {
     titulo = datas.length ? `Confirmacao de presenca - ${datas.join(' e ')}` : 'Confirmacao de presenca'
     tipo = 'info'
     prioridade = alunos && Number(alunos) >= 25 ? 'alta' : 'media'
+    destino = cozinha ? 'cozinha' : 'aluno'
     mensagem = [
       `Confirmamos a presenca da turma ${turma || 'informada'} ${quando || 'na data informada'}.`,
       turno ? `Turno: ${turno}.` : '',
@@ -92,6 +96,7 @@ export function gerarRascunhoAvisoIA(entrada) {
     titulo = datas.length ? `Aviso para a cozinha - ${datas.join(' e ')}` : 'Aviso para a cozinha'
     tipo = 'info'
     prioridade = 'media'
+    destino = 'cozinha'
     mensagem = [
       `Aviso para organizacao da cozinha${quando ? ` ${quando}` : ''}.`,
       turno ? `Turno: ${turno}.` : '',
@@ -103,6 +108,7 @@ export function gerarRascunhoAvisoIA(entrada) {
     const resumo = bruto.split(/[.!?]/).find(Boolean) || bruto
     titulo = tituloNome(resumo).slice(0, 72) || 'Novo comunicado'
     mensagem = bruto
+    reconhecido = false
   }
 
   return {
@@ -111,5 +117,7 @@ export function gerarRascunhoAvisoIA(entrada) {
     mensagemHtml: plainTextToRichText(mensagem),
     tipo,
     prioridade,
+    destino,
+    reconhecido,
   }
 }
