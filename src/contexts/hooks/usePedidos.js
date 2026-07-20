@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { arrayUnion, collection, doc, getDocs, onSnapshot, updateDoc, deleteDoc, query, where, runTransaction, writeBatch } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { notificarPedidoPronto } from '../../utils/notifications'
 import { notificarPush } from '../../utils/notificarPush'
 import { ehStaff, normalizarPerfil } from '../../utils/perfis'
 import { nomeParaVinculo } from '../../utils/nomes'
+import { useTempoAtual } from '../../utils/useTempoAtual'
 import { producaoDisponivelParaVenda, produtoDisponivelParaCardapioDia, produtoEhBebida, produtoLiberadoManualHoje } from '../../utils/producao'
 import {
   JANELA_PEDIDO_MS,
@@ -58,6 +59,30 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
   const [pedidos, setPedidos] = useState([])
   const vinculoTentadoRef = useRef('')
 
+  // Início do dia atual. Muda de valor apenas na virada da meia-noite, então o
+  // listener da equipe só re-inscreve uma vez por dia (e não a cada minuto).
+  const tempoAtual = useTempoAtual(60000)
+  const inicioDoDia = useMemo(() => {
+    const d = new Date(tempoAtual)
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+  }, [tempoAtual])
+
+  // Busca pontual (getDocs, sem listener) de pedidos por período — usada pelos
+  // relatórios/dashboard para consultar datas passadas sem manter a coleção inteira
+  // sincronizada em tempo real. Passe null/undefined em um limite para ignorá-lo.
+  const buscarPedidosPorPeriodo = useCallback(async (inicioTs, fimTs) => {
+    const filtros = []
+    if (inicioTs != null) filtros.push(where('criadoEm', '>=', Number(inicioTs)))
+    if (fimTs != null) filtros.push(where('criadoEm', '<=', Number(fimTs)))
+    const consulta = filtros.length
+      ? query(collection(db, 'pedidos'), ...filtros)
+      : collection(db, 'pedidos')
+    const snap = await getDocs(consulta)
+    return snap.docs.map(d => ({ ...d.data() }))
+      .sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0))
+  }, [])
+
   useEffect(() => {
     if (!usuarioLogado?.uid || ehStaff(usuarioLogado.perfil)) return
     const nomeVinculo = usuarioLogado.nomeVinculo || nomeParaVinculo(usuarioLogado.nome)
@@ -108,13 +133,17 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
     vincularPedidosAvulsos()
   }, [usuarioLogado?.uid, usuarioLogado?.nome, usuarioLogado?.nomeVinculo, usuarioLogado?.matricula, usuarioLogado?.perfil, usuarioLogado?.role])
 
-  // Aluno só precisa dos próprios pedidos; staff acompanha a fila inteira.
-  // Isso evita sincronizar (e cobrar leituras de) toda a coleção para cada aluno logado.
+  // Aluno só precisa dos próprios pedidos; staff acompanha a fila do dia.
+  // O listener da equipe é limitado aos pedidos de hoje (`criadoEm >= inicioDoDia`)
+  // porque cozinha/vendedor só operam a fila do dia — sincronizar toda a coleção
+  // histórica em tempo real relia milhares de documentos a cada sessão/reload e era
+  // a maior fonte de consumo de leituras. Relatórios de datas passadas usam a busca
+  // pontual `buscarPedidosPorPeriodo`.
   useEffect(() => {
     if (!usuarioLogado) return
     const usuarioEhStaff = ehStaff(usuarioLogado.perfil)
     const consulta = usuarioEhStaff
-      ? collection(db, 'pedidos')
+      ? query(collection(db, 'pedidos'), where('criadoEm', '>=', inicioDoDia))
       : query(collection(db, 'pedidos'), where('uid', '==', usuarioLogado.uid))
     let unsub = () => {}
     try {
@@ -132,10 +161,10 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
       onFbStatus?.('erro', 'init: ' + e.message)
     }
     return unsub
-    // Re-inscreve apenas quando perfil/matrícula mudam (ex.: login/logout) — outros
-    // campos do usuário (nome, telefone...) não afetam a consulta de pedidos.
+    // Re-inscreve quando perfil/matrícula mudam (login/logout) ou na virada do dia
+    // (inicioDoDia) — outros campos do usuário não afetam a consulta de pedidos.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usuarioLogado?.perfil, usuarioLogado?.matricula, usuarioLogado?.uid])
+  }, [usuarioLogado?.perfil, usuarioLogado?.matricula, usuarioLogado?.uid, inicioDoDia])
 
   // Notifica o aluno assim que um pedido seu passa a "Pronto" — fica ativo em
   // qualquer tela do app (não só na página "Meus Pedidos"), pois o listener acima
@@ -553,6 +582,6 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
 
   return {
     pedidos, fazerPedido, atualizarStatusPedido, darBaixaContaProfessor, cancelarPedido, editarPedido, limparEntregues, avaliarPedido,
-    pedidosNaFila, tempoEstimado,
+    pedidosNaFila, tempoEstimado, buscarPedidosPorPeriodo,
   }
 }

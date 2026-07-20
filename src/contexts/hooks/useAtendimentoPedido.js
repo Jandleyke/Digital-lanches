@@ -39,13 +39,14 @@ export function useAtendimentoPedido(usuarioLogado, pedidos = []) {
   const [atendimentos, setAtendimentos] = useState([])
   const perfil = normalizarPerfil(usuarioLogado?.role || usuarioLogado?.perfil)
   const staff = ['vendedor', 'admin', 'gerente'].includes(perfil)
+  const idSolicitante = usuarioId(usuarioLogado)
 
   useEffect(() => {
     if (!usuarioLogado) return undefined
     const ref = collection(db, 'atendimentos')
     const consulta = staff
       ? ref
-      : query(ref, where('solicitanteId', '==', usuarioId(usuarioLogado)))
+      : query(ref, where('solicitanteId', '==', idSolicitante))
 
     const unsub = onSnapshot(consulta, snap => {
       setAtendimentos(snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -53,7 +54,10 @@ export function useAtendimentoPedido(usuarioLogado, pedidos = []) {
     }, err => console.error('[Firestore] atendimentos:', err))
 
     return unsub
-  }, [usuarioLogado, staff])
+    // Chaves estáveis (id do solicitante + flag staff) em vez do objeto `usuarioLogado`,
+    // que muda de referência a cada snapshot e re-lia a coleção `atendimentos`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idSolicitante, staff])
 
   const porPedido = useMemo(() => {
     const mapa = new Map()

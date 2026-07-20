@@ -197,10 +197,11 @@ function ChartBox({ height = 220, children }) {
 }
 
 export default function Dashboard() {
-  const { pedidos, produtos, producaoHoje } = useApp()
+  const { pedidos, produtos, producaoHoje, buscarPedidosPorPeriodo } = useApp()
   const isMobile = useIsMobile()
   const tempoAtual = useTempoAtual(60000)
   const [periodo, setPeriodo] = useState('hoje')
+  const [pedidosPeriodo, setPedidosPeriodo] = useState([])
   const [statusSelecionado, setStatusSelecionado] = useState(null)
   const [pedidosDoStatus, setPedidosDoStatus] = useState([])
   const [filtroProducao, setFiltroProducao] = useState('todos')
@@ -211,14 +212,29 @@ export default function Dashboard() {
     setSecoesFechadas(prev => ({ ...prev, [id]: !prev[id] }))
   }, [])
 
+  // O período "hoje" usa a lista ao vivo (listener em tempo real limitado ao dia).
+  // Períodos maiores (7/30 dias, todos) são buscados sob demanda com getDocs, para
+  // não manter a coleção histórica de pedidos sincronizada continuamente.
+  useEffect(() => {
+    if (periodo === 'hoje') return undefined
+    let cancelado = false
+    const inicio = inicioPeriodo(periodo, Date.now())
+    buscarPedidosPorPeriodo(inicio || null, null)
+      .then(lista => { if (!cancelado) setPedidosPeriodo(lista) })
+      .catch(err => { console.error('[Dashboard] buscar pedidos do periodo:', err); if (!cancelado) setPedidosPeriodo([]) })
+    return () => { cancelado = true }
+  }, [periodo, buscarPedidosPorPeriodo])
+
+  const pedidosBase = periodo === 'hoje' ? pedidos : pedidosPeriodo
+
   const pedidosFiltrados = useMemo(() => {
     const inicio = inicioPeriodo(periodo, tempoAtual)
-    return pedidos.filter(p => {
+    return pedidosBase.filter(p => {
       const date = getPedidoDate(p)
       const time = date ? date.getTime() : getTimeValue(p.criadoEm || p.createdAt || p.dataPedido || p.data || p.timestamp)
       return time >= inicio
     })
-  }, [pedidos, periodo, tempoAtual])
+  }, [pedidosBase, periodo, tempoAtual])
 
   const pedidosValidos = useMemo(() => pedidosFiltrados.filter(p => !isPedidoCancelado(p)), [pedidosFiltrados])
   const pedidosCancelados = useMemo(() => pedidosFiltrados.filter(isPedidoCancelado), [pedidosFiltrados])

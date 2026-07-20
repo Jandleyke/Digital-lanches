@@ -187,7 +187,11 @@ export function useAuth({ onLogout }) {
       setUsuarios(snap.docs.map(d => normalizarUsuario({ uid: d.id, email: d.data().email }, d.data())))
     }, err => console.error('[Firestore] usuarios:', err))
     return unsub
-  }, [usuarioLogado])
+    // Depende apenas de uid/role: o objeto `usuarioLogado` ganha nova referência a
+    // cada snapshot do doc do usuário; usar o objeto inteiro re-inscrevia o listener
+    // (e relia a coleção `usuarios` toda) sem necessidade.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuarioLogado?.uid, usuarioLogado?.role])
 
   const login = useCallback(async (email, senha, tipoEntrada = 'aluno') => {
     try {

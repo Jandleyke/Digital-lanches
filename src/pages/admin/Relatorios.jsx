@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import Layout from '../../components/Layout'
 import { useApp } from '../../contexts/AppContext'
@@ -24,6 +24,28 @@ function dateKey(date) {
 
 function monthKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+// Converte o filtro selecionado em [inicioTs, fimTs] para buscar os pedidos do
+// período sob demanda. 'todos' retorna [null, null] (sem limites).
+function limitesPeriodo(filtroTipo, filtroDia, filtroMes) {
+  if (filtroTipo === 'dia') {
+    const [ano, mes, dia] = String(filtroDia || '').split('-').map(Number)
+    if (!ano || !mes || !dia) return [null, null]
+    return [
+      new Date(ano, mes - 1, dia, 0, 0, 0, 0).getTime(),
+      new Date(ano, mes - 1, dia, 23, 59, 59, 999).getTime(),
+    ]
+  }
+  if (filtroTipo === 'mes') {
+    const [ano, mes] = String(filtroMes || '').split('-').map(Number)
+    if (!ano || !mes) return [null, null]
+    return [
+      new Date(ano, mes - 1, 1, 0, 0, 0, 0).getTime(),
+      new Date(ano, mes, 0, 23, 59, 59, 999).getTime(),
+    ]
+  }
+  return [null, null]
 }
 
 function normalizeStatus(status) {
@@ -225,7 +247,7 @@ function motivoCancelamento(pedido) {
 }
 
 export default function Relatorios() {
-  const { pedidos = [], producaoHoje = [] } = useApp()
+  const { producaoHoje = [], buscarPedidosPorPeriodo } = useApp()
   const isMobile = useIsMobile()
   const [gerandoPDF, setGerandoPDF] = useState(false)
   const [filtroTipo, setFiltroTipo] = useState('dia')
@@ -233,6 +255,30 @@ export default function Relatorios() {
   const [filtroMes, setFiltroMes] = useState(mesInput())
   const [filtroOrigem, setFiltroOrigem] = useState('todos')
   const [pedidoCanceladoSelecionado, setPedidoCanceladoSelecionado] = useState(null)
+  const [pedidosDataset, setPedidosDataset] = useState([])
+  const [carregandoPedidos, setCarregandoPedidos] = useState(false)
+
+  // Busca os pedidos do período selecionado sob demanda (getDocs), em vez de
+  // depender da coleção inteira sincronizada em tempo real. Recarrega apenas
+  // quando o filtro de período muda.
+  useEffect(() => {
+    let cancelado = false
+    const [inicioTs, fimTs] = limitesPeriodo(filtroTipo, filtroDia, filtroMes)
+    const carregar = async () => {
+      setCarregandoPedidos(true)
+      try {
+        const lista = await buscarPedidosPorPeriodo(inicioTs, fimTs)
+        if (!cancelado) setPedidosDataset(lista)
+      } catch (err) {
+        console.error('[Relatorios] buscar pedidos do periodo:', err)
+        if (!cancelado) setPedidosDataset([])
+      } finally {
+        if (!cancelado) setCarregandoPedidos(false)
+      }
+    }
+    carregar()
+    return () => { cancelado = true }
+  }, [filtroTipo, filtroDia, filtroMes, buscarPedidosPorPeriodo])
 
   const periodoRelatorio = filtroTipo === 'dia'
     ? `Dia ${formatDateLabel(filtroDia)}`
@@ -247,7 +293,7 @@ export default function Relatorios() {
       : 'todos'
 
   const relatorio = useMemo(() => {
-    const pedidosPeriodo = pedidos
+    const pedidosPeriodo = pedidosDataset
       .filter(pedido => pedidoNoPeriodo(pedido, filtroTipo, filtroDia, filtroMes))
       .filter(pedido => filtroOrigem === 'todos' || origemPedido(pedido) === filtroOrigem)
     const pedidosValidos = pedidosPeriodo.filter(pedido => !isPedidoCancelado(pedido))
@@ -307,7 +353,7 @@ export default function Relatorios() {
         total: Math.round(vendasPorDiaSemana[i] * 100) / 100,
       })),
     }
-  }, [pedidos, filtroTipo, filtroDia, filtroMes, filtroOrigem])
+  }, [pedidosDataset, filtroTipo, filtroDia, filtroMes, filtroOrigem])
 
   const producaoResumo = useMemo(() => {
     const lista = producaoHoje || []
@@ -796,10 +842,10 @@ export default function Relatorios() {
               </select>
             </div>
             <div style={{ ...s.exportButtons, flexDirection: isMobile ? 'column' : 'row', width: isMobile ? '100%' : 'auto' }}>
-              <button style={{ ...s.exportBtn, ...s.pdfBtn, width: isMobile ? '100%' : 'auto', opacity: gerandoPDF ? 0.7 : 1 }} onClick={exportarPDF} disabled={gerandoPDF}>
-                {gerandoPDF ? 'Gerando PDF...' : 'Baixar PDF'}
+              <button style={{ ...s.exportBtn, ...s.pdfBtn, width: isMobile ? '100%' : 'auto', opacity: (gerandoPDF || carregandoPedidos) ? 0.7 : 1 }} onClick={exportarPDF} disabled={gerandoPDF || carregandoPedidos}>
+                {carregandoPedidos ? 'Carregando...' : gerandoPDF ? 'Gerando PDF...' : 'Baixar PDF'}
               </button>
-              <button style={{ ...s.exportBtn, ...s.csvBtn, width: isMobile ? '100%' : 'auto' }} onClick={exportarExcel}>Baixar Excel</button>
+              <button style={{ ...s.exportBtn, ...s.csvBtn, width: isMobile ? '100%' : 'auto', opacity: carregandoPedidos ? 0.7 : 1 }} onClick={exportarExcel} disabled={carregandoPedidos}>{carregandoPedidos ? 'Carregando...' : 'Baixar Excel'}</button>
             </div>
           </div>
         </section>

@@ -52,7 +52,10 @@ export function useProducaoDiaria(usuarioLogado) {
         .sort((a, b) => (b.atualizadoEm || b.criadoEm || 0) - (a.atualizadoEm || a.criadoEm || 0)))
     }, err => console.error('[Firestore] producaoDiaria:', err))
     return unsub
-  }, [usuarioLogado])
+    // Depende só do uid: o objeto `usuarioLogado` muda de referência a cada snapshot
+    // do usuário, e reler `producaoDiaria` toda vez era desperdício de leituras.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuarioLogado?.uid])
 
   const producaoHoje = useMemo(() => {
     const ini = inicioDoDia(tempoAtual)

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { arrayUnion, doc, updateDoc } from 'firebase/firestore'
 import {
@@ -291,7 +291,7 @@ function horaAtualizacao(valor) {
 
 export default function Vendedor() {
   const {
-    usuarioLogado, usuarios, pedidos, produtos, producaoHoje,
+    usuarioLogado, usuarios, pedidos, produtos, producaoHoje, buscarPedidosPorPeriodo,
     atualizarStatusPedido, darBaixaContaProfessor, cancelarPedido, editarPedido,
     atualizarProduto, adicionarProduto, adicionarProdutos, atualizarDisponibilidadeProdutos,
     ajustarProducaoVendedor, registrarDesperdicio,
@@ -505,10 +505,39 @@ export default function Vendedor() {
 
   const hoje = useMemo(() => inicioDoDia(tempoAtual), [tempoAtual])
   const pedidosOrdenados = useMemo(() => [...pedidos].sort(compararPedidosFila), [pedidos])
-  const pedidosPorData = useMemo(
-    () => filtroData ? pedidosOrdenados.filter(p => pedidoDataIso(p) === filtroData) : pedidosOrdenados,
-    [pedidosOrdenados, filtroData]
-  )
+
+  // O listener ao vivo cobre apenas os pedidos de hoje. Ao filtrar por uma data
+  // passada, buscamos aquele dia sob demanda (getDocs) em vez de manter todo o
+  // histórico sincronizado em tempo real.
+  const filtroDataEhHoje = !filtroData || filtroData === hojeIso()
+  const [pedidosDataHistorico, setPedidosDataHistorico] = useState([])
+  useEffect(() => {
+    // Em "hoje" o memo `pedidosPorData` ignora este estado (usa a lista ao vivo),
+    // então basta não buscar; os dados antigos ficam retidos mas nunca são exibidos
+    // porque o memo filtra por `pedidoDataIso(p) === filtroData`.
+    if (filtroDataEhHoje) return undefined
+    let cancelado = false
+    const carregar = async () => {
+      const [ano, mes, dia] = filtroData.split('-').map(Number)
+      const ini = new Date(ano, mes - 1, dia, 0, 0, 0, 0).getTime()
+      const fim = new Date(ano, mes - 1, dia, 23, 59, 59, 999).getTime()
+      try {
+        const l = await buscarPedidosPorPeriodo(ini, fim)
+        if (!cancelado) setPedidosDataHistorico(l)
+      } catch (err) {
+        console.error('[Vendedor] buscar pedidos por data:', err)
+        if (!cancelado) setPedidosDataHistorico([])
+      }
+    }
+    carregar()
+    return () => { cancelado = true }
+  }, [filtroData, filtroDataEhHoje, buscarPedidosPorPeriodo])
+
+  const pedidosPorData = useMemo(() => {
+    if (!filtroData) return pedidosOrdenados
+    const base = filtroDataEhHoje ? pedidosOrdenados : [...pedidosDataHistorico].sort(compararPedidosFila)
+    return base.filter(p => pedidoDataIso(p) === filtroData)
+  }, [pedidosOrdenados, pedidosDataHistorico, filtroData, filtroDataEhHoje])
   const formasPagamento = useMemo(() => Array.from(new Set(pedidos.map(getFormaPagamento).filter(Boolean))), [pedidos])
   const pedidosVisiveis = useMemo(() => filtrarPedidos(pedidosPorData, filtroPedidos, filtroPagamento, buscaPedido), [pedidosPorData, filtroPedidos, filtroPagamento, buscaPedido])
   const haFiltrosPedidos = Boolean(buscaPedido.trim() || filtroData || filtroPedidos !== 'todos' || filtroPagamento !== 'todos')
@@ -552,14 +581,40 @@ export default function Vendedor() {
   const totalVendas = vendasHoje.reduce((acc, p) => acc + getTotalPedido(p), 0)
   const itensVendidos = useMemo(() => contarItens(vendasHoje), [vendasHoje])
 
-  const pedidosRelatorioVendas = useMemo(() => pedidos.filter(p => {
+  // Relatório de vendas: busca o período selecionado sob demanda (dia/mês/todos),
+  // em vez de depender de todo o histórico sincronizado em tempo real.
+  const [pedidosVendasDataset, setPedidosVendasDataset] = useState([])
+  useEffect(() => {
+    let cancelado = false
+    let ini = null
+    let fim = null
+    if (filtroVendasTipo === 'dia') {
+      const [ano, mes, dia] = String(filtroVendasDia || '').split('-').map(Number)
+      if (ano && mes && dia) {
+        ini = new Date(ano, mes - 1, dia, 0, 0, 0, 0).getTime()
+        fim = new Date(ano, mes - 1, dia, 23, 59, 59, 999).getTime()
+      }
+    } else if (filtroVendasTipo === 'mes') {
+      const [ano, mes] = String(filtroVendasMes || '').split('-').map(Number)
+      if (ano && mes) {
+        ini = new Date(ano, mes - 1, 1, 0, 0, 0, 0).getTime()
+        fim = new Date(ano, mes, 0, 23, 59, 59, 999).getTime()
+      }
+    }
+    buscarPedidosPorPeriodo(ini, fim)
+      .then(l => { if (!cancelado) setPedidosVendasDataset(l) })
+      .catch(err => { console.error('[Vendedor] buscar vendas do periodo:', err); if (!cancelado) setPedidosVendasDataset([]) })
+    return () => { cancelado = true }
+  }, [filtroVendasTipo, filtroVendasDia, filtroVendasMes, buscarPedidosPorPeriodo])
+
+  const pedidosRelatorioVendas = useMemo(() => pedidosVendasDataset.filter(p => {
     const date = getPedidoDate(p)
     const str = date ? dataIsoLocal(date) : null
     if (filtroVendasTipo === 'dia' && str !== filtroVendasDia) return false
     if (filtroVendasTipo === 'mes' && (!str || !str.startsWith(filtroVendasMes))) return false
     if (filtroVendasOrigem !== 'todos' && (p?.origem === 'balcao' ? 'balcao' : 'app') !== filtroVendasOrigem) return false
     return true
-  }), [pedidos, filtroVendasTipo, filtroVendasDia, filtroVendasMes, filtroVendasOrigem])
+  }), [pedidosVendasDataset, filtroVendasTipo, filtroVendasDia, filtroVendasMes, filtroVendasOrigem])
   const pedidosValidosRelatorio = useMemo(() => pedidosRelatorioVendas.filter(p => !isPedidoCancelado(p)), [pedidosRelatorioVendas])
   const pedidosCanceladosRelatorio = useMemo(() => pedidosRelatorioVendas.filter(isPedidoCancelado), [pedidosRelatorioVendas])
 

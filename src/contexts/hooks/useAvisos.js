@@ -21,7 +21,10 @@ export function useAvisos(usuarioLogado) {
         .sort((a, b) => (b.createdAt || b.criadoEm || 0) - (a.createdAt || a.criadoEm || 0)))
     }, err => console.error('[Firestore] avisos:', err))
     return unsub
-  }, [usuarioLogado])
+    // Depende só do uid: evita re-inscrever (e reler a coleção `avisos`) a cada nova
+    // referência do objeto `usuarioLogado`. A filtragem por perfil é feita nos consumidores.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuarioLogado?.uid])
 
   async function criarAviso({ titulo, mensagem, texto, mensagemHtml, tipo, fixado, destino, destinos, destinatario, prioridade, status, produtoPromocao, recipients, recipientsDetalhes }) {
     const id = `AV${Date.now()}`

@@ -32,7 +32,7 @@ export function AppProvider({ children }) {
   const { producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio, ajustarProducaoVendedor } = useProducaoDiaria(usuarioLogado)
   const { lanchoneteConfig, salvarLanchoneteConfig } = useLanchoneteConfig(usuarioLogado)
   const {
-    pedidos, fazerPedido, atualizarStatusPedido, darBaixaContaProfessor, cancelarPedido, editarPedido, limparEntregues, avaliarPedido: _avaliarPedido, tempoEstimado,
+    pedidos, fazerPedido, atualizarStatusPedido, darBaixaContaProfessor, cancelarPedido, editarPedido, limparEntregues, avaliarPedido: _avaliarPedido, tempoEstimado, buscarPedidosPorPeriodo,
   } = usePedidos({ usuarioLogado, produtos, producaoHoje, carrinho, setCarrinho, onFbStatus })
   const {
     atendimentos, getAtendimentoPedido, enviarMensagemPedido, responderAtendimento,
@@ -63,7 +63,7 @@ export function AppProvider({ children }) {
       usuarios, bloquearUsuario, desbloquearUsuario, excluirUsuario, resetarSenhaAdmin,
       atualizarUsuario,
       produtos, atualizarProduto, adicionarProduto, adicionarProdutos, removerProduto, removerProdutos, atualizarDisponibilidadeProdutos,
-      pedidos, fazerPedido, atualizarStatusPedido, darBaixaContaProfessor, cancelarPedido, editarPedido, limparEntregues, avaliarPedido,
+      pedidos, fazerPedido, atualizarStatusPedido, darBaixaContaProfessor, cancelarPedido, editarPedido, limparEntregues, avaliarPedido, buscarPedidosPorPeriodo,
       atendimentos, getAtendimentoPedido, enviarMensagemPedido, responderAtendimento, encerrarAtendimento, arquivarAtendimentosEncerrados, marcarLidoCliente, marcarLidoVendedor,
       avisos, criarAviso, editarAviso, excluirAviso, fixarAviso, marcarAvisoLido, responderAviso, arquivarAvisoParaUsuario, desarquivarAvisoParaUsuario, limparHistoricoAvisos,
       avaliacoes, resumoAvaliacoesPorProduto,

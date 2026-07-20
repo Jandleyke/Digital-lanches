@@ -38,7 +38,10 @@ export function useProdutos(usuarioLogado) {
       console.error('[Firestore] produtos init:', e)
     }
     return unsub
-  }, [usuarioLogado])
+    // Só re-inscreve quando o usuário/perfil realmente muda — não a cada nova
+    // referência do objeto `usuarioLogado` (que evita reler a coleção `produtos`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuarioLogado?.uid, usuarioLogado?.perfil])
 
   async function atualizarProduto(produto) {
     const anterior = produtos.find(p => String(p.id) === String(produto.id))
