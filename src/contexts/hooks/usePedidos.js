@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { arrayUnion, collection, doc, getDocs, onSnapshot, updateDoc, deleteDoc, query, where, runTransaction, writeBatch } from 'firebase/firestore'
+import { arrayUnion, collection, doc, getDoc, getDocs, onSnapshot, updateDoc, deleteDoc, query, where, runTransaction, writeBatch } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { notificarPedidoPronto } from '../../utils/notifications'
 import { notificarPush } from '../../utils/notificarPush'
@@ -81,6 +81,21 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
     const snap = await getDocs(consulta)
     return snap.docs.map(d => ({ ...d.data() }))
       .sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0))
+  }, [])
+
+  // Busca pontual de um pedido por id (o doc id é igual ao campo `id`). Usada como
+  // fallback pela equipe quando o pedido não está na lista ao vivo — que cobre só o
+  // dia — em operações que podem alcançar pedidos de outras datas: leitura de QR e
+  // detalhe do atendimento vinculado a um pedido antigo.
+  const buscarPedidoPorId = useCallback(async (id) => {
+    if (!id) return null
+    try {
+      const snap = await getDoc(doc(db, 'pedidos', String(id)))
+      return snap.exists() ? { ...snap.data() } : null
+    } catch (e) {
+      console.error('[Firestore] buscarPedidoPorId:', e)
+      return null
+    }
   }, [])
 
   useEffect(() => {
@@ -582,6 +597,6 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
 
   return {
     pedidos, fazerPedido, atualizarStatusPedido, darBaixaContaProfessor, cancelarPedido, editarPedido, limparEntregues, avaliarPedido,
-    pedidosNaFila, tempoEstimado, buscarPedidosPorPeriodo,
+    pedidosNaFila, tempoEstimado, buscarPedidosPorPeriodo, buscarPedidoPorId,
   }
 }

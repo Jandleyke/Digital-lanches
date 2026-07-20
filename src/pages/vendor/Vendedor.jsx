@@ -32,6 +32,7 @@ import {
   encontrarPedidoPorQr,
   horarioRetiradaParaTimestamp,
   pedidoAntesDaRetirada,
+  pedidoIdDoQr,
   pedidoNoFiltroStatus,
 } from '../../utils/pedidos'
 
@@ -291,7 +292,7 @@ function horaAtualizacao(valor) {
 
 export default function Vendedor() {
   const {
-    usuarioLogado, usuarios, pedidos, produtos, producaoHoje, buscarPedidosPorPeriodo,
+    usuarioLogado, usuarios, pedidos, produtos, producaoHoje, buscarPedidosPorPeriodo, buscarPedidoPorId,
     atualizarStatusPedido, darBaixaContaProfessor, cancelarPedido, editarPedido,
     atualizarProduto, adicionarProduto, adicionarProdutos, atualizarDisponibilidadeProdutos,
     ajustarProducaoVendedor, registrarDesperdicio,
@@ -353,6 +354,9 @@ export default function Vendedor() {
   const [filtroAtendimentoStatus, setFiltroAtendimentoStatus] = useState('ativos')
   const [filtroAtendimentoPeriodo, setFiltroAtendimentoPeriodo] = useState('hoje')
   const [limpandoAtendimento, setLimpandoAtendimento] = useState(false)
+  // Cache de pedidos buscados sob demanda para atendimentos cujo pedido é de outro
+  // dia (fora do listener ao vivo de hoje). Preenchido ao abrir o atendimento.
+  const [pedidosAtendimentoCache, setPedidosAtendimentoCache] = useState({})
   const [filtroVendasTipo, setFiltroVendasTipo] = useState('dia')
   const [filtroVendasDia, setFiltroVendasDia] = useState(hojeIso)
   const [filtroVendasMes, setFiltroVendasMes] = useState(() => hojeIso().slice(0, 7))
@@ -370,8 +374,10 @@ export default function Vendedor() {
   }
 
   function pedidoDoAtendimento(atendimento) {
+    const pedidoId = atendimento?.pedidoId
     return atendimento?.pedido
-      || pedidos.find(pedido => String(pedido.id) === String(atendimento?.pedidoId))
+      || pedidos.find(pedido => String(pedido.id) === String(pedidoId))
+      || pedidosAtendimentoCache[pedidoId]
       || null
   }
 
@@ -438,8 +444,14 @@ export default function Vendedor() {
     setErroPagamento('')
   }
 
-  function lerPedidoPorQr(conteudo) {
-    const pedido = encontrarPedidoPorQr(conteudo, pedidos)
+  async function lerPedidoPorQr(conteudo) {
+    // O listener ao vivo cobre só os pedidos de hoje; um QR pode ser de outro dia.
+    // Se não achar na lista atual, busca o pedido pontualmente pelo id do QR.
+    let pedido = encontrarPedidoPorQr(conteudo, pedidos)
+    if (!pedido) {
+      const id = pedidoIdDoQr(conteudo)
+      if (id) pedido = await buscarPedidoPorId(id)
+    }
     if (!pedido) {
       toast('QR Code inválido ou pedido não encontrado.', 'error')
       return false
@@ -569,6 +581,24 @@ export default function Vendedor() {
     })
   }, [atendimentosNaoArquivados, filtroAtendimentoPeriodo, filtroAtendimentoStatus])
   const atendimentoSelecionado = atendimentosVisiveis.find(item => item.id === atendimentoAbertoId) || null
+
+  // Ao abrir um atendimento cujo pedido não está na lista ao vivo (pedido de outro
+  // dia), busca o pedido pontualmente para exibir status/total corretos no detalhe.
+  useEffect(() => {
+    const atend = atendimentoSelecionado
+    const pedidoId = atend?.pedidoId
+    if (!pedidoId || atend?.pedido) return undefined
+    if (pedidos.some(p => String(p.id) === String(pedidoId))) return undefined
+    if (pedidosAtendimentoCache[pedidoId]) return undefined
+    let cancelado = false
+    const carregar = async () => {
+      const encontrado = await buscarPedidoPorId(pedidoId)
+      if (!cancelado && encontrado) setPedidosAtendimentoCache(prev => ({ ...prev, [pedidoId]: encontrado }))
+    }
+    carregar()
+    return () => { cancelado = true }
+  }, [atendimentoSelecionado, pedidos, pedidosAtendimentoCache, buscarPedidoPorId])
+
   const vendasHoje = useMemo(() => pedidos.filter(p => {
     const data = p.pagoEm || p.retiradoEm || p.criadoEm || 0
     return normalizeStatus(p.status) !== 'cancelado' && data >= hoje && (p.pago || normalizeStatus(p.status) === 'entregue')
