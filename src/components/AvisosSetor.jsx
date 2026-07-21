@@ -16,7 +16,6 @@ const TIPOS = [
   { valor: 'novidade', label: 'Novidade', bg: '#F0FDF4', color: '#15803D' },
   { valor: 'produto_indisponivel', label: 'Produto', bg: '#FEF3C7', color: '#D97706' },
   { valor: 'pedido_atrasado', label: 'Pedido', bg: '#FEE2E2', color: '#DC2626' },
-  { valor: 'producao_pausada', label: 'Producao', bg: '#F0FDF4', color: '#15803D' },
   { valor: 'lanche_pronto', label: 'Pronto', bg: '#F5F3FF', color: '#7C3AED' },
 ]
 
@@ -119,6 +118,7 @@ export default function AvisosSetor({ setor }) {
   const [anexoMenuAberto, setAnexoMenuAberto] = useState(false)
   const [anexoPendente, setAnexoPendente] = useState(null)
   const [enviandoResposta, setEnviandoResposta] = useState(false)
+  const [limpandoHistorico, setLimpandoHistorico] = useState(false)
   const inputImagemRef = useRef(null)
   const inputArquivoRef = useRef(null)
 
@@ -362,8 +362,18 @@ export default function AvisosSetor({ setor }) {
   }
 
   async function limparHistorico() {
+    if (limpandoHistorico) return
     if (!confirm('Limpar seu historico de avisos? Isso nao apaga avisos para outras pessoas.')) return
-    await limparHistoricoAvisos(escopoArquivo)
+    setLimpandoHistorico(true)
+    setErro('')
+    try {
+      await limparHistoricoAvisos(escopoArquivo)
+    } catch (err) {
+      console.error(err)
+      setErro(err?.message || 'Nao foi possivel limpar o historico.')
+    } finally {
+      setLimpandoHistorico(false)
+    }
   }
 
   function abrirDetalhe(aviso, focar = false) {
@@ -445,12 +455,12 @@ export default function AvisosSetor({ setor }) {
         </div>
         {destinos.length > 0 && <button style={{ ...s.btnNovo, ...(isMobile ? s.btnNovoMobile : {}) }} onClick={abrirNovo}>+ Novo aviso</button>}
         {visualizacao === 'historico' && totalHistorico > 0 && (
-          <button type="button" style={{ ...s.btnLimparHistorico, ...(isMobile ? s.btnLimparHistoricoMobile : {}) }} onClick={limparHistorico}>
-            <Trash2 size={14} /> Limpar historico
+          <button type="button" style={{ ...s.btnLimparHistorico, ...(isMobile ? s.btnLimparHistoricoMobile : {}), opacity: limpandoHistorico ? 0.7 : 1 }} onClick={limparHistorico} disabled={limpandoHistorico}>
+            <Trash2 size={14} /> {limpandoHistorico ? 'Limpando...' : 'Limpar historico'}
           </button>
         )}
       </div>
-      {visualizacao === 'historico' && <div style={s.historicoAjuda}>Limpa apenas o historico do seu dispositivo.</div>}
+      {visualizacao === 'historico' && <div style={s.historicoAjuda}>Limpa o seu historico sem apagar avisos de outras pessoas.</div>}
 
       <div style={{ ...s.filtros, ...(isMobile ? s.filtrosMobile : {}) }}>
         {DESTINOS.filter(destino => destino.valor === 'todos' || destinos.includes(destino.valor) || role === 'admin' || role === 'gerente' || role === 'professor').map(destino => (

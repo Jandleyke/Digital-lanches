@@ -6,6 +6,7 @@ import {
   compararPedidosFila,
   dadosPagamentoNaEntrega,
   dataIsoLocal,
+  deveAtualizarEstoqueProdutoNoPedido,
   encontrarItemSemEstoque,
   encontrarPedidoPorQr,
   estoqueAposCancelamento,
@@ -15,6 +16,8 @@ import {
   inicioContagemPedido,
   idsCompradosEmPedidosConcluidos,
   matriculaParaRetirada,
+  mensagemErroFinalizacaoPedido,
+  pedidoCriadoPeloProprioAlunoSeguro,
   pedidoIdDoQr,
   pedidoAntesDaRetirada,
   pedidoConcluido,
@@ -151,6 +154,49 @@ describe('fluxo de estoque do pedido', () => {
     const depois = quantidadesPorProduto([{ produtoId: 1, quantidade: 3 }])
     expect(calcularEstoqueAposEdicao(2, antes['1'], depois['1'])).toEqual({ valido: true, estoque: 0 })
     expect(calcularEstoqueAposEdicao(1, antes['1'], 4)).toEqual({ valido: false, estoque: 0 })
+  })
+
+  it('nao tenta atualizar produto com estoque zero quando a producao ja foi consumida', () => {
+    expect(deveAtualizarEstoqueProdutoNoPedido(0, [{ id: 'PD1', quantidade: 2 }])).toBe(false)
+    expect(deveAtualizarEstoqueProdutoNoPedido(5, [{ id: 'PD1', quantidade: 2 }])).toBe(true)
+    expect(deveAtualizarEstoqueProdutoNoPedido(0, [])).toBe(true)
+  })
+})
+
+describe('erros de finalizacao do pedido', () => {
+  it('mantem erros de estoque e horario legiveis para o usuario', () => {
+    expect(mensagemErroFinalizacaoPedido(new Error('Nao ha quantidade suficiente disponivel para Coxinha.')))
+      .toBe('Nao ha quantidade suficiente disponivel para Coxinha.')
+  })
+
+  it('mostra erro real de permissao em vez de mensagem generica de conexao', () => {
+    const erro = { code: 'permission-denied', message: 'Missing or insufficient permissions.' }
+    expect(mensagemErroFinalizacaoPedido(erro))
+      .toContain('Permissão negada pelo Firestore')
+  })
+
+  it('orienta novo login quando a sessao expira', () => {
+    expect(mensagemErroFinalizacaoPedido({ code: 'unauthenticated' })).toContain('sessão expirou')
+  })
+})
+
+describe('seguranca do pedido criado pelo app', () => {
+  it('aceita aluno criando o proprio pedido com campos de dono consistentes', () => {
+    const usuario = { uid: 'u1', perfil: 'aluno' }
+    const pedido = { uid: 'u1', userId: 'u1', alunoId: 'u1', alunoPerfil: 'aluno', status: 'Recebido', origem: 'app' }
+    expect(pedidoCriadoPeloProprioAlunoSeguro(pedido, usuario)).toBe(true)
+  })
+
+  it('aceita professor autenticado criando o proprio pedido pelo app', () => {
+    const usuario = { uid: 'p1', perfil: 'professor' }
+    const pedido = { uid: 'p1', userId: 'p1', alunoId: 'p1', alunoPerfil: 'professor', status: 'Recebido', origem: 'app' }
+    expect(pedidoCriadoPeloProprioAlunoSeguro(pedido, usuario)).toBe(true)
+  })
+
+  it('rejeita pedido criado para outro usuario', () => {
+    const usuario = { uid: 'u1', perfil: 'aluno' }
+    const pedido = { uid: 'u2', userId: 'u2', alunoId: 'u2', alunoPerfil: 'aluno', status: 'Recebido', origem: 'app' }
+    expect(pedidoCriadoPeloProprioAlunoSeguro(pedido, usuario)).toBe(false)
   })
 })
 

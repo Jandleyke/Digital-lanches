@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { doc, getDoc, onSnapshot, setDoc, updateDoc, collection } from 'firebase/firestore'
+import { doc, getDoc, onSnapshot, updateDoc, collection } from 'firebase/firestore'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth, db } from '../../firebase'
 import { salvarSessao } from '../../utils/storage'
 import {
   alterarSenhaAtual,
-  criarContaComEmail,
   entrarComEmail,
   enviarLinkRedefinicaoSenha,
   emailValida,
@@ -58,6 +57,64 @@ async function chamarAdminUsuarios(acao, payload = {}) {
   return dados
 }
 
+async function chamarUsuarioAtual(acao, payload = {}) {
+  const token = await auth.currentUser?.getIdToken()
+  if (!token) return { erro: 'Sessao expirada. Faca login novamente.' }
+
+  const resposta = await fetch('/api/usuarioAtual', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ acao, ...payload }),
+  })
+  const dados = await resposta.json().catch(() => ({}))
+  if (!resposta.ok) return { erro: dados.erro || 'Nao foi possivel atualizar seu cadastro.' }
+  return dados
+}
+
+async function chamarCadastroAluno(payload = {}) {
+  const resposta = await fetch('/api/cadastroAluno', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const dados = await resposta.json().catch(() => ({}))
+  if (!resposta.ok) return { ...dados, erro: dados.erro || 'Não foi possível criar o cadastro.' }
+  return dados
+}
+
+async function chamarRecuperarUsuarioAuth() {
+  const token = await auth.currentUser?.getIdToken()
+  if (!token) return { erro: 'Sessao expirada. Faca login novamente.' }
+  const resposta = await fetch('/api/recuperarUsuarioAuth', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  })
+  const dados = await resposta.json().catch(() => ({}))
+  if (!resposta.ok) return { erro: dados.erro || 'Nao foi possivel recuperar seu cadastro.' }
+  return dados
+}
+
+function cadastroPrecisaNormalizacao(dados = {}, user) {
+  const roles = perfisDoUsuario(dados)
+  return dados.uid !== user.uid
+    || dados.userId !== user.uid
+    || String(dados.email || '').trim().toLowerCase() !== String(user.email || '').trim().toLowerCase()
+    || !dados.role
+    || !dados.perfil
+    || !Array.isArray(dados.roles)
+    || dados.roles.length === 0
+    || !roles.includes(normalizarPerfil(dados.role || dados.perfil || roles[0]))
+    || !Object.hasOwn(dados, 'ativo')
+    || !Object.hasOwn(dados, 'bloqueado')
+}
+
 function normalizarUsuario(user, dados, perfilAtivoPreferido = '') {
   if (!user || !dados) return null
   const seguro = removerCamposSensiveis({ uid: user.uid, ...dados })
@@ -106,6 +163,9 @@ export function useAuth({ onLogout }) {
   const [usuarios, setUsuarios] = useState([])
   const [carregandoAuth, setCarregandoAuth] = useState(true)
   const usuarioLogadoRef = useRef(null)
+  const normalizacaoTentadaRef = useRef(new Set())
+  const usuarioAtualUid = usuarioLogado?.uid || ''
+  const usuarioAtualRole = usuarioLogado?.role || ''
 
   useEffect(() => { usuarioLogadoRef.current = usuarioLogado }, [usuarioLogado])
   useEffect(() => { salvarSessao(usuarioLogado) }, [usuarioLogado])
@@ -129,11 +189,20 @@ export function useAuth({ onLogout }) {
           return
         }
 
+        const dadosUsuario = snap.data()
+        const chaveNormalizacao = `${user.uid}:${snap.updateTime?.toMillis?.() || ''}`
+        if (cadastroPrecisaNormalizacao(dadosUsuario, user) && !normalizacaoTentadaRef.current.has(chaveNormalizacao)) {
+          normalizacaoTentadaRef.current.add(chaveNormalizacao)
+          chamarUsuarioAtual('normalizar').then(res => {
+            if (res.erro) console.error('[Auth] normalizar cadastro:', res.erro)
+          })
+        }
+
         const perfilSalvo = sessionStorage.getItem(chavePerfilAtivo(user.uid)) || ''
         const acessosSalvos = lerListaSessao(chaveAcessosEntrada(user.uid))
         const selecaoPendente = sessionStorage.getItem(chaveSelecaoPendente(user.uid)) === '1'
         const perfilPreferido = usuarioLogadoRef.current?.uid === user.uid ? usuarioLogadoRef.current.perfil : perfilSalvo
-        const usuario = normalizarUsuario(user, snap.data(), perfilPreferido)
+        const usuario = normalizarUsuario(user, dadosUsuario, perfilPreferido)
         if (!usuario.ativo) {
           sairDoFirebase(auth)
           setUsuarioLogado(null)
@@ -182,24 +251,40 @@ export function useAuth({ onLogout }) {
   }, [onLogout])
 
   useEffect(() => {
-    if (!usuarioLogado || !ehStaff(usuarioLogado.role)) return
+    if (!usuarioAtualUid || !ehStaff(usuarioAtualRole)) return
     const unsub = onSnapshot(collection(db, 'usuarios'), snap => {
       setUsuarios(snap.docs.map(d => normalizarUsuario({ uid: d.id, email: d.data().email }, d.data())))
     }, err => console.error('[Firestore] usuarios:', err))
     return unsub
-  }, [usuarioLogado])
+  }, [usuarioAtualUid, usuarioAtualRole])
 
   const login = useCallback(async (email, senha, tipoEntrada = 'aluno') => {
     try {
       const user = await entrarComEmail(auth, email, senha)
-      const snap = await getDoc(doc(db, 'usuarios', user.uid))
+      let snap = await getDoc(doc(db, 'usuarios', user.uid))
 
       if (!snap.exists()) {
-        await sairDoFirebase(auth)
-        return { erro: 'Conta não configurada no banco de dados. Procure o suporte.' }
+        const recuperado = await chamarRecuperarUsuarioAuth()
+        if (recuperado.erro) {
+          await sairDoFirebase(auth)
+          return { erro: recuperado.erro || 'Conta nao configurada no banco de dados. Procure o suporte.' }
+        }
+        snap = await getDoc(doc(db, 'usuarios', user.uid))
+        if (!snap.exists()) {
+          await sairDoFirebase(auth)
+          return { erro: 'Conta recuperada no Auth, mas ainda nao apareceu no banco. Tente entrar novamente.' }
+        }
       }
 
-      const usuarioBase = normalizarUsuario(user, snap.data())
+      const dadosLogin = snap.data()
+      const emailCadastro = String(dadosLogin.email || '').trim().toLowerCase()
+      if (emailValida(emailCadastro) && emailCadastro !== String(user.email || '').trim().toLowerCase()) {
+        const resSyncEmail = await chamarUsuarioAtual('atualizar', { email: emailCadastro })
+        if (resSyncEmail.erro) console.error('[Auth] sincronizar email no login:', resSyncEmail.erro)
+        else await auth.currentUser?.reload()
+      }
+
+      const usuarioBase = normalizarUsuario(auth.currentUser || user, dadosLogin)
       const tipoEntradaNormalizado = tipoEntrada === 'equipe' ? 'equipe' : 'aluno'
       const acessosPermitidos = perfisPorTipoEntrada(usuarioBase.roles, tipoEntradaNormalizado)
 
@@ -227,7 +312,7 @@ export function useAuth({ onLogout }) {
 
       const precisaEscolher = acessosPermitidos.length > 1
       const usuario = {
-        ...normalizarUsuario(user, snap.data(), perfilInicialAcesso(acessosPermitidos)),
+        ...normalizarUsuario(auth.currentUser || user, dadosLogin, perfilInicialAcesso(acessosPermitidos)),
         acessosEntrada: acessosPermitidos,
         selecaoAcessoPendente: precisaEscolher,
       }
@@ -290,36 +375,26 @@ export function useAuth({ onLogout }) {
     const emailLimpo = String(email || '').trim().toLowerCase()
     if (!nome?.trim()) return { erro: 'Informe seu nome.' }
     if (nomeParaVinculo(nome).split(' ').filter(Boolean).length < 2) return { erro: 'Informe seu nome completo, incluindo o sobrenome.' }
-    if (!emailValida(emailLimpo)) return { erro: 'Informe um e-mail valido.' }
-    if (!matriculaAlunoValida(matriculaLimpa)) return { erro: 'Use uma matricula numerica com 4 a 12 digitos.' }
-    if (usuarios.find(u => u.matricula === matriculaLimpa)) return { erro: 'Matricula ja cadastrada.' }
+    if (!emailValida(emailLimpo)) return { erro: 'Informe um e-mail válido.' }
+    if (!matriculaAlunoValida(matriculaLimpa)) return { erro: 'Use uma matrícula numérica com 4 a 12 dígitos.' }
 
     try {
-      const user = await criarContaComEmail(auth, { email: emailLimpo, senha })
-      const novo = {
-        uid: user.uid,
+      const res = await chamarCadastroAluno({
         nome: nome.trim(),
-        nomeVinculo: nomeParaVinculo(nome),
         email: emailLimpo,
         matricula: matriculaLimpa,
-        role: 'aluno',
-        perfil: 'aluno',
-        roles: ['aluno'],
-        ativo: true,
+        senha,
         curso,
         telefone: telefone || '',
-        fotoPerfil: '',
         alergias: alergias || [],
-      }
-      await setDoc(doc(db, 'usuarios', user.uid), novo)
-      await sairDoFirebase(auth)
+      })
+      if (res.erro) return res
       return { ok: true }
     } catch (e) {
       console.error('cadastrar:', e)
-      if (e?.code === 'auth/email-already-in-use') return { erro: 'E-mail ja cadastrado.' }
       return { erro: 'Erro ao cadastrar. Verifique os dados e tente novamente.' }
     }
-  }, [usuarios])
+  }, [])
 
   const cadastrarUsuario = useCallback(async ({ nome, matricula, senha, perfil, role, roles, curso = '', telefone = '', email = '' }) => {
     const matriculaLimpa = normalizarMatricula(matricula)
@@ -384,20 +459,38 @@ export function useAuth({ onLogout }) {
     try {
       const usuarioAtual = usuarioLogadoRef.current
       const atualizandoViaAdmin = ehGestao(usuarioAtual?.role || usuarioAtual?.perfil)
+      let dadosConfirmados = atualizacao
 
-      if (atualizandoViaAdmin) {
+      if (usuarioAtual?.uid === uid) {
+        const res = await chamarUsuarioAtual('atualizar', atualizacao)
+        if (res.erro) return res
+        dadosConfirmados = res.usuario || atualizacao
+      } else if (atualizandoViaAdmin) {
         const res = await chamarAdminUsuarios('atualizar', { uid: String(uid), ...atualizacao })
         if (res.erro) return res
       } else {
         await updateDoc(doc(db, 'usuarios', String(uid)), atualizacao)
       }
 
+      const aplicarLocal = usuario => ({ ...usuario, ...dadosConfirmados, uid: usuario.uid || uid })
+      setUsuarios(lista => {
+        const existe = lista.some(u => u.uid === uid)
+        if (existe) return lista.map(u => u.uid === uid ? aplicarLocal(u) : u)
+        return usuarioLogadoRef.current?.uid === uid ? [aplicarLocal(usuarioLogadoRef.current)] : lista
+      })
+
       if (usuarioLogadoRef.current?.uid === uid) {
         const usuarioAtualizado = normalizarUsuario({ uid, email: usuarioLogadoRef.current.email }, {
           ...usuarioLogadoRef.current,
-          ...atualizacao,
+          ...dadosConfirmados,
         }, usuarioLogadoRef.current.perfil)
+        usuarioLogadoRef.current = usuarioAtualizado
         setUsuarioLogado(usuarioAtualizado)
+      }
+      if (Object.hasOwn(atualizacao, 'email') && auth.currentUser?.uid === uid) {
+        auth.currentUser.reload()
+          .then(() => auth.currentUser?.getIdToken(true))
+          .catch(e => console.error('refresh email auth:', e))
       }
       return { ok: true }
     } catch (e) {

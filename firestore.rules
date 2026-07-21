@@ -53,21 +53,12 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['arquivadoPorUsuarios', 'arquivadoDetalhes']);
     }
 
+    function atualizacaoLimparHistoricoAviso() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['historicoOcultoPorUsuarios']);
+    }
+
     function isAvisoAutor() {
       return isSignedIn() && resource.data.autorId == request.auth.uid;
-    }
-
-    function matriculaAlunoValida() {
-      return request.resource.data.matricula.matches('^[0-9]{4,12}$');
-    }
-
-    function autoCadastroAlunoValido(uid) {
-      return isSelf(uid)
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.role == 'aluno'
-        && request.resource.data.ativo == true
-        && matriculaAlunoValida();
     }
 
     function atualizacaoPropriaSegura() {
@@ -88,6 +79,15 @@ service cloud.firestore {
         && request.resource.data.estoque >= 0
         && request.resource.data.estoque < resource.data.estoque
         && (resource.data.estoque - request.resource.data.estoque) <= 20;
+    }
+
+    function devolucaoEstoquePorPedido() {
+      return hasRole(['aluno', 'professor', 'vendedor', 'vendedora', 'admin', 'gerente'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estoque'])
+        && request.resource.data.estoque is number
+        && request.resource.data.estoque >= 0
+        && request.resource.data.estoque > resource.data.estoque
+        && (request.resource.data.estoque - resource.data.estoque) <= 20;
     }
 
     function quantidadesProdutoValidas() {
@@ -155,12 +155,117 @@ service cloud.firestore {
         ]);
     }
 
+    function leituraProducaoCardapio() {
+      return hasRole(['aluno', 'professor']);
+    }
+
+    function consumoProducaoPorPedido() {
+      let vendidaAntes = resource.data.quantidadeVendida;
+      let vendidaDepois = request.resource.data.quantidadeVendida;
+      let restanteAntes = resource.data.quantidadeRestante;
+      let restanteDepois = request.resource.data.quantidadeRestante;
+      let quantidade = vendidaDepois - vendidaAntes;
+      return hasRole(['aluno', 'professor'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'quantidadeVendida',
+          'quantidadeRestante',
+          'status',
+          'atualizadoEm'
+        ])
+        && request.resource.data.quantidadeVendida is number
+        && request.resource.data.quantidadeRestante is number
+        && quantidade > 0
+        && quantidade <= 20
+        && restanteAntes >= quantidade
+        && restanteDepois == restanteAntes - quantidade
+        && vendidaDepois == vendidaAntes + quantidade
+        && request.resource.data.quantidadeRestante >= 0
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status'])
+          || request.resource.data.status == resource.data.status
+          || (request.resource.data.status == 'Esgotado' && request.resource.data.quantidadeRestante == 0)
+        );
+    }
+
+    function devolucaoProducaoPorPedido() {
+      let vendidaAntes = resource.data.quantidadeVendida;
+      let vendidaDepois = request.resource.data.quantidadeVendida;
+      let restanteAntes = resource.data.quantidadeRestante;
+      let restanteDepois = request.resource.data.quantidadeRestante;
+      let quantidade = vendidaAntes - vendidaDepois;
+      return hasRole(['aluno', 'professor', 'vendedor', 'vendedora', 'admin', 'gerente'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'quantidadeVendida',
+          'quantidadeRestante',
+          'status',
+          'atualizadoEm'
+        ])
+        && resource.data.quantidadeVendida is number
+        && request.resource.data.quantidadeVendida is number
+        && resource.data.quantidadeRestante is number
+        && request.resource.data.quantidadeRestante is number
+        && quantidade > 0
+        && quantidade <= 20
+        && vendidaDepois >= 0
+        && vendidaDepois == vendidaAntes - quantidade
+        && restanteDepois == restanteAntes + quantidade
+        && request.resource.data.quantidadeRestante >= 0
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status'])
+          || request.resource.data.status == resource.data.status
+          || (request.resource.data.status == 'Pronto para venda' && request.resource.data.quantidadeRestante > 0)
+        );
+    }
+
     function isPedidoOwner() {
       return isSignedIn() && resource.data.uid == request.auth.uid;
     }
 
     function isNovoPedidoOwner() {
-      return isSignedIn() && request.resource.data.uid == request.auth.uid;
+      return isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && (!request.resource.data.keys().hasAny(['userId']) || request.resource.data.userId == request.auth.uid)
+        && (!request.resource.data.keys().hasAny(['alunoId']) || request.resource.data.alunoId == request.auth.uid);
+    }
+    function formaPagamentoValida() {
+      return request.resource.data.formaPagamento in [
+        'Dinheiro',
+        'PIX',
+        'Pix',
+        'Débito',
+        'Crédito',
+        'Debito',
+        'Credito',
+        'DÃ©bito',
+        'CrÃ©dito',
+        'Conta do Professor'
+      ];
+    }
+
+    function usuarioPodeCriarPedidoApp() {
+      return hasRole(['aluno', 'professor'])
+        && isNovoPedidoOwner()
+        && request.resource.data.status == 'Recebido'
+        && request.resource.data.origem == 'app'
+        && request.resource.data.aluno is string
+        && request.resource.data.aluno.size() >= 2
+        && request.resource.data.matricula is string
+        && request.resource.data.alunoPerfil in ['aluno', 'professor']
+        && request.resource.data.itens is list
+        && request.resource.data.itens.size() > 0
+        && request.resource.data.itens.size() <= 20
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.horarioRetirada is string
+        && request.resource.data.horarioRetiradaEm is number
+        && request.resource.data.numero is int
+        && request.resource.data.numero > 0
+        && request.resource.data.numero <= 9999
+        && formaPagamentoValida()
+        && (
+          request.resource.data.formaPagamento != 'Conta do Professor'
+          || request.resource.data.alunoPerfil == 'professor'
+        );
     }
 
     function isPedidoAvulsoDoNome() {
@@ -233,7 +338,7 @@ service cloud.firestore {
         && request.resource.data.numero is int
         && request.resource.data.numero > 0
         && request.resource.data.numero <= 9999
-        && request.resource.data.formaPagamento in ['Dinheiro', 'PIX', 'Débito', 'Crédito', 'Conta do Professor']
+        && formaPagamentoValida()
         && contaProfessorPedidoBalcaoValida();
     }
 
@@ -255,7 +360,7 @@ service cloud.firestore {
     match /usuarios/{uid} {
       allow get: if isSelf(uid) || isStaff();
       allow list: if isStaff();
-      allow create: if autoCadastroAlunoValido(uid) || hasRole(['admin', 'gerente']);
+      allow create: if false;
       allow update: if (isSelf(uid) && atualizacaoPropriaSegura()) || hasRole(['admin', 'gerente']);
       allow delete: if hasRole(['admin', 'gerente']);
     }
@@ -275,7 +380,8 @@ service cloud.firestore {
           || atualizacaoEstoqueBebidaVendedor()
           || decrementoEstoquePedidoBalcao()
           || atualizacaoProdutoCozinha()
-          || decrementoEstoquePorPedido());
+          || decrementoEstoquePorPedido()
+          || devolucaoEstoquePorPedido());
     }
 
     match /contadoresPedidos/{chaveDiaria} {
@@ -293,8 +399,7 @@ service cloud.firestore {
 
     match /pedidos/{pedidoId} {
       allow read: if isStaff() || isPedidoOwner() || isPedidoAvulsoDoNome();
-      allow create: if (isNovoPedidoOwner()
-        && request.resource.data.status == 'Recebido')
+      allow create: if usuarioPodeCriarPedidoApp()
         || criacaoPedidoBalcaoValida(pedidoId);
       allow update: if isStaff()
         || atualizacaoAvaliacaoPedido()
@@ -328,6 +433,7 @@ service cloud.firestore {
       allow update: if isAvisoAutor()
         || (isSignedIn() && atualizacaoFixarAviso())
         || (isSignedIn() && atualizacaoArquivarAviso())
+        || (isSignedIn() && atualizacaoLimparHistoricoAviso())
         || (isSignedIn() && (atualizacaoLeituraAviso() || atualizacaoRespostaAviso()));
     }
 
@@ -355,9 +461,9 @@ service cloud.firestore {
     }
 
     match /producaoDiaria/{producaoId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || leituraProducaoCardapio();
       allow create, delete: if isCozinhaOuAdmin();
-      allow update: if isCozinhaOuAdmin() || atualizacaoAjusteProducaoVendedor();
+      allow update: if isCozinhaOuAdmin() || atualizacaoAjusteProducaoVendedor() || consumoProducaoPorPedido() || devolucaoProducaoPorPedido();
     }
 
     match /pushSubscriptions/{uid} {

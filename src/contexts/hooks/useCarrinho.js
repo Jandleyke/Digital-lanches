@@ -5,20 +5,25 @@ function ownerKey(usuarioLogado) {
   return usuarioLogado?.uid || usuarioLogado?.matricula || 'anon'
 }
 
-function storageKey(base, usuarioLogado) {
-  return `${base}_${ownerKey(usuarioLogado)}`
+function storageKey(base, dono) {
+  return `${base}_${dono}`
 }
 
 export function useCarrinho(usuarioLogado) {
   const skipSaveRef = useRef(false)
+  const donoAtual = ownerKey(usuarioLogado)
+  const chavesStorage = useMemo(() => ({
+    carrinho: storageKey('senac_carrinho', donoAtual),
+    favoritos: storageKey('senac_favoritos', donoAtual),
+  }), [donoAtual])
   const [state, dispatch] = useReducer((atual, acao) => {
     if (acao.type === 'load') return { carrinho: acao.carrinho, favoritos: acao.favoritos }
     if (acao.type === 'setCarrinho') return { ...atual, carrinho: acao.valor }
     if (acao.type === 'setFavoritos') return { ...atual, favoritos: acao.valor }
     return atual
   }, usuarioLogado, usuario => ({
-    carrinho: carregarLS(storageKey('senac_carrinho', usuario), []),
-    favoritos: carregarLS(storageKey('senac_favoritos', usuario), []),
+    carrinho: carregarLS(storageKey('senac_carrinho', ownerKey(usuario)), []),
+    favoritos: carregarLS(storageKey('senac_favoritos', ownerKey(usuario)), []),
   }))
 
   const { carrinho, favoritos } = state
@@ -29,19 +34,19 @@ export function useCarrinho(usuarioLogado) {
     skipSaveRef.current = true
     dispatch({
       type: 'load',
-      carrinho: carregarLS(storageKey('senac_carrinho', usuarioLogado), []),
-      favoritos: carregarLS(storageKey('senac_favoritos', usuarioLogado), []),
+      carrinho: carregarLS(chavesStorage.carrinho, []),
+      favoritos: carregarLS(chavesStorage.favoritos, []),
     })
-  }, [usuarioLogado])
+  }, [chavesStorage])
 
   useEffect(() => {
     if (skipSaveRef.current) {
       skipSaveRef.current = false
       return
     }
-    salvarLS(storageKey('senac_favoritos', usuarioLogado), favoritos)
-    salvarLS(storageKey('senac_carrinho', usuarioLogado), carrinho)
-  }, [favoritos, carrinho, usuarioLogado])
+    salvarLS(chavesStorage.favoritos, favoritos)
+    salvarLS(chavesStorage.carrinho, carrinho)
+  }, [favoritos, carrinho, chavesStorage])
 
   const adicionarAoCarrinho = useCallback((produto) => {
     setCarrinho(prev => {

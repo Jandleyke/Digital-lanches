@@ -4,9 +4,10 @@ import { db } from '../../firebase'
 
 export function useAvaliacoes(usuarioLogado) {
   const [avaliacoes, setAvaliacoes] = useState([])
+  const idUsuario = usuarioLogado?.uid || usuarioLogado?.matricula || ''
 
   const buscarAvaliacoes = useCallback(async () => {
-    if (!usuarioLogado) return
+    if (!idUsuario) return
     try {
       const q = query(collection(db, 'avaliacoes'), orderBy('criadoEm', 'desc'), limit(300))
       const snap = await getDocs(q)
@@ -14,7 +15,7 @@ export function useAvaliacoes(usuarioLogado) {
     } catch (err) {
       console.error('[Firestore] avaliacoes:', err)
     }
-  }, [usuarioLogado])
+  }, [idUsuario])
 
   useEffect(() => {
     const timer = window.setTimeout(buscarAvaliacoes, 0)

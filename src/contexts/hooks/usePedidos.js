@@ -1,22 +1,20 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { arrayUnion, collection, doc, getDocs, onSnapshot, updateDoc, deleteDoc, query, where, runTransaction, writeBatch } from 'firebase/firestore'
-import { db } from '../../firebase'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { arrayUnion, collection, doc, getDoc, getDocs, onSnapshot, updateDoc, deleteDoc, query, where, runTransaction, writeBatch } from 'firebase/firestore'
+import { auth, db } from '../../firebase'
 import { notificarPedidoPronto } from '../../utils/notifications'
 import { notificarPush } from '../../utils/notificarPush'
 import { ehStaff, normalizarPerfil } from '../../utils/perfis'
 import { nomeParaVinculo } from '../../utils/nomes'
-import { producaoDisponivelParaVenda, produtoDisponivelParaCardapioDia, produtoEhBebida, produtoLiberadoManualHoje } from '../../utils/producao'
+import { producaoDisponivelParaVenda, produtoDisponivelParaCardapioDia } from '../../utils/producao'
+import { useTempoAtual } from '../../utils/useTempoAtual'
 import {
-  JANELA_PEDIDO_MS,
   calcularEstoqueAposEdicao,
-  chaveDiariaPedido,
   codigoPedido,
   dadosPagamentoNaEntrega,
-  gerarCodigoPedidoAleatorio,
   encontrarItemSemEstoque,
   estoqueAposCancelamento,
-  estoqueAposVenda,
   horarioRetiradaParaTimestamp,
+  mensagemErroFinalizacaoPedido,
   pedidoAntesDaRetirada,
   quantidadesPorProduto,
 } from '../../utils/pedidos'
@@ -27,36 +25,48 @@ function refsProducaoDoItem(item, produtos, producaoHoje) {
   return produtoDia?.producaoDiaIds || []
 }
 
-function consumirProducoesDaVenda(transaction, refs, snaps, quantidade) {
-  let restante = Number(quantidade || 0)
-  const consumos = []
-  refs.forEach((ref, index) => {
-    if (restante <= 0) return
-    const snap = snaps[index]
-    if (!snap.exists()) return
-    const dados = snap.data()
-    if (!producaoDisponivelParaVenda(dados)) return
-    const disponivel = Math.max(0, Number(dados.quantidadeRestante || 0))
-    const usado = Math.min(disponivel, restante)
-    if (usado <= 0) return
-    const novoRestante = Math.max(0, disponivel - usado)
-    const update = {
-      quantidadeVendida: Number(dados.quantidadeVendida || 0) + usado,
-      quantidadeRestante: novoRestante,
-      atualizadoEm: Date.now(),
-    }
-    if (novoRestante <= 0) update.status = 'Esgotado'
-    transaction.update(ref, update)
-    consumos.push({ id: ref.id, quantidade: usado })
-    restante -= usado
-  })
-  if (restante > 0) throw new Error('Produto fora do cardapio do dia ou sem producao disponivel.')
-  return consumos
-}
-
 export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinho, setCarrinho, onFbStatus }) {
   const [pedidos, setPedidos] = useState([])
   const vinculoTentadoRef = useRef('')
+
+  // Início do dia atual. Muda de valor apenas na virada da meia-noite, então o
+  // listener da equipe só re-inscreve uma vez por dia (e não a cada minuto).
+  const tempoAtual = useTempoAtual(60000)
+  const inicioDoDia = useMemo(() => {
+    const d = new Date(tempoAtual)
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+  }, [tempoAtual])
+
+  // Busca pontual (getDocs, sem listener) de pedidos por período — usada pelos
+  // relatórios/dashboard para consultar datas passadas sem manter a coleção inteira
+  // sincronizada em tempo real. Passe null/undefined em um limite para ignorá-lo.
+  const buscarPedidosPorPeriodo = useCallback(async (inicioTs, fimTs) => {
+    const filtros = []
+    if (inicioTs != null) filtros.push(where('criadoEm', '>=', Number(inicioTs)))
+    if (fimTs != null) filtros.push(where('criadoEm', '<=', Number(fimTs)))
+    const consulta = filtros.length
+      ? query(collection(db, 'pedidos'), ...filtros)
+      : collection(db, 'pedidos')
+    const snap = await getDocs(consulta)
+    return snap.docs.map(d => ({ ...d.data() }))
+      .sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0))
+  }, [])
+
+  // Busca pontual de um pedido por id (o doc id é igual ao campo `id`). Usada como
+  // fallback pela equipe quando o pedido não está na lista ao vivo — que cobre só o
+  // dia — em operações que podem alcançar pedidos de outras datas: leitura de QR e
+  // detalhe do atendimento vinculado a um pedido antigo.
+  const buscarPedidoPorId = useCallback(async (id) => {
+    if (!id) return null
+    try {
+      const snap = await getDoc(doc(db, 'pedidos', String(id)))
+      return snap.exists() ? { ...snap.data() } : null
+    } catch (e) {
+      console.error('[Firestore] buscarPedidoPorId:', e)
+      return null
+    }
+  }, [])
 
   useEffect(() => {
     if (!usuarioLogado?.uid || ehStaff(usuarioLogado.perfil)) return
@@ -108,13 +118,17 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
     vincularPedidosAvulsos()
   }, [usuarioLogado?.uid, usuarioLogado?.nome, usuarioLogado?.nomeVinculo, usuarioLogado?.matricula, usuarioLogado?.perfil, usuarioLogado?.role])
 
-  // Aluno só precisa dos próprios pedidos; staff acompanha a fila inteira.
-  // Isso evita sincronizar (e cobrar leituras de) toda a coleção para cada aluno logado.
+  // Aluno só precisa dos próprios pedidos; staff acompanha a fila do dia.
+  // O listener da equipe é limitado aos pedidos de hoje (`criadoEm >= inicioDoDia`)
+  // porque cozinha/vendedor só operam a fila do dia — sincronizar toda a coleção
+  // histórica em tempo real relia milhares de documentos a cada sessão/reload e era
+  // a maior fonte de consumo de leituras. Relatórios de datas passadas usam a busca
+  // pontual `buscarPedidosPorPeriodo`.
   useEffect(() => {
     if (!usuarioLogado) return
     const usuarioEhStaff = ehStaff(usuarioLogado.perfil)
     const consulta = usuarioEhStaff
-      ? collection(db, 'pedidos')
+      ? query(collection(db, 'pedidos'), where('criadoEm', '>=', inicioDoDia))
       : query(collection(db, 'pedidos'), where('uid', '==', usuarioLogado.uid))
     let unsub = () => {}
     try {
@@ -132,10 +146,10 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
       onFbStatus?.('erro', 'init: ' + e.message)
     }
     return unsub
-    // Re-inscreve apenas quando perfil/matrícula mudam (ex.: login/logout) — outros
-    // campos do usuário (nome, telefone...) não afetam a consulta de pedidos.
+    // Re-inscreve quando perfil/matrícula mudam (login/logout) ou na virada do dia
+    // (inicioDoDia) — outros campos do usuário não afetam a consulta de pedidos.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usuarioLogado?.perfil, usuarioLogado?.matricula, usuarioLogado?.uid])
+  }, [usuarioLogado?.perfil, usuarioLogado?.matricula, usuarioLogado?.uid, inicioDoDia])
 
   // Notifica o aluno assim que um pedido seu passa a "Pronto" — fica ativo em
   // qualquer tela do app (não só na página "Meus Pedidos"), pois o listener acima
@@ -158,7 +172,11 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
   async function fazerPedido(horarioRetirada, pagamento) {
     if (!usuarioLogado) throw new Error('Ops! Você precisa estar logado para pedir.')
     if (carrinho.length === 0) throw new Error('Seu carrinho está vazio.')
+    if (!usuarioLogado.uid) throw new Error('Sua sessão não possui UID válido. Saia e entre novamente para finalizar o pedido.')
     const perfilAluno = normalizarPerfil(usuarioLogado.role || usuarioLogado.perfil)
+    if (!['aluno', 'professor'].includes(perfilAluno)) {
+      throw new Error('Seu perfil não tem permissão para finalizar pedidos pelo carrinho.')
+    }
     if (pagamento === 'Conta do Professor' && perfilAluno !== 'professor') {
       throw new Error('Conta do Professor está disponível somente para professores.')
     }
@@ -173,91 +191,34 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
     const horarioRetiradaEm = horarioRetiradaParaTimestamp(horarioRetirada, criadoEm)
     if (!horarioRetiradaEm) throw new Error('Selecione um horário válido para retirada.')
     if (horarioRetiradaEm < criadoEm - 60 * 1000) throw new Error('O horário selecionado para retirada já passou. Escolha um horário futuro.')
-    const chaveDiaria = chaveDiariaPedido(criadoEm)
-    const firestoreId = `P${chaveDiaria}-${criadoEm}`
-    let novoPedido = null
-
     try {
-      await runTransaction(db, async transaction => {
-        const pedidoRef = doc(db, 'pedidos', firestoreId)
-        const contadorRef = doc(db, 'contadoresPedidos', chaveDiaria)
-        const itensComRefs = carrinho.map(item => ({
-          item,
-          ref: doc(db, 'produtos', String(item.id)),
-          producaoRefs: refsProducaoDoItem(item, produtos, producaoHoje).map(id => doc(db, 'producaoDiaria', String(id))),
-        }))
-
-        const [contadorSnap, ...snapshots] = await Promise.all([
-          transaction.get(contadorRef),
-          ...itensComRefs.map(({ ref }) => transaction.get(ref)),
-        ])
-        const producaoSnapsPorItem = await Promise.all(
-          itensComRefs.map(({ producaoRefs }) => Promise.all(producaoRefs.map(ref => transaction.get(ref))))
-        )
-        snapshots.forEach((snap, index) => {
-          const { item } = itensComRefs[index]
-          if (!snap.exists()) throw new Error(`O item ${item.nome} não está mais disponível.`)
-          const produto = snap.data()
-          const estoqueAtual = Number(produto.estoque || 0)
-          const quantidadeProducao = producaoSnapsPorItem[index]
-            .filter(snapProducao => snapProducao.exists() && producaoDisponivelParaVenda(snapProducao.data()))
-            .reduce((total, snapProducao) => total + Math.max(0, Number(snapProducao.data().quantidadeRestante || 0)), 0)
-          if (produtoEhBebida(produto) && produto.disponivel === false) throw new Error(`${item.nome} não está disponível no cardápio de hoje.`)
-          if (produtoLiberadoManualHoje(produto) && estoqueAtual < item.quantidade) throw new Error(`Não há quantidade suficiente disponível para ${item.nome}.`)
-          if (!produtoLiberadoManualHoje(produto) && quantidadeProducao < item.quantidade) throw new Error(`${item.nome} não está disponível no cardápio do dia.`)
-        })
-
-        const numero = Number(contadorSnap.data()?.ultimoNumero || 0) + 1
-        if (numero > 9999) throw new Error('O limite diário de pedidos foi atingido. Procure o atendimento.')
-        const codigosUsados = contadorSnap.data()?.codigosUsados || []
-        const codigoPedidoGerado = gerarCodigoPedidoAleatorio(codigosUsados)
-        const inicioContagemEm = Math.max(criadoEm, horarioRetiradaEm)
-        novoPedido = {
-          id: firestoreId,
-          numero,
-          codigoPedido: codigoPedidoGerado,
-          chaveDiaria,
-          uid: usuarioLogado.uid || usuarioLogado.matricula,
-          aluno: usuarioLogado.nome,
-          matricula: usuarioLogado.matricula,
-          alunoPerfil: perfilAluno,
-          itens: carrinho.map((i, index) => ({
-            produtoId: i.id,
-            nome: i.nome,
-            quantidade: i.quantidade,
-            preco: i.preco,
-            producaoDiaIds: itensComRefs[index].producaoRefs.map(ref => ref.id),
-          })),
-          total: carrinho.reduce((acc, i) => acc + i.preco * i.quantidade, 0),
-          status: 'Recebido',
-          statusKey: 'em_processo',
-          origem: 'app',
-          origemLabel: 'App',
-          lancadoPorNome: usuarioLogado.nome,
-          horarioPedido: new Date(criadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      const token = await auth.currentUser?.getIdToken()
+      if (!token) throw new Error('Sua sessão expirou. Saia e entre novamente para finalizar o pedido.')
+      const carrinhoSeguro = carrinho.map(item => ({
+        produtoId: String(item.produtoId || item.id || ''),
+        quantidade: Number(item.quantidade || 0),
+        producaoDiaIds: refsProducaoDoItem(item, produtos, producaoHoje),
+      }))
+      const resposta = await fetch('/api/fazerPedido', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          carrinho: carrinhoSeguro,
           horarioRetirada,
           horarioRetiradaEm,
-          inicioContagemEm,
           pagamento,
-          formaPagamento: pagamento,
-          pagamentoStatus: pagamento === 'Conta do Professor' ? 'pendente' : 'aguardando_entrega',
-          pago: false,
-          criadoEm,
-          cancelavelAte: inicioContagemEm + JANELA_PEDIDO_MS,
-        }
-
-        transaction.set(contadorRef, { ultimoNumero: numero, chaveDiaria, atualizadoEm: criadoEm, codigosUsados: [...codigosUsados, codigoPedidoGerado] })
-        snapshots.forEach((snap, index) => {
-          const { item, ref } = itensComRefs[index]
-          const estoqueAtual = Number(snap.data().estoque || 0)
-          const producaoConsumo = itensComRefs[index].producaoRefs.length
-            ? consumirProducoesDaVenda(transaction, itensComRefs[index].producaoRefs, producaoSnapsPorItem[index], item.quantidade)
-            : []
-          novoPedido.itens[index].producaoConsumo = producaoConsumo
-          transaction.update(ref, { estoque: estoqueAposVenda(estoqueAtual, item.quantidade) })
-        })
-        transaction.set(pedidoRef, novoPedido)
+        }),
       })
+      const dados = await resposta.json().catch(() => ({}))
+      if (!resposta.ok || !dados?.pedido) {
+        const erro = new Error(dados?.erro || 'Não foi possível processar o pedido.')
+        erro.code = dados?.codigo || `http-${resposta.status}`
+        throw erro
+      }
+      const novoPedido = dados.pedido
       setCarrinho([])
       notificarPush({
         destino: 'cozinha',
@@ -267,12 +228,21 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
       })
       return novoPedido
     } catch (error) {
-      console.error("Erro ao processar pedido:", error)
-      const mensagem = String(error?.message || '')
-      if (/estoque|quantidade suficiente|disponível|horário|limite diário/i.test(mensagem)) {
-        throw new Error(mensagem, { cause: error })
-      }
-      throw new Error('Houve um erro de conexão ao processar seu pedido. Verifique sua internet.', { cause: error })
+      const mensagem = mensagemErroFinalizacaoPedido(error)
+      console.error('[Pedido] erro ao finalizar pedido:', {
+        code: error?.code || '',
+        message: error?.message || '',
+        stack: error?.stack || '',
+        usuario: {
+          uid: usuarioLogado?.uid || '',
+          matricula: usuarioLogado?.matricula || '',
+          perfil: perfilAluno,
+        },
+        carrinho: carrinho.map(item => ({ id: item.id, nome: item.nome, quantidade: item.quantidade })),
+        horarioRetirada,
+        pagamento,
+      }, error)
+      throw new Error(mensagem, { cause: error })
     }
   }
 
@@ -553,6 +523,6 @@ export function usePedidos({ usuarioLogado, produtos, producaoHoje = [], carrinh
 
   return {
     pedidos, fazerPedido, atualizarStatusPedido, darBaixaContaProfessor, cancelarPedido, editarPedido, limparEntregues, avaliarPedido,
-    pedidosNaFila, tempoEstimado,
+    pedidosNaFila, tempoEstimado, buscarPedidosPorPeriodo, buscarPedidoPorId,
   }
 }

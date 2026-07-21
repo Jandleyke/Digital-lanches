@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { arrayRemove, arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore'
+import { arrayRemove, arrayUnion, collection, doc, onSnapshot, setDoc, updateDoc, query, orderBy, limit } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { notificarPush } from '../../utils/notificarPush'
-import { avisoCriadoPorUsuario, avisoDestinadoAoUsuario, chaveArquivoAviso, usuarioAvisoId } from '../../utils/avisos'
+import { avisoCriadoPorUsuario, avisoDestinadoAoUsuario, avisoHistoricoLimpoParaUsuario, avisoOperacionalProducao, chaveArquivoAviso, usuarioAvisoId } from '../../utils/avisos'
 import { ehGestao, normalizarPerfil } from '../../utils/perfis'
 
 function podeAgirNoAviso(aviso, usuario) {
@@ -12,16 +12,19 @@ function podeAgirNoAviso(aviso, usuario) {
 
 export function useAvisos(usuarioLogado) {
   const [avisos, setAvisos] = useState([])
+  const idUsuario = usuarioLogado?.uid || usuarioLogado?.matricula || ''
 
   useEffect(() => {
-    if (!usuarioLogado) return
-    const unsub = onSnapshot(collection(db, 'avisos'), (snap) => {
+    if (!idUsuario) return
+    const consulta = query(collection(db, 'avisos'), orderBy('createdAt', 'desc'), limit(100))
+    const unsub = onSnapshot(consulta, (snap) => {
       setAvisos(snap.docs.map(d => d.data())
         .filter(aviso => !aviso.deletedAt && aviso.status !== 'excluido')
+        .filter(aviso => !avisoOperacionalProducao(aviso))
         .sort((a, b) => (b.createdAt || b.criadoEm || 0) - (a.createdAt || a.criadoEm || 0)))
     }, err => console.error('[Firestore] avisos:', err))
     return unsub
-  }, [usuarioLogado])
+  }, [idUsuario])
 
   async function criarAviso({ titulo, mensagem, texto, mensagemHtml, tipo, fixado, destino, destinos, destinatario, prioridade, status, produtoPromocao, recipients, recipientsDetalhes }) {
     const id = `AV${Date.now()}`
@@ -229,11 +232,16 @@ export function useAvisos(usuarioLogado) {
   async function limparHistoricoAvisos(escopo = 'geral') {
     const leitor = chaveArquivoAviso(usuarioLogado, escopo)
     if (!leitor) return
-    const arquivados = avisos.filter(aviso => Array.isArray(aviso.arquivadoPorUsuarios) && aviso.arquivadoPorUsuarios.includes(leitor))
+    const arquivados = avisos.filter(aviso =>
+      Array.isArray(aviso.arquivadoPorUsuarios) &&
+      aviso.arquivadoPorUsuarios.includes(leitor) &&
+      !avisoHistoricoLimpoParaUsuario(aviso, usuarioLogado, escopo)
+    )
     try {
       await Promise.all(arquivados.map(aviso => updateDoc(doc(db, 'avisos', aviso.id), {
         historicoOcultoPorUsuarios: arrayUnion(leitor),
       })))
+      return arquivados.length
     } catch (e) {
       console.error(e)
       throw e

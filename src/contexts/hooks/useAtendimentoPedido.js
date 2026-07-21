@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { arrayUnion, collection, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore'
+import { arrayUnion, collection, doc, onSnapshot, query, setDoc, updateDoc, where, orderBy, limit } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { normalizarPerfil } from '../../utils/perfis'
 import { codigoPedido } from '../../utils/pedidos'
@@ -39,13 +39,14 @@ export function useAtendimentoPedido(usuarioLogado, pedidos = []) {
   const [atendimentos, setAtendimentos] = useState([])
   const perfil = normalizarPerfil(usuarioLogado?.role || usuarioLogado?.perfil)
   const staff = ['vendedor', 'admin', 'gerente'].includes(perfil)
+  const idUsuario = usuarioId(usuarioLogado)
 
   useEffect(() => {
-    if (!usuarioLogado) return undefined
+    if (!idUsuario) return undefined
     const ref = collection(db, 'atendimentos')
     const consulta = staff
-      ? ref
-      : query(ref, where('solicitanteId', '==', usuarioId(usuarioLogado)))
+      ? query(ref, orderBy('atualizadoEm', 'desc'), limit(120))
+      : query(ref, where('solicitanteId', '==', idUsuario))
 
     const unsub = onSnapshot(consulta, snap => {
       setAtendimentos(snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -53,7 +54,7 @@ export function useAtendimentoPedido(usuarioLogado, pedidos = []) {
     }, err => console.error('[Firestore] atendimentos:', err))
 
     return unsub
-  }, [usuarioLogado, staff])
+  }, [idUsuario, staff])
 
   const porPedido = useMemo(() => {
     const mapa = new Map()

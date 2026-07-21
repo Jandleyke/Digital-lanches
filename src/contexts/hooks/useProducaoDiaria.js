@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { collection, deleteDoc, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore'
+import { collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase'
-import { notificarPush } from '../../utils/notificarPush'
 import { calcularAjusteProducao, calcularDesperdicio, normalizarProducao } from '../../utils/producao'
+import { ehStaff } from '../../utils/perfis'
 import { useTempoAtual } from '../../utils/useTempoAtual'
 
 function inicioDoDia(referencia = Date.now()) {
@@ -14,6 +14,13 @@ function inicioDoDia(referencia = Date.now()) {
 function fimDoDia(referencia = Date.now()) {
   const data = new Date(referencia)
   data.setHours(23, 59, 59, 999)
+  return data.getTime()
+}
+
+function inicioPeriodoRecente(dias = 7, referencia = Date.now()) {
+  const data = new Date(referencia)
+  data.setHours(0, 0, 0, 0)
+  data.setDate(data.getDate() - Math.max(1, dias))
   return data.getTime()
 }
 
@@ -44,15 +51,25 @@ export const MOTIVOS_DESPERDICIO = ['Queimou', 'Venceu', 'Caiu no chao', 'Sobrou
 export function useProducaoDiaria(usuarioLogado) {
   const [producaoDiaria, setProducaoDiaria] = useState([])
   const tempoAtual = useTempoAtual(60000)
+  const diaAtualTs = inicioDoDia(tempoAtual)
+  const idUsuario = usuarioLogado?.uid || usuarioLogado?.matricula || ''
+  const staff = ehStaff(usuarioLogado?.role || usuarioLogado?.perfil)
 
   useEffect(() => {
-    if (!usuarioLogado) return
-    const unsub = onSnapshot(collection(db, 'producaoDiaria'), (snap) => {
+    if (!idUsuario) return
+    const ref = collection(db, 'producaoDiaria')
+    const consulta = staff
+      ? query(ref, where('dataProducaoTs', '>=', inicioPeriodoRecente(7, diaAtualTs)))
+      : query(ref,
+        where('dataProducaoTs', '>=', diaAtualTs),
+        where('dataProducaoTs', '<=', fimDoDia(diaAtualTs)),
+      )
+    const unsub = onSnapshot(consulta, (snap) => {
       setProducaoDiaria(snap.docs.map(d => normalizarProducao({ id: d.id, ...d.data() }))
         .sort((a, b) => (b.atualizadoEm || b.criadoEm || 0) - (a.atualizadoEm || a.criadoEm || 0)))
     }, err => console.error('[Firestore] producaoDiaria:', err))
     return unsub
-  }, [usuarioLogado])
+  }, [idUsuario, staff, diaAtualTs])
 
   const producaoHoje = useMemo(() => {
     const ini = inicioDoDia(tempoAtual)
@@ -108,25 +125,6 @@ export function useProducaoDiaria(usuarioLogado) {
       historico: [...(atual.historico || []), historicoItem(opcoes.acao || 'Atualizou producao', usuarioLogado, { status: proxima.status })],
     })
 
-    const statusNovo = dados.status
-    if (statusNovo && statusNovo !== atual.status) {
-      if (statusNovo === 'Esgotado') {
-        notificarPush({
-          destino: 'vendedor',
-          titulo: 'Produto esgotado',
-          mensagem: `${atual.produtoNome || 'Produto'} esta esgotado.`,
-          url: '/vendedor',
-        })
-      } else if (statusNovo === 'Pronto para venda' || statusNovo === 'Parcialmente pronto') {
-        notificarPush({
-          destino: 'vendedor',
-          titulo: 'Producao pronta',
-          mensagem: `${atual.produtoNome || 'Produto'} esta disponivel para venda.`,
-          url: '/vendedor',
-        })
-      }
-    }
-
     return proxima
   }
 
@@ -164,12 +162,6 @@ export function useProducaoDiaria(usuarioLogado) {
         observacao: observacao || '',
       })],
     })
-    notificarPush({
-      destino: 'admin',
-      titulo: 'Desperdicio registrado',
-      mensagem: `${atual.produtoNome || 'Produto'}: ${qtd} un (${motivo || 'Outro'})`,
-      url: '/admin/relatorios',
-    })
     return { quantidadeDesperdicada, quantidadeRestante }
   }
 
@@ -203,12 +195,6 @@ export function useProducaoDiaria(usuarioLogado) {
       atualizadoPor: usuario,
       atualizadoEm: agora,
       historico: [...(atual.historico || []), entrada],
-    })
-    notificarPush({
-      destino: 'admin',
-      titulo: 'Ajuste de producao recebida',
-      mensagem: `${atual.produtoNome || 'Produto'}: ${quantidadeAnterior} -> ${quantidadeNova} un (${motivo || 'Sem motivo informado'})`,
-      url: '/admin/relatorios',
     })
     return { quantidadeRestante: quantidadeNova, status: statusNovo }
   }

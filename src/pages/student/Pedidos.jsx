@@ -174,7 +174,11 @@ export default function Pedidos() {
   const [msgAvaliacao, setMsgAvaliacao] = useState({})
 
   const meusPedidos = pedidos
-    .filter(p => p.matricula === usuarioLogado?.matricula)
+    .filter(p => {
+      const mesmoUid = usuarioLogado?.uid && String(p.uid || '') === String(usuarioLogado.uid)
+      const mesmaMatricula = usuarioLogado?.matricula && String(p.matricula || '') === String(usuarioLogado.matricula)
+      return mesmoUid || mesmaMatricula
+    })
     .sort((a, b) => getPedidoTime(a) - getPedidoTime(b))
 
   const ativos = meusPedidos.filter(p => p.status !== 'Entregue' && p.status !== 'Cancelado')
