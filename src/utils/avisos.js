@@ -1,5 +1,13 @@
 import { normalizarPerfil } from './perfis'
 
+function textoNormalizado(valor = '') {
+  return String(valor)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
 export function usuarioAvisoId(usuario) {
   return usuario?.uid || usuario?.matricula || ''
 }
@@ -82,4 +90,10 @@ export function avisoHistoricoLimpoParaUsuario(aviso, usuarioOuId, escopo = 'ger
   const id = chaveArquivoAviso(usuarioOuId, escopo)
   const ocultos = Array.isArray(aviso?.historicoOcultoPorUsuarios) ? aviso.historicoOcultoPorUsuarios : []
   return !!id && ocultos.includes(id)
+}
+
+export function avisoOperacionalProducao(aviso) {
+  const tipo = textoNormalizado(aviso?.tipo)
+  const titulo = textoNormalizado(aviso?.titulo)
+  return tipo === 'producao_pausada' || titulo.startsWith('producao:')
 }

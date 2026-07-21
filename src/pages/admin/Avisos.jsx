@@ -100,6 +100,7 @@ export default function Avisos() {
   const [anexoMenuAberto, setAnexoMenuAberto] = useState(false)
   const [anexoPendente, setAnexoPendente] = useState(null)
   const [enviandoResposta, setEnviandoResposta] = useState(false)
+  const [limpandoHistorico, setLimpandoHistorico] = useState(false)
   const inputImagemRef = useRef(null)
   const inputArquivoRef = useRef(null)
 
@@ -224,8 +225,18 @@ export default function Avisos() {
   }
 
   async function limparHistorico() {
+    if (limpandoHistorico) return
     if (!confirm('Limpar seu historico de avisos? Isso nao apaga avisos para outras pessoas.')) return
-    await limparHistoricoAvisos(escopoArquivo)
+    setLimpandoHistorico(true)
+    setErro('')
+    try {
+      await limparHistoricoAvisos(escopoArquivo)
+    } catch (err) {
+      console.error(err)
+      setErro(err?.message || 'Nao foi possivel limpar o historico.')
+    } finally {
+      setLimpandoHistorico(false)
+    }
   }
 
   async function responder(e, aviso) {
@@ -377,12 +388,12 @@ export default function Avisos() {
         </div>
         <button style={{ ...s.btnNovo, ...(isMobile ? s.btnNovoMobile : {}) }} onClick={abrirNovo}>+ Novo aviso</button>
         {visualizacao === 'historico' && totalHistorico > 0 && (
-          <button type="button" style={{ ...s.btnLimparHistorico, ...(isMobile ? s.btnLimparHistoricoMobile : {}) }} onClick={limparHistorico}>
-            <Trash2 size={14} /> Limpar historico
+          <button type="button" style={{ ...s.btnLimparHistorico, ...(isMobile ? s.btnLimparHistoricoMobile : {}), opacity: limpandoHistorico ? 0.7 : 1 }} onClick={limparHistorico} disabled={limpandoHistorico}>
+            <Trash2 size={14} /> {limpandoHistorico ? 'Limpando...' : 'Limpar historico'}
           </button>
         )}
       </div>
-      {visualizacao === 'historico' && <div style={s.historicoAjuda}>Limpa apenas o historico do seu dispositivo.</div>}
+      {visualizacao === 'historico' && <div style={s.historicoAjuda}>Limpa o seu historico sem apagar avisos de outras pessoas.</div>}
       {erro && <div style={s.erro}>{erro}</div>}
 
       <div style={{ ...s.filtros, ...(isMobile ? s.filtrosMobile : {}) }}>

@@ -74,6 +74,40 @@ function matriculaValida(matricula = '') {
   return /^[A-Za-z0-9._-]{4,20}$/.test(normalizarMatricula(matricula))
 }
 
+function mensagemDuplicado(campo) {
+  const alvo = campo ? ` com este ${campo}` : ''
+  return `Já existe um cadastro${alvo}. Se for a mesma pessoa, use "Enviar link" ou "Esqueci minha senha" para recuperar o acesso.`
+}
+
+async function documentoDuplicado(db, campo, valor, uidAtual = '') {
+  const snap = await db.collection('usuarios').where(campo, '==', valor).limit(2).get()
+  return snap.docs.find(doc => doc.id !== uidAtual) || null
+}
+
+async function nomeDuplicado(db, nomeNormalizado, uidAtual = '') {
+  const direto = await documentoDuplicado(db, 'nomeVinculo', nomeNormalizado, uidAtual)
+  if (direto) return true
+
+  const snap = await db.collection('usuarios').select('nome', 'nomeVinculo').get()
+  return snap.docs.some(doc => doc.id !== uidAtual && nomeParaVinculo(doc.data()?.nomeVinculo || doc.data()?.nome) === nomeNormalizado)
+}
+
+async function campoDuplicado(app, { nomeNormalizado = '', email = '', matricula = '', uidAtual = '' }) {
+  const db = admin.firestore(app)
+  if (matricula && await documentoDuplicado(db, 'matricula', matricula, uidAtual)) return 'matrícula'
+  if (email && await documentoDuplicado(db, 'email', email, uidAtual)) return 'e-mail'
+  if (nomeNormalizado && await nomeDuplicado(db, nomeNormalizado, uidAtual)) return 'nome'
+  if (email) {
+    try {
+      const user = await admin.auth(app).getUserByEmail(email)
+      if (user.uid !== uidAtual) return 'e-mail'
+    } catch (e) {
+      if (e?.code !== 'auth/user-not-found') throw e
+    }
+  }
+  return ''
+}
+
 async function exigirAdmin(req) {
   const header = req.headers.authorization || ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : ''
@@ -112,8 +146,8 @@ async function criarUsuario(app, payload) {
   if (!ROLES_VALIDOS.includes(role)) return { status: 400, body: { erro: 'Perfil invalido.' } }
 
   const db = admin.firestore(app)
-  const existente = await db.collection('usuarios').where('matricula', '==', matricula).limit(1).get()
-  if (!existente.empty) return { status: 409, body: { erro: 'Matricula ja cadastrada.' } }
+  const duplicado = await campoDuplicado(app, { nomeNormalizado: nomeParaVinculo(nome), email, matricula })
+  if (duplicado) return { status: 409, body: { erro: mensagemDuplicado(duplicado), campo: duplicado } }
 
   let user
   try {
@@ -124,7 +158,7 @@ async function criarUsuario(app, payload) {
       disabled: false,
     })
   } catch (e) {
-    if (e?.code === 'auth/email-already-exists') return { status: 409, body: { erro: 'E-mail ja cadastrado.' } }
+    if (e?.code === 'auth/email-already-exists') return { status: 409, body: { erro: mensagemDuplicado('e-mail'), campo: 'e-mail' } }
     throw e
   }
 
@@ -183,6 +217,8 @@ async function atualizarUsuario(app, adminUid, adminNome, payload) {
   if (Object.hasOwn(payload, 'nome')) {
     const nome = String(payload.nome || '').trim()
     if (!nome) return { status: 400, body: { erro: 'Informe o nome.' } }
+    const duplicado = await campoDuplicado(app, { nomeNormalizado: nomeParaVinculo(nome), uidAtual: uid })
+    if (duplicado) return { status: 409, body: { erro: mensagemDuplicado(duplicado), campo: duplicado } }
     authUpdate.displayName = nome
     firestoreUpdate.nome = nome
     firestoreUpdate.nomeVinculo = nomeParaVinculo(nome)
@@ -191,6 +227,8 @@ async function atualizarUsuario(app, adminUid, adminNome, payload) {
   if (Object.hasOwn(payload, 'email')) {
     const email = String(payload.email || '').trim().toLowerCase()
     if (!emailValido(email)) return { status: 400, body: { erro: 'Informe um e-mail valido.' } }
+    const duplicado = await campoDuplicado(app, { email, uidAtual: uid })
+    if (duplicado) return { status: 409, body: { erro: mensagemDuplicado(duplicado), campo: duplicado } }
     let emailAtual = ''
     try { emailAtual = (await admin.auth(app).getUser(uid)).email || '' } catch { /* usuario sem email no Auth */ }
     if (email !== emailAtual) authUpdate.email = email
@@ -228,8 +266,8 @@ async function atualizarUsuario(app, adminUid, adminNome, payload) {
   if (Object.hasOwn(payload, 'matricula')) {
     const novaMatricula = normalizarMatricula(payload.matricula)
     if (!matriculaValida(novaMatricula)) return { status: 400, body: { erro: 'Matricula invalida. Use entre 4 e 20 caracteres alfanumericos.' } }
-    const existente = await admin.firestore(app).collection('usuarios').where('matricula', '==', novaMatricula).limit(1).get()
-    if (!existente.empty && existente.docs[0].id !== uid) return { status: 409, body: { erro: 'Matricula ja cadastrada para outro usuario.' } }
+    const duplicado = await campoDuplicado(app, { matricula: novaMatricula, uidAtual: uid })
+    if (duplicado) return { status: 409, body: { erro: mensagemDuplicado(duplicado), campo: duplicado } }
     firestoreUpdate.matricula = novaMatricula
   }
 
@@ -238,7 +276,7 @@ async function atualizarUsuario(app, adminUid, adminNome, payload) {
       await admin.auth(app).updateUser(uid, authUpdate)
     }
   } catch (e) {
-    if (e?.code === 'auth/email-already-exists') return { status: 409, body: { erro: 'E-mail ja cadastrado.' } }
+    if (e?.code === 'auth/email-already-exists') return { status: 409, body: { erro: mensagemDuplicado('e-mail'), campo: 'e-mail' } }
     if (e?.code === 'auth/user-not-found') return { status: 404, body: { erro: 'Usuario nao encontrado no Firebase Auth.' } }
     throw e
   }

@@ -222,7 +222,7 @@ function StatusBadge({ status }) {
 }
 
 export default function Cozinha() {
-  const { pedidos, produtos, atualizarProduto, criarAviso, avisos, usuarioLogado, producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio: registrarDescarte } = useApp()
+  const { pedidos, produtos, atualizarProduto, avisos, usuarioLogado, producaoDiaria, producaoHoje, salvarProducao, atualizarProducao, removerProducao, registrarDesperdicio: registrarDescarte } = useApp()
   const location = useLocation()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
@@ -674,15 +674,6 @@ export default function Cozinha() {
     setPlanejamentoSalvo(`${produto.nome} foi ${jaExiste ? 'atualizado no' : 'adicionado ao'} planejamento.`)
   }
 
-  async function avisarVendedor(item) {
-    await criarAviso({
-      titulo: `Producao: ${item.produtoNome}`,
-      mensagem: `${item.produtoNome} - ${item.status}. Disponível: ${item.quantidadeRestante || 0}. ${item.horarioPrevisto ? `Previsão: ${item.horarioPrevisto}.` : ''} ${item.observacao || ''}`.trim(),
-      destino: 'vendedor',
-      tipo: normalizeStatus(item.status) === 'esgotado' ? 'aviso' : 'info',
-    })
-  }
-
   async function exportarProducaoPDF() {
     if (gerandoPDFProducao) return
     if (producaoDashboardPorTurno.length === 0) {
@@ -1033,7 +1024,6 @@ export default function Cozinha() {
                 setMenuAbertoId={setMenuAbertoId}
                 mudarStatus={mudarStatusProducao}
                 editar={editarPlanejamento}
-                avisarVendedor={avisarVendedor}
                 abrirDescarte={abrirDescarte}
                 cancelar={cancelarProducao}
                 tempoDesde={tempoDesde}

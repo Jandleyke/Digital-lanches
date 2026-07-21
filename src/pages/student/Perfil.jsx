@@ -10,12 +10,35 @@ import { PERFIL_INFO } from '../../utils/perfis'
 
 const ALERGIAS_PADRAO = ['gluten', 'lactose', 'amendoim', 'ovo', 'soja', 'frutos-do-mar']
 
+function formPerfilUsuario(usuario) {
+  return {
+    nome: usuario?.nome || '',
+    curso: usuario?.curso || '',
+    telefone: usuario?.telefone || '',
+    email: usuario?.email || '',
+    fotoPerfil: usuario?.fotoPerfil || '',
+    alergias: usuario?.alergias || [],
+  }
+}
+
+function chaveSyncUsuario(usuario) {
+  if (!usuario) return ''
+  return [
+    usuario.nome || '',
+    usuario.curso || '',
+    usuario.telefone || '',
+    usuario.email || '',
+    usuario.fotoPerfil || '',
+    [...(usuario.alergias || [])].sort().join(','),
+  ].join('|')
+}
+
 export default function Perfil() {
   const { usuarioLogado, atualizarUsuario, alterarSenha, usuarios } = useApp()
   const isMobile = useIsMobile()
   const usuarioAtualizado = usuarios.find(u => u.matricula === usuarioLogado?.matricula) || usuarioLogado
 
-  const [perfilForm, setPerfilForm] = useState({ nome: usuarioAtualizado?.nome || '', curso: usuarioAtualizado?.curso || '', telefone: usuarioAtualizado?.telefone || '', email: usuarioAtualizado?.email || '', fotoPerfil: usuarioAtualizado?.fotoPerfil || '', alergias: usuarioAtualizado?.alergias || [] })
+  const [perfilForm, setPerfilForm] = useState(() => formPerfilUsuario(usuarioAtualizado))
   const [senhaForm, setSenhaForm] = useState({ atual: '', nova: '', confirmar: '' })
   const [msgPerfil, setMsgPerfil] = useState(null)
   const [msgSenha, setMsgSenha] = useState(null)
@@ -35,21 +58,13 @@ export default function Perfil() {
     setPermissaoNotif(resultado)
   }
 
-  // Repopula o formulário quando os dados do usuário mudam (ex.: sincronização do Firestore)
-  const syncKeyAtual = usuarioAtualizado ? `${usuarioAtualizado.nome}|${usuarioAtualizado.curso}|${usuarioAtualizado.telefone}|${usuarioAtualizado.email}|${usuarioAtualizado.fotoPerfil}|${(usuarioAtualizado.alergias || []).sort().join(',')}` : ''
+  // Repopula o formulario quando os dados do usuario mudam (ex.: sincronizacao do Firestore)
+  const syncKeyAtual = chaveSyncUsuario(usuarioAtualizado)
   const [syncKey, setSyncKey] = useState(syncKeyAtual)
   if (syncKeyAtual !== syncKey) {
     setSyncKey(syncKeyAtual)
-    setPerfilForm({
-      nome: usuarioAtualizado?.nome || '',
-      curso: usuarioAtualizado?.curso || '',
-      telefone: usuarioAtualizado?.telefone || '',
-      email: usuarioAtualizado?.email || '',
-      fotoPerfil: usuarioAtualizado?.fotoPerfil || '',
-      alergias: usuarioAtualizado?.alergias || []
-    })
+    setPerfilForm(formPerfilUsuario(usuarioAtualizado))
   }
-
   function handlePerfilChange(e) {
     if (e.target.name === 'telefone') {
       const nums = e.target.value.replace(/\D/g, '').slice(0, 11)

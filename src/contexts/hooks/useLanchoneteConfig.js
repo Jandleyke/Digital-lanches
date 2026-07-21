@@ -40,14 +40,15 @@ function normalizarConfig(dados = {}) {
 
 export function useLanchoneteConfig(usuarioLogado) {
   const [lanchoneteConfig, setLanchoneteConfig] = useState(PADRAO)
+  const idUsuario = usuarioLogado?.uid || usuarioLogado?.matricula || ''
 
   useEffect(() => {
-    if (!usuarioLogado) return
+    if (!idUsuario) return
     const ref = doc(db, 'configuracoes', 'lanchonete')
     return onSnapshot(ref, snap => {
       setLanchoneteConfig(snap.exists() ? normalizarConfig(snap.data()) : PADRAO)
     }, err => console.error('[Firestore] configuracoes/lanchonete:', err))
-  }, [usuarioLogado])
+  }, [idUsuario])
 
   async function salvarLanchoneteConfig(dados) {
     const ref = doc(db, 'configuracoes', 'lanchonete')

@@ -80,6 +80,37 @@ export function estoqueAposCancelamento(estoqueAtual, quantidade) {
   return Number(estoqueAtual || 0) + Number(quantidade || 0)
 }
 
+export function deveAtualizarEstoqueProdutoNoPedido(estoqueAtual, producaoConsumo = []) {
+  return Number(estoqueAtual || 0) > 0 || !Array.isArray(producaoConsumo) || producaoConsumo.length === 0
+}
+
+export function mensagemErroFinalizacaoPedido(error) {
+  const codigo = error?.code ? String(error.code) : ''
+  const mensagem = String(error?.message || '').trim()
+  if (/estoque|quantidade suficiente|dispon|hor|limite|cardap/i.test(mensagem)) {
+    return mensagem
+  }
+  if (codigo === 'permission-denied') {
+    return `Permissão negada pelo Firestore ao salvar o pedido: ${mensagem || codigo}.`
+  }
+  if (codigo === 'unauthenticated') {
+    return 'Sua sessão expirou. Saia e entre novamente para finalizar o pedido.'
+  }
+  return mensagem || codigo || 'Não foi possível processar o pedido.'
+}
+
+export function pedidoCriadoPeloProprioAlunoSeguro(pedido = {}, usuario = {}) {
+  const uid = String(usuario?.uid || '')
+  const perfil = String(pedido?.alunoPerfil || usuario?.perfil || usuario?.role || '')
+  return Boolean(uid)
+    && pedido.uid === uid
+    && (!pedido.userId || pedido.userId === uid)
+    && (!pedido.alunoId || pedido.alunoId === uid)
+    && ['aluno', 'professor'].includes(perfil)
+    && pedido.status === 'Recebido'
+    && pedido.origem === 'app'
+}
+
 export function dadosPagamentoNaEntrega(pedido, entregueEm) {
   const formaPagamento = String(pedido?.formaPagamento || pedido?.pagamento || '').trim().toLocaleLowerCase('pt-BR')
   if (formaPagamento === 'conta do professor') {

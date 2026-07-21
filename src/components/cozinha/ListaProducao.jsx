@@ -1,4 +1,4 @@
-import { CheckCircle2, Edit3, Flame, MoreVertical, Search, Send, Trash2, Utensils, X, XCircle } from 'lucide-react'
+import { CheckCircle2, Edit3, Flame, MoreVertical, Search, Trash2, Utensils, X, XCircle } from 'lucide-react'
 import { maxDesperdicio as maxDescarte, normalizarStatusProducao, visualStatusProducao } from '../../utils/producao'
 
 export default function ListaProducao({
@@ -24,7 +24,6 @@ export default function ListaProducao({
   setMenuAbertoId,
   mudarStatus,
   editar,
-  avisarVendedor,
   abrirDescarte,
   cancelar,
   tempoDesde,
@@ -141,7 +140,6 @@ export default function ListaProducao({
                       <button style={styles.btnSecundario} onClick={() => mudarStatus(item, 'Esgotado')}><XCircle size={15} /> Marcar esgotado</button>
                     )}
                     <button style={styles.btnSecundario} onClick={() => editar(item)}><Edit3 size={15} /> Editar quantidade</button>
-                    <button style={styles.btnSecundario} onClick={() => avisarVendedor(item)}><Send size={15} /> Avisar vendedor</button>
                     <button style={styles.btnPerigo} onClick={() => abrirDescarte(item)} disabled={maxDescarte(item) <= 0 || statusNormalizado === 'cancelado'}><Trash2 size={15} /> Registrar descarte</button>
                     {statusNormalizado !== 'cancelado' && (
                       <button style={styles.btnPerigo} onClick={() => cancelar(item)}><X size={15} /> Cancelar item</button>

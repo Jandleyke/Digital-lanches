@@ -4,7 +4,11 @@ import { codigoPedido } from '../../utils/pedidos'
 
 export default function Historico() {
   const { pedidos, usuarioLogado } = useApp()
-  const historico = pedidos.filter(p => p.matricula === usuarioLogado?.matricula)
+  const historico = pedidos.filter(p => {
+    const mesmoUid = usuarioLogado?.uid && String(p.uid || '') === String(usuarioLogado.uid)
+    const mesmaMatricula = usuarioLogado?.matricula && String(p.matricula || '') === String(usuarioLogado.matricula)
+    return mesmoUid || mesmaMatricula
+  })
 
   return (
     <Layout titulo="Histórico de Pedidos">

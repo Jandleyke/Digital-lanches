@@ -17,13 +17,14 @@ function fotoPersistente(valor) {
 
 export function useProdutos(usuarioLogado) {
   const [produtos, setProdutos] = useState([])
+  const idUsuario = usuarioLogado?.uid || usuarioLogado?.matricula || ''
+  const podeLimparFotosInvalidas = ehGestao(usuarioLogado?.role || usuarioLogado?.perfil)
 
   useEffect(() => {
-    if (!usuarioLogado) return
+    if (!idUsuario) return
     let unsub = () => {}
     try {
       unsub = onSnapshot(collection(db, 'produtos'), (snap) => {
-        const podeLimparFotosInvalidas = ehGestao(usuarioLogado?.role || usuarioLogado?.perfil)
         const lista = snap.docs.map(produtoDoc => {
           const dados = produtoDoc.data()
           const foto = fotoPersistente(dados.foto)
@@ -38,7 +39,7 @@ export function useProdutos(usuarioLogado) {
       console.error('[Firestore] produtos init:', e)
     }
     return unsub
-  }, [usuarioLogado])
+  }, [idUsuario, podeLimparFotosInvalidas])
 
   async function atualizarProduto(produto) {
     const anterior = produtos.find(p => String(p.id) === String(produto.id))
