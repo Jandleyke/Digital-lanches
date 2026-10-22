@@ -1,5 +1,7 @@
 // Proxy para a API do Google Gemini (camada gratuita) - mantém a chave no
 // servidor. O frontend nunca fala diretamente com o Gemini.
+import { exigirAcessoResponsavel } from '../src/server/access.js'
+
 const MODELOS = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-2.5-flash']
 const RESPOSTA_INDISPONIVEL = 'Assistente indisponível no momento.'
 const RESPOSTA_LIMITE = 'Limite de uso gratuito do assistente atingido, tente novamente em instantes.'
@@ -402,6 +404,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    await exigirAcessoResponsavel(req)
     if (tamanhoPayload(req.body) > MAX_PAYLOAD_BYTES) {
       res.status(413).json({ resposta: RESPOSTA_ERRO })
       return
@@ -529,6 +532,10 @@ export default async function handler(req, res) {
 
     res.status(200).json({ resposta: respostaFinal, acao })
   } catch (erro) {
+    if (erro.status === 401 || erro.status === 403) {
+      res.status(erro.status).json({ resposta: 'App desativado.' })
+      return
+    }
     console.error('Falha ao consultar o assistente:', erro)
     res.status(200).json({ resposta: RESPOSTA_ERRO })
   }

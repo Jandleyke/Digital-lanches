@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AppProvider, useApp } from './contexts/AppContext'
+import { auth } from './firebase'
 import { ToastProvider } from './contexts/ToastContext'
 import Login from './pages/Login'
 import Cadastro from './pages/Cadastro'
@@ -44,6 +45,7 @@ const ResetPassword = lazyComRecarga(() => import('./pages/ResetPassword'))
 const NotFound = lazyComRecarga(() => import('./pages/NotFound'))
 const AvisosProfessor = lazyComRecarga(() => import('./pages/professor/AvisosProfessor'))
 const EscolherAcesso = lazyComRecarga(() => import('./pages/EscolherAcesso'))
+const EMAIL_AUTORIZADO = 'menesesjan02@gmail.com'
 
 function CarregandoRota() {
   return (
@@ -85,6 +87,26 @@ function WelcomeRoute() {
 }
 
 function AppRoutes() {
+  const { usuarioLogado, carregandoAuth, logout } = useApp()
+  const location = useLocation()
+  const rotaLogin = ['/login', '/login-gerencial'].includes(location.pathname)
+
+  if (carregandoAuth) return <CarregandoRota />
+  const emailAtual = String(auth.currentUser?.email || '').trim().toLowerCase()
+  if (emailAtual !== EMAIL_AUTORIZADO && !(rotaLogin && !usuarioLogado)) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, background: '#071832', color: '#fff', textAlign: 'center' }}>
+        <div>
+          <h1 style={{ margin: '0 0 12px', fontSize: '1.6rem' }}>App desativado</h1>
+          <p style={{ margin: '0 auto 20px', maxWidth: 360, color: '#CBD5E1' }}>O acesso ao aplicativo está temporariamente desativado.</p>
+          {usuarioLogado
+            ? <button onClick={logout} style={{ border: 0, borderRadius: 8, padding: '10px 16px', background: '#F47920', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Sair</button>
+            : <a href="/login-gerencial" style={{ color: '#fff', fontWeight: 700 }}>Acesso do responsável</a>}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <Suspense fallback={<CarregandoRota />}>
       <Routes>

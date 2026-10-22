@@ -1,4 +1,5 @@
 import admin from 'firebase-admin'
+import { exigirEmailAutorizado } from '../src/server/access.js'
 import webpush from 'web-push'
 
 const ROLES_VALIDOS = ['aluno', 'professor', 'admin', 'gerente', 'vendedor', 'cozinha']
@@ -52,6 +53,7 @@ async function exigirAutorizado(req, app) {
   }
 
   const decoded = await admin.auth(app).verifyIdToken(token)
+  exigirEmailAutorizado(decoded.email)
   const snap = await admin.firestore(app).doc(`usuarios/${decoded.uid}`).get()
   const dados = snap.data()
   const perfil = normalizarPerfil(dados?.role || dados?.perfil)

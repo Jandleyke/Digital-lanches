@@ -1,4 +1,5 @@
 import admin from 'firebase-admin'
+import { exigirEmailAutorizado } from '../src/server/access.js'
 import {
   JANELA_PEDIDO_MS,
   chaveDiariaPedido,
@@ -189,6 +190,7 @@ export default async function handler(req, res) {
     const app = appAdmin()
     const db = admin.firestore(app)
     const decoded = await admin.auth(app).verifyIdToken(extrairToken(req))
+    exigirEmailAutorizado(decoded.email)
     const authUser = await admin.auth(app).getUser(decoded.uid)
     const usuario = await usuarioDoPedido(app, decoded.uid, authUser)
     const { carrinho, horarioRetirada, horarioRetiradaEm, pagamento } = req.body || {}

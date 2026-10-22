@@ -1,4 +1,5 @@
 import admin from 'firebase-admin'
+import { EMAIL_AUTORIZADO } from '../src/server/access.js'
 
 function privateKey() {
   return process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
@@ -112,6 +113,11 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     res.status(405).json({ erro: 'Método não permitido.' })
+    return
+  }
+
+  if (process.env.CADASTRO_PUBLICO !== 'true' || String(req.body?.email || '').trim().toLowerCase() !== EMAIL_AUTORIZADO) {
+    res.status(403).json({ erro: 'App desativado.' })
     return
   }
 

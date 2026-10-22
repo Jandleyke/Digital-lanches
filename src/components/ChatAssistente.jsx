@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useApp } from '../contexts/AppContext'
+import { auth } from '../firebase'
 import { useIsMobile } from '../utils/useIsMobile'
 import { buildContextoAluno, buildContextoAdmin } from '../utils/aiContext'
 import { Send, Bot, RefreshCcw, MessageCircle, Sparkles, X } from 'lucide-react'
@@ -368,9 +369,10 @@ export default function ChatAssistente({ cartBarAtiva = false }) {
       avisoAtual: tela === 'detalhe' && contextoAvisos?.aviso ? contextoAvisos.aviso : null,
     }
     try {
+      const token = await auth.currentUser?.getIdToken()
       const resp = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
         body: JSON.stringify({ modo: 'avisos', contexto, historico, mensagem: texto }),
       })
       const dados = await resp.json()
@@ -412,9 +414,10 @@ export default function ChatAssistente({ cartBarAtiva = false }) {
     setEnviando(true)
     const historico = (mensagens || []).slice(-6)
     try {
+      const token = await auth.currentUser?.getIdToken()
       const resp = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
         body: JSON.stringify({ perfil: perfilAtual, contexto, historico, mensagem: texto }),
       })
       const dados = await resp.json()

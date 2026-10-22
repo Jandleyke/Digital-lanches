@@ -1,4 +1,5 @@
 import admin from 'firebase-admin'
+import { exigirEmailAutorizado } from '../src/server/access.js'
 
 const EMAIL_ADMIN_RECUPERACAO = 'menesesjan02@gmail.com'
 
@@ -48,6 +49,7 @@ async function usuarioAutenticado(req, app) {
     throw erro
   }
   const decoded = await admin.auth(app).verifyIdToken(token)
+  exigirEmailAutorizado(decoded.email)
   const authUser = await admin.auth(app).getUser(decoded.uid)
   return { uid: decoded.uid, authUser }
 }
