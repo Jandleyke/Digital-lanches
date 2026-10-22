@@ -101,7 +101,7 @@ export default async function handler(req, res) {
 
     const db = admin.firestore(app)
     const snap = await db.collection('pushSubscriptions').get()
-    const payload = JSON.stringify({ titulo, mensagem, url: url || '/', tag: 'senac-promo' })
+  const payload = JSON.stringify({ titulo, mensagem, url: url || '/', tag: 'digital-lanche-promo' })
 
     let enviados = 0
     await Promise.all(snap.docs.map(async (docSnap) => {

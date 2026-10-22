@@ -18,16 +18,16 @@ self.addEventListener('push', (event) => {
   try {
     dados = event.data ? event.data.json() : {}
   } catch {
-    dados = { titulo: 'Senac Lanches', mensagem: event.data ? event.data.text() : '' }
+    dados = { titulo: 'Digital Lanche', mensagem: event.data ? event.data.text() : '' }
   }
 
-  const titulo = dados.titulo || 'Senac Lanches'
+  const titulo = dados.titulo || 'Digital Lanche'
   const opcoes = {
     body: dados.mensagem || '',
     icon: '/pwa-192.png',
     badge: '/pwa-192.png',
     data: { url: dados.url || '/' },
-    tag: dados.tag || 'senac-lanches',
+    tag: dados.tag || 'digital-lanche',
   }
 
   event.waitUntil(

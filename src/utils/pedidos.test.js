@@ -64,7 +64,7 @@ describe('filtros do vendedor', () => {
 })
 
 describe('QR Code do pedido', () => {
-  it('extrai o identificador gerado pelo Senac Lanches', () => {
+  it('extrai o identificador dos QR codes novos e antigos', () => {
     expect(pedidoIdDoQr('SENAC-LANCHES:pedido-123')).toBe('pedido-123')
     expect(pedidoIdDoQr('senac-lanches:ABC')).toBe('ABC')
   })

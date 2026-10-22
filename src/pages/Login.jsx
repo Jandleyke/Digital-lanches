@@ -157,7 +157,7 @@ export default function Login({ gerencial = false }) {
           <div style={s.brandMark}>
             <div>
               <div style={{ ...s.brandName, fontSize: isMobile ? '1.1rem' : '1.45rem' }}>
-                Senac <span style={{ color: '#F47920' }}>Lanches</span>
+                Digital <span style={{ color: '#F47920' }}>Lanche</span>
               </div>
               <div style={s.brandSub}>Sua cantina digital</div>
             </div>

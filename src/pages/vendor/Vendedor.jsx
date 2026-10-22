@@ -1218,7 +1218,7 @@ export default function Vendedor() {
         doc.setFillColor(...azul); doc.rect(0,0,W,4,'F')
         doc.setFillColor(244,121,32); doc.rect(0,4,W,1.2,'F')
         doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(...azul)
-        doc.text('Senac Lanches - Relatorio de Vendas', mx, 13)
+        doc.text('Digital Lanche - Relatorio de Vendas', mx, 13)
         doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(85,94,112)
         doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}  |  Periodo: ${periodoRelatorioVendas}`, mx, 19)
       }

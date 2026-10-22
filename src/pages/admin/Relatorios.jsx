@@ -432,7 +432,7 @@ export default function Relatorios() {
         doc.setFont('helvetica', 'bold')
         doc.setFontSize(14)
         doc.setTextColor(...azul)
-        doc.text('Senac Lanches - Relatório de Pedidos', marginX, 13)
+        doc.text('Digital Lanche - Relatório de Pedidos', marginX, 13)
 
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(8)
@@ -447,7 +447,7 @@ export default function Relatorios() {
         doc.setFontSize(7)
         doc.setTextColor(130, 140, 155)
         doc.text(`Página ${paginaAtual}`, pageWidth - marginX, pageHeight - 6, { align: 'right' })
-        doc.text('Senac Lanches', marginX, pageHeight - 6)
+        doc.text('Digital Lanche', marginX, pageHeight - 6)
       }
 
       function proximaPosicaoY(espacoNecessario = 34) {
@@ -628,7 +628,7 @@ export default function Relatorios() {
         doc.text(`Página ${i} de ${totalPaginas}`, pageWidth - marginX, pageHeight - 6, { align: 'right' })
       }
 
-      doc.save(`relatorio-senac-${sufixoArquivo}.pdf`)
+      doc.save(`relatorio-digital-lanche-${sufixoArquivo}.pdf`)
     } catch (error) {
       console.error('Erro ao gerar PDF:', error)
       alert('Não foi possível gerar o PDF. Tente novamente.')
@@ -682,8 +682,8 @@ export default function Relatorios() {
     ]))
 
     const resumoRows = [
-      excelRow([{ value: 'Senac', style: 'Logo', mergeAcross: 1 }, { value: 'SENAC LANCHES - RELATORIO DE PEDIDOS', style: 'Title', mergeAcross: 11 }], 38),
-      excelRow([{ value: 'LANCHES', style: 'LogoSub', mergeAcross: 1 }, { value: `Periodo do relatorio: ${periodoRelatorio}`, style: 'SubTitle', mergeAcross: 4 }, { value: `Gerado em: ${geradoEm}`, style: 'SubTitle', mergeAcross: 5 }], 28),
+      excelRow([{ value: 'DIGITAL', style: 'Logo', mergeAcross: 1 }, { value: 'DIGITAL LANCHE - RELATORIO DE PEDIDOS', style: 'Title', mergeAcross: 11 }], 38),
+      excelRow([{ value: 'LANCHE', style: 'LogoSub', mergeAcross: 1 }, { value: `Periodo do relatorio: ${periodoRelatorio}`, style: 'SubTitle', mergeAcross: 4 }, { value: `Gerado em: ${geradoEm}`, style: 'SubTitle', mergeAcross: 5 }], 28),
       excelRow([{ value: '', style: 'OrangeLine', mergeAcross: 13 }], 7),
       excelRow([{ value: 'RESUMO GERAL', style: 'SectionPlain', mergeAcross: 13 }], 24),
       excelRow([
@@ -796,7 +796,7 @@ export default function Relatorios() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `relatorio-senac-${sufixoArquivo}.xls`
+    a.download = `relatorio-digital-lanche-${sufixoArquivo}.xls`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)

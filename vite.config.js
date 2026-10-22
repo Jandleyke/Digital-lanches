@@ -18,9 +18,9 @@ export default defineConfig({
       filename: 'sw.js',
       includeAssets: ['pwa-192.png', 'pwa-512.png'],
       manifest: {
-        name: 'Senac Lanches',
-        short_name: 'Senac Lanches',
-        description: 'Cantina digital do Senac — faça seu pedido com facilidade',
+        name: 'Digital Lanche',
+        short_name: 'Digital Lanche',
+        description: 'Digital Lanche — faça seu pedido com facilidade',
         theme_color: '#003D7C',
         background_color: '#0B1E45',
         display: 'standalone',

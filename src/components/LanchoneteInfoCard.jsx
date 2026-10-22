@@ -55,7 +55,7 @@ export default function LanchoneteInfoCard({ compacto = false, isMobile = false 
         <div style={{ minWidth: 0 }}>
           <p style={s.label}>Lanchonete</p>
           <h2 style={{ ...s.title, fontSize: compacto || isMobile ? '1rem' : '1.12rem' }}>
-            {config.nome || 'Senac Lanches'}
+            {config.nome || 'Digital Lanche'}
           </h2>
         </div>
         {status && (

@@ -103,7 +103,7 @@ export default function Cadastro() {
         <div style={s.header}>
           <div style={s.logo}>Cadastro</div>
           <h1 style={s.titulo}>Criar conta</h1>
-          <p style={s.sub}>Aluno do Senac</p>
+          <p style={s.sub}>Estudante</p>
         </div>
 
         {ok ? (

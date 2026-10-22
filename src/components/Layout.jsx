@@ -232,7 +232,7 @@ export default function Layout({ children, titulo }) {
         <div style={s.brand}>
           <div>
             <div style={{ ...s.brandName, fontSize: isMobile ? '1.12rem' : '1.6rem' }}>
-              Senac <span style={s.brandOrange}>Lanches</span>
+              Digital <span style={s.brandOrange}>Lanche</span>
             </div>
             {!isMobile && <div style={s.brandTagline}>Sua cantina digital</div>}
           </div>

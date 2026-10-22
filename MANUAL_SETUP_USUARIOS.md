@@ -18,22 +18,22 @@ Modelo do documento:
 ```json
 {
   "uid": "COLE_O_UID_AQUI",
-  "nome": "Admin Senac",
-  "email": "adm001@senac-lanches.local",
+  "nome": "Administrador",
+  "email": "adm001@digital-lanche.local",
   "matricula": "ADM001",
   "role": "admin",
   "ativo": true
 }
 ```
 
-Usuarios refeitos no projeto `senac-lanches` em 08/06/2026.
+Usuarios refeitos no projeto `digital-lanche` em 08/06/2026.
 Senha provisoria para os tres acessos: `Senac@123`
 
 ```json
 {
   "uid": "imQRG0nNXydeHQl6YsWXVE9Wt4A3",
-  "nome": "Admin Senac",
-  "email": "adm001@senac-lanches.local",
+  "nome": "Administrador",
+  "email": "adm001@digital-lanche.local",
   "matricula": "ADM001",
   "role": "admin",
   "ativo": true
@@ -43,8 +43,8 @@ Senha provisoria para os tres acessos: `Senac@123`
 ```json
 {
   "uid": "OJTEHh3b27eoT5q9nEuojExyMmk1",
-  "nome": "Vendedor Senac",
-  "email": "vendedor@senac-lanches.local",
+  "nome": "Vendedor",
+  "email": "vendedor@digital-lanche.local",
   "matricula": "VEN001",
   "role": "vendedor",
   "ativo": true
@@ -54,8 +54,8 @@ Senha provisoria para os tres acessos: `Senac@123`
 ```json
 {
   "uid": "gW37GF9FeeMtRoQPs5cFhleudFb2",
-  "nome": "Cozinha Senac",
-  "email": "cozinha@senac-lanches.local",
+  "nome": "Cozinha",
+  "email": "cozinha@digital-lanche.local",
   "matricula": "COZ001",
   "role": "cozinha",
   "ativo": true

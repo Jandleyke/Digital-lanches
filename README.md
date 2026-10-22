@@ -1,6 +1,6 @@
-# senac-lanches
+# Digital Lanche
 
-Projeto Senac Lanches — aplicativo web para pedidos da cantina, feito com React + Vite e Firebase.
+Aplicativo web Digital Lanche para pedidos da cantina, feito com React + Vite e Firebase.
 
 Como rodar localmente:
 

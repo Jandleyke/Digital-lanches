@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Senac Lanches is a PWA for ordering food from a school cafeteria at SENAC (a Brazilian technical school). Live at `https://senac-lanches.vercel.app`.
+Digital Lanche is a PWA for ordering food from a school cafeteria. Live at `https://senac-lanches.vercel.app`.
 
 ## Commands
 

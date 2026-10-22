@@ -693,7 +693,7 @@ export default function Cozinha() {
     const doc = new jsPDF()
     doc.setFontSize(16)
     doc.setTextColor(0, 61, 124)
-    doc.text(`Senac Lanches - Produção planejada - ${formatarDiaCompleto(dataSelecionadaTs)}`, 14, 16)
+    doc.text(`Digital Lanche - Produção planejada - ${formatarDiaCompleto(dataSelecionadaTs)}`, 14, 16)
     doc.setFontSize(9)
     doc.setTextColor(100)
     doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 22)
@@ -721,7 +721,7 @@ export default function Cozinha() {
       y = doc.lastAutoTable.finalY + 12
     })
 
-    doc.save(`producao-senac-${isoDeTs(dataSelecionadaTs)}.pdf`)
+    doc.save(`producao-digital-lanche-${isoDeTs(dataSelecionadaTs)}.pdf`)
     setGerandoPDFProducao(false)
   }
 

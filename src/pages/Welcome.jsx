@@ -26,17 +26,17 @@ export default function Welcome() {
         <div style={{ ...s.logoWrap, width: isMobile ? 96 : 112, height: isMobile ? 96 : 112 }}>
           <img
             src="/pwa-192.png"
-            alt="Senac Lanches"
+            alt="Digital Lanche"
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: 22 }}
           />
         </div>
 
         <h1 style={{ ...s.brandName, fontSize: isMobile ? '2.1rem' : '2.5rem' }}>
           <span style={{ color: '#fff', animation: 'textGlow 2.8s ease-in-out 1s infinite' }}>
-            Senac
+            Digital
           </span>{' '}
           <span style={{ color: '#F47920', animation: 'textGlow 2.8s ease-in-out 2.4s infinite' }}>
-            Lanches
+            Lanche
           </span>
         </h1>
         <p style={{ ...s.tagline, fontSize: isMobile ? '0.7rem' : '0.74rem' }}>

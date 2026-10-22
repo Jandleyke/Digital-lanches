@@ -54,7 +54,7 @@ export default function EscolherAcesso() {
             <div style={s.brand}>
               <img src="/pwa-192.png" alt="" style={{ ...s.logo, width: isMobile ? 42 : 50, height: isMobile ? 42 : 50 }} />
               <div>
-                <strong style={{ ...s.brandName, fontSize: isMobile ? '1rem' : '1.14rem' }}>Senac <span style={s.brandAccent}>Lanches</span></strong>
+                <strong style={{ ...s.brandName, fontSize: isMobile ? '1rem' : '1.14rem' }}>Digital <span style={s.brandAccent}>Lanche</span></strong>
                 <span style={s.brandTagline}>Sua cantina digital</span>
               </div>
             </div>

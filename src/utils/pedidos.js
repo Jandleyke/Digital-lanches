@@ -51,7 +51,7 @@ export function idsCompradosEmPedidosConcluidos(pedidos = [], matricula = '') {
 }
 
 export function pedidoIdDoQr(valor) {
-  const resultado = /^SENAC-LANCHES:(.+)$/i.exec(String(valor || '').trim())
+  const resultado = /^(?:DIGITAL-LANCHE|SENAC-LANCHES):(.+)$/i.exec(String(valor || '').trim())
   return resultado?.[1]?.trim() || null
 }
 

@@ -365,7 +365,7 @@ export default function Pedidos() {
                 <div style={s.qrBox}>
                   <p style={s.qrTitulo}>Mostre este código ao retirar</p>
                   <div style={s.qrWrap}>
-                    <QRCodeSVG value={`SENAC-LANCHES:${pedido.id}`} size={160} bgColor="#fff" fgColor="#003D7C" level="M" />
+                    <QRCodeSVG value={`DIGITAL-LANCHE:${pedido.id}`} size={160} bgColor="#fff" fgColor="#003D7C" level="M" />
                   </div>
                   <p style={s.qrId}>{codigoPedido(pedido)}</p>
                   {matriculaRetirada && (

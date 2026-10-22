@@ -3,7 +3,7 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
 
 const PADRAO = {
-  nome: 'Senac Lanches',
+  nome: 'Digital Lanche',
   endereco: '',
   bairro: '',
   cidade: '',
@@ -28,10 +28,12 @@ function normalizarConfig(dados = {}) {
   const dias = Array.isArray(dados.diasFuncionamento)
     ? [...new Set(dados.diasFuncionamento.map(normalizarDia).filter(Boolean))]
     : []
+  const nome = String(dados.nome || '').trim()
 
   return {
     ...PADRAO,
     ...dados,
+    nome: /^senac\s+lanches?$/i.test(nome) ? PADRAO.nome : (nome || PADRAO.nome),
     diasFuncionamento: dias,
     horarioAbertura: String(dados.horarioAbertura || '').slice(0, 5),
     horarioFechamento: String(dados.horarioFechamento || '').slice(0, 5),

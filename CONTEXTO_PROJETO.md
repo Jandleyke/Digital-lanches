@@ -1,9 +1,9 @@
-# Resumo do projeto — Senac Lanches
+# Resumo do projeto — Digital Lanche
 
 Cole este resumo para um novo assistente de IA entender o projeto rapidamente.
 
 ## O que é
-App web (PWA instalável) de pedidos da cantina de uma escola (Senac). Alunos
+App web (PWA instalável) de pedidos de uma cantina escolar. Alunos
 fazem pedidos pelo celular/computador, a cozinha acompanha numa fila, e a
 administração gerencia produtos, estoque, usuários, avisos e relatórios.
 
@@ -17,7 +17,7 @@ administração gerencia produtos, estoque, usuários, avisos e relatórios.
 - **Google Gemini API** (camada gratuita, modelo `gemini-2.5-flash`) para o
   assistente de IA — acessada via `fetch` direto (sem SDK), só no backend
 - **Vitest + Testing Library** para testes (`npm run test`)
-- Repositório no GitHub: `https://github.com/Jandleyke/senac-lanches` (privado)
+- Repositório no GitHub: `Jandleyke/Digital-lanches`
 
 ## Estrutura principal
 - `src/contexts/AppContext.jsx` — contexto global, compõe hooks customizados:

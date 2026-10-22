@@ -484,7 +484,7 @@ export default function ChatAssistente({ cartBarAtiva = false }) {
         <div style={{ ...s.painel, ...(isMobile ? s.painelMobile : s.painelDesktop), ...(emTelaAvisos ? { zIndex: 9110 } : {}) }}>
           <div style={s.cabecalho}>
             <Bot size={17} color="#fff" />
-            <span style={s.cabecalhoTitulo}>Assistente Senac Lanches</span>
+            <span style={s.cabecalhoTitulo}>Assistente Digital Lanche</span>
             <button type="button"
               onClick={() => setMensagens([{ autor: 'bot', texto: saudacaoInicial(usuarioLogado, lanchoneteConfig, emTelaAvisos, contextoAvisos?.tela) }])}
               style={s.btnCab} title="Limpar conversa">

@@ -23,8 +23,8 @@ export const usuarios = [
   { id: 1, nome: 'Ana Silva', email: 'ana.demo@example.com', matricula: '2024001', role: 'aluno', ativo: true, curso: 'Desenvolvimento de Sistemas' },
   { id: 2, nome: 'Carlos Mendes', email: 'carlos.demo@example.com', matricula: '2024002', role: 'aluno', ativo: true, curso: 'Administracao' },
   { id: 3, nome: 'Maria Santos', email: 'maria.demo@example.com', matricula: '2024003', role: 'aluno', ativo: true, curso: 'Enfermagem' },
-  { id: 4, nome: 'Cozinha Senac', email: 'cozinha@senac-lanches.local', matricula: 'COZ001', role: 'cozinha', ativo: true, curso: '', telefone: '(11) 91111-2222' },
-  { id: 5, nome: 'Admin Senac', email: 'adm001@senac-lanches.local', matricula: 'ADM001', role: 'admin', ativo: true, curso: '', telefone: '(11) 93333-4444' },
-  { id: 6, nome: 'Gerente Senac', email: 'gerente@senac-lanches.local', matricula: 'GER001', role: 'gerente', ativo: true, curso: '', telefone: '(11) 95555-6666' },
-  { id: 7, nome: 'Vendedor Senac', email: 'vendedor@senac-lanches.local', matricula: 'VEN001', role: 'vendedor', ativo: true, curso: '', telefone: '' },
+  { id: 4, nome: 'Cozinha', email: 'cozinha@digital-lanche.local', matricula: 'COZ001', role: 'cozinha', ativo: true, curso: '', telefone: '(11) 91111-2222' },
+  { id: 5, nome: 'Administrador', email: 'adm001@digital-lanche.local', matricula: 'ADM001', role: 'admin', ativo: true, curso: '', telefone: '(11) 93333-4444' },
+  { id: 6, nome: 'Gerente', email: 'gerente@digital-lanche.local', matricula: 'GER001', role: 'gerente', ativo: true, curso: '', telefone: '(11) 95555-6666' },
+  { id: 7, nome: 'Vendedor', email: 'vendedor@digital-lanche.local', matricula: 'VEN001', role: 'vendedor', ativo: true, curso: '', telefone: '' },
 ];

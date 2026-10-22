@@ -23,7 +23,7 @@ export default function Painel() {
     <div style={s.page}>
       {/* Header */}
       <div style={{ ...s.header, ...(isMobile ? s.headerMobile : {}) }}>
-        <div style={s.logo}>🍔 Senac Lanches</div>
+        <div style={s.logo}>🍔 Digital Lanche</div>
         <div style={s.relogio}>
           <div style={{ ...s.hora, ...(isMobile ? s.horaMobile : {}) }}>{horaStr}</div>
           <div style={s.data}>{dataStr}</div>
