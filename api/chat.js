@@ -533,7 +533,7 @@ export default async function handler(req, res) {
     res.status(200).json({ resposta: respostaFinal, acao })
   } catch (erro) {
     if (erro.status === 401 || erro.status === 403) {
-      res.status(erro.status).json({ resposta: 'App desativado.' })
+      res.status(erro.status).json({ resposta: 'O proprietário desativou Jandleyke.' })
       return
     }
     console.error('Falha ao consultar o assistente:', erro)

@@ -4,7 +4,7 @@ export const EMAIL_AUTORIZADO = 'menesesjan02@gmail.com'
 
 export function exigirEmailAutorizado(email) {
   if (String(email || '').trim().toLowerCase() === EMAIL_AUTORIZADO) return
-  const erro = new Error('App desativado.')
+  const erro = new Error('O proprietário desativou Jandleyke.')
   erro.status = 403
   throw erro
 }

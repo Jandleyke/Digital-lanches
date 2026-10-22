@@ -98,7 +98,7 @@ function AppRoutes() {
       <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, background: '#071832', color: '#fff', textAlign: 'center' }}>
         <div>
           <h1 style={{ margin: '0 0 12px', fontSize: '1.6rem' }}>App desativado</h1>
-          <p style={{ margin: '0 auto 20px', maxWidth: 360, color: '#CBD5E1' }}>O acesso ao aplicativo está temporariamente desativado.</p>
+          <p style={{ margin: '0 auto 20px', maxWidth: 360, color: '#CBD5E1' }}>O proprietário desativou Jandleyke.</p>
           {usuarioLogado
             ? <button onClick={logout} style={{ border: 0, borderRadius: 8, padding: '10px 16px', background: '#F47920', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Sair</button>
             : <a href="/login-gerencial" style={{ color: '#fff', fontWeight: 700 }}>Acesso do responsável</a>}
