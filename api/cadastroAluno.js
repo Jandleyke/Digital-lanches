@@ -117,7 +117,7 @@ export default async function handler(req, res) {
   }
 
   if (process.env.CADASTRO_PUBLICO !== 'true' || String(req.body?.email || '').trim().toLowerCase() !== EMAIL_AUTORIZADO) {
-    res.status(403).json({ erro: 'O proprietário desativou Jandleyke.' })
+    res.status(403).json({ erro: 'O acesso a este aplicativo foi desativado pelo proprietário.' })
     return
   }
 
